@@ -1,0 +1,24 @@
+services:
+  postgres:
+    ports:
+      - "127.0.0.1:5433:5432"
+    networks: [app, dev]
+
+  redis:
+    ports:
+      - "127.0.0.1:6380:6379"
+    networks: [app, dev]
+
+  minio:
+    ports:
+      - "127.0.0.1:9000:9000"
+      - "127.0.0.1:9001:9001"
+    networks: [app, dev]
+
+  evolution:
+    ports:
+      - "127.0.0.1:8082:8080"
+    networks: [app, egress, dev]
+
+networks:
+  dev:

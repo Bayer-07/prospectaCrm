@@ -1,0 +1,49 @@
+import { Body, Controller, Get, Post, Req, Res } from '@nestjs/common';
+import { ApiTags } from '@nestjs/swagger';
+import type { Request, Response } from 'express';
+import { CurrentUser } from './current-user.decorator.js';
+import { Public } from './public.decorator.js';
+import { AuthService } from './auth.service.js';
+import type { AuthContext } from './types.js';
+
+@ApiTags('Autenticação')
+@Controller('auth')
+export class AuthController {
+  constructor(private readonly auth: AuthService) {}
+
+  @Public()
+  @Post('login')
+  async login(@Body() body: { email: string; password: string }, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    const session = await this.auth.login(body.email, body.password, { ip: req.ip, userAgent: req.headers['user-agent'] });
+    res.cookie('prospecta_session', session.token, {
+      httpOnly: true, secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production', sameSite: 'lax', expires: session.expiresAt, path: '/',
+    });
+    return { data: { csrfToken: session.csrfToken, expiresAt: session.expiresAt } };
+  }
+
+  @Post('logout')
+  async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
+    await this.auth.logout(req.cookies?.prospecta_session);
+    res.clearCookie('prospecta_session', { path: '/' });
+    return { data: { success: true } };
+  }
+
+  @Public()
+  @Post('accept-invite')
+  async acceptInvite(@Body() body: { token: string; password: string; name?: string }) {
+    await this.auth.acceptInvite(body.token, body.password, body.name);
+    return { data: { success: true } };
+  }
+
+  @Public()
+  @Post('reset-password')
+  async resetPassword(@Body() body: { token: string; password: string }) {
+    await this.auth.resetPassword(body.token, body.password);
+    return { data: { success: true } };
+  }
+
+  @Get('me')
+  me(@CurrentUser() auth: AuthContext) {
+    return { data: auth };
+  }
+}

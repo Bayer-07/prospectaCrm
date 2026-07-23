@@ -1,0 +1,1120 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum DataScope {
+  ALL
+  TEAM
+  OWN
+}
+
+enum UserStatus {
+  INVITED
+  ACTIVE
+  SUSPENDED
+}
+
+enum ConsentStatus {
+  UNKNOWN
+  GRANTED
+  REVOKED
+}
+
+enum OpportunityStatus {
+  OPEN
+  WON
+  LOST
+}
+
+enum TaskStatus {
+  OPEN
+  COMPLETED
+  CANCELLED
+}
+
+enum TaskPriority {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum ChannelType {
+  WHATSAPP
+  EMAIL
+}
+
+enum InstanceStatus {
+  DISCONNECTED
+  CONNECTING
+  CONNECTED
+  ERROR
+  PAUSED
+}
+
+enum ConversationStatus {
+  WAITING
+  OPEN
+  CLOSED
+}
+
+enum MessageDirection {
+  INBOUND
+  OUTBOUND
+}
+
+enum MessageStatus {
+  PENDING
+  QUEUED
+  SENT
+  DELIVERED
+  READ
+  REPLIED
+  FAILED
+  SKIPPED
+  OPTED_OUT
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  RUNNING
+  PAUSED
+  COMPLETED
+  CANCELLED
+  FAILED
+}
+
+enum WorkflowStatus {
+  DRAFT
+  PUBLISHED
+  PAUSED
+  ARCHIVED
+}
+
+enum EnrollmentStatus {
+  ACTIVE
+  WAITING
+  COMPLETED
+  STOPPED
+  FAILED
+}
+
+enum ChatbotSessionStatus {
+  ACTIVE
+  WAITING
+  COMPLETED
+  HANDED_OFF
+  STOPPED
+  FAILED
+}
+
+model Organization {
+  id                     String                  @id @default(uuid()) @db.Uuid
+  name                   String
+  slug                   String                  @unique
+  timezone               String                  @default("America/Sao_Paulo")
+  currency               String                  @default("BRL")
+  messageRetentionMonths Int                     @default(24)
+  createdAt              DateTime                @default(now())
+  updatedAt              DateTime                @updatedAt
+  teams                  Team[]
+  roles                  Role[]
+  users                  User[]
+  companies              Company[]
+  contacts               Contact[]
+  pipelines              Pipeline[]
+  opportunities          Opportunity[]
+  tasks                  Task[]
+  tags                   Tag[]
+  customFields           CustomFieldDefinition[]
+  segments               Segment[]
+  whatsappInstances      WhatsappInstance[]
+  conversations          Conversation[]
+  conversationEvents     ConversationEvent[]
+  campaigns              Campaign[]
+  workflows              Workflow[]
+  chatbots               Chatbot[]
+  apiKeys                ApiKey[]
+  outboundWebhooks       OutboundWebhook[]
+  auditLogs              AuditLog[]
+  notifications          Notification[]
+  emailTemplates         EmailTemplate[]
+}
+
+model Team {
+  id             String                 @id @default(uuid()) @db.Uuid
+  organizationId String                 @db.Uuid
+  name           String
+  color          String                 @default("#4f46e5")
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  users          User[]
+  companies      Company[]
+  contacts       Contact[]
+  opportunities  Opportunity[]
+  tasks          Task[]
+  instanceAccess WhatsappInstanceTeam[]
+
+  @@unique([organizationId, name])
+  @@index([organizationId])
+}
+
+model Role {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  name           String
+  key            String
+  description    String?
+  isSystem       Boolean          @default(false)
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  permissions    RolePermission[]
+  users          User[]
+
+  @@unique([organizationId, key])
+}
+
+model RolePermission {
+  id       String    @id @default(uuid()) @db.Uuid
+  roleId   String    @db.Uuid
+  resource String
+  action   String
+  scope    DataScope @default(OWN)
+  role     Role      @relation(fields: [roleId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, resource, action])
+  @@index([roleId])
+}
+
+model User {
+  id                    String               @id @default(uuid()) @db.Uuid
+  organizationId        String               @db.Uuid
+  teamId                String?              @db.Uuid
+  roleId                String               @db.Uuid
+  name                  String
+  email                 String
+  passwordHash          String?
+  status                UserStatus           @default(INVITED)
+  messageSignatureEnabled Boolean             @default(false)
+  lastLoginAt           DateTime?
+  createdAt             DateTime             @default(now())
+  updatedAt             DateTime             @updatedAt
+  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team                  Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  role                  Role                 @relation(fields: [roleId], references: [id])
+  sessions              Session[]
+  inviteTokens          InviteToken[]        @relation("InvitedUser")
+  invitesCreated        InviteToken[]        @relation("InviteCreator")
+  resetTokens           PasswordResetToken[] @relation("ResetUser")
+  resetTokensCreated    PasswordResetToken[] @relation("ResetCreator")
+  ownedCompanies        Company[]            @relation("CompanyOwner")
+  ownedContacts         Contact[]            @relation("ContactOwner")
+  ownedOpportunities    Opportunity[]        @relation("OpportunityOwner")
+  assignedTasks         Task[]               @relation("TaskAssignee")
+  createdTasks          Task[]               @relation("TaskCreator")
+  notes                 Note[]
+  activities            Activity[]
+  assignedConversations Conversation[]       @relation("ConversationAssignee")
+  conversationEvents    ConversationEvent[]  @relation("ConversationEventActor")
+  createdCampaigns      Campaign[]
+  createdWorkflows      Workflow[]
+  createdChatbots       Chatbot[]
+  auditLogs             AuditLog[]
+  notifications         Notification[]
+
+  @@unique([organizationId, email])
+  @@index([organizationId, teamId])
+}
+
+model Session {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String   @db.Uuid
+  tokenHash  String   @unique
+  csrfHash   String
+  ipAddress  String?
+  userAgent  String?
+  expiresAt  DateTime
+  lastSeenAt DateTime @default(now())
+  createdAt  DateTime @default(now())
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, expiresAt])
+}
+
+model InviteToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  createdById String    @db.Uuid
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation("InvitedUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("InviteCreator", fields: [createdById], references: [id])
+}
+
+model PasswordResetToken {
+  id          String    @id @default(uuid()) @db.Uuid
+  userId      String    @db.Uuid
+  createdById String    @db.Uuid
+  tokenHash   String    @unique
+  expiresAt   DateTime
+  usedAt      DateTime?
+  createdAt   DateTime  @default(now())
+  user        User      @relation("ResetUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy   User      @relation("ResetCreator", fields: [createdById], references: [id])
+}
+
+model Company {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  teamId         String?          @db.Uuid
+  ownerId        String?          @db.Uuid
+  externalId     String?
+  name           String
+  legalName      String?
+  cnpj           String?
+  domain         String?
+  sector         String?
+  size           String?
+  phone          String?
+  address        Json             @default("{}")
+  customFields   Json             @default("{}")
+  archivedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team           Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  owner          User?            @relation("CompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  contacts       ContactCompany[]
+  opportunities  Opportunity[]
+  tasks          Task[]
+  notes          Note[]
+  activities     Activity[]
+  tags           CompanyTag[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, name])
+  @@index([organizationId, cnpj])
+  @@index([organizationId, domain])
+  @@index([organizationId, teamId, ownerId])
+  @@index([organizationId, archivedAt, updatedAt])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Company_name_trgm_idx")
+  @@index([domain(ops: raw("gin_trgm_ops"))], type: Gin, map: "Company_domain_trgm_idx")
+  @@index([cnpj(ops: raw("gin_trgm_ops"))], type: Gin, map: "Company_cnpj_trgm_idx")
+}
+
+model Contact {
+  id                  String               @id @default(uuid()) @db.Uuid
+  organizationId      String               @db.Uuid
+  teamId              String?              @db.Uuid
+  ownerId             String?              @db.Uuid
+  primaryCompanyId    String?              @db.Uuid
+  externalId          String?
+  name                String
+  jobTitle            String?
+  email               String?
+  phone               String?
+  source              String?
+  consentStatus       ConsentStatus        @default(UNKNOWN)
+  consentSource       String?
+  consentEvidence     String?
+  consentGrantedAt    DateTime?
+  consentRevokedAt    DateTime?
+  customFields        Json                 @default("{}")
+  archivedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  owner               User?                @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  companies           ContactCompany[]
+  opportunities       OpportunityContact[]
+  tasks               Task[]
+  notes               Note[]
+  activities          Activity[]
+  tags                ContactTag[]
+  conversations       Conversation[]
+  campaignRecipients  CampaignRecipient[]
+  suppressions        Suppression[]
+  consentEvents       ConsentEvent[]
+  segmentMemberships  SegmentMember[]
+  workflowEnrollments WorkflowEnrollment[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, phone])
+  @@index([organizationId, email])
+  @@index([organizationId, teamId, ownerId])
+  @@index([primaryCompanyId])
+  @@index([organizationId, archivedAt, updatedAt])
+  @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contact_name_trgm_idx")
+  @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contact_email_trgm_idx")
+  @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contact_phone_trgm_idx")
+}
+
+model ContactCompany {
+  contactId String  @db.Uuid
+  companyId String  @db.Uuid
+  isPrimary Boolean @default(false)
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, companyId])
+  @@index([companyId])
+}
+
+model Pipeline {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  name           String
+  description    String?
+  isActive       Boolean         @default(true)
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  stages         PipelineStage[]
+  opportunities  Opportunity[]
+
+  @@unique([organizationId, name])
+}
+
+model PipelineStage {
+  id            String        @id @default(uuid()) @db.Uuid
+  pipelineId    String        @db.Uuid
+  name          String
+  color         String
+  position      Int
+  probability   Int           @default(0)
+  isWon         Boolean       @default(false)
+  isLost        Boolean       @default(false)
+  pipeline      Pipeline      @relation(fields: [pipelineId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+
+  @@unique([pipelineId, position])
+}
+
+model Opportunity {
+  id              String               @id @default(uuid()) @db.Uuid
+  organizationId  String               @db.Uuid
+  pipelineId      String               @db.Uuid
+  stageId         String               @db.Uuid
+  companyId       String?              @db.Uuid
+  teamId          String?              @db.Uuid
+  ownerId         String?              @db.Uuid
+  externalId      String?
+  title           String
+  status          OpportunityStatus    @default(OPEN)
+  valueCents      Int                  @default(0)
+  currency        String               @default("BRL")
+  probability     Int                  @default(0)
+  expectedCloseAt DateTime?
+  source          String?
+  lossReason      String?
+  wonAt           DateTime?
+  lostAt          DateTime?
+  customFields    Json                 @default("{}")
+  archivedAt      DateTime?
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  organization    Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  pipeline        Pipeline             @relation(fields: [pipelineId], references: [id])
+  stage           PipelineStage        @relation(fields: [stageId], references: [id])
+  company         Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  owner           User?                @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  contacts        OpportunityContact[]
+  tasks           Task[]
+  notes           Note[]
+  activities      Activity[]
+  tags            OpportunityTag[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, pipelineId, stageId])
+  @@index([organizationId, teamId, ownerId])
+  @@index([organizationId, createdAt, status])
+  @@index([organizationId, archivedAt, updatedAt])
+  @@index([organizationId, status, archivedAt])
+  @@index([organizationId, status, wonAt])
+  @@index([organizationId, status, lostAt])
+  @@index([companyId])
+  @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Opportunity_title_trgm_idx")
+}
+
+model OpportunityContact {
+  opportunityId String      @db.Uuid
+  contactId     String      @db.Uuid
+  isPrimary     Boolean     @default(false)
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  contact       Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([opportunityId, contactId])
+  @@index([contactId])
+}
+
+model Task {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  teamId         String?      @db.Uuid
+  assigneeId     String?      @db.Uuid
+  createdById    String       @db.Uuid
+  companyId      String?      @db.Uuid
+  contactId      String?      @db.Uuid
+  opportunityId  String?      @db.Uuid
+  title          String
+  description    String?
+  dueAt          DateTime
+  priority       TaskPriority @default(MEDIUM)
+  status         TaskStatus   @default(OPEN)
+  completedAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team           Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  assignee       User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy      User         @relation("TaskCreator", fields: [createdById], references: [id])
+  company        Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact        Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  opportunity    Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, assigneeId, status, dueAt])
+  @@index([organizationId, createdAt, status])
+  @@index([organizationId, status, dueAt])
+  @@index([companyId])
+  @@index([contactId])
+  @@index([opportunityId])
+}
+
+model Note {
+  id            String       @id @default(uuid()) @db.Uuid
+  authorId      String       @db.Uuid
+  companyId     String?      @db.Uuid
+  contactId     String?      @db.Uuid
+  opportunityId String?      @db.Uuid
+  body          String
+  createdAt     DateTime     @default(now())
+  updatedAt     DateTime     @updatedAt
+  author        User         @relation(fields: [authorId], references: [id])
+  company       Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact       Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([companyId])
+  @@index([contactId])
+  @@index([opportunityId])
+}
+
+model Activity {
+  id            String       @id @default(uuid()) @db.Uuid
+  userId        String?      @db.Uuid
+  companyId     String?      @db.Uuid
+  contactId     String?      @db.Uuid
+  opportunityId String?      @db.Uuid
+  type          String
+  title         String
+  details       Json         @default("{}")
+  occurredAt    DateTime     @default(now())
+  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company       Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact       Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([companyId, occurredAt])
+  @@index([contactId, occurredAt])
+  @@index([opportunityId, occurredAt])
+  @@index([userId, occurredAt])
+}
+
+model Tag {
+  id             String           @id @default(uuid()) @db.Uuid
+  organizationId String           @db.Uuid
+  name           String
+  color          String           @default("#64748b")
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  companies      CompanyTag[]
+  contacts       ContactTag[]
+  opportunities  OpportunityTag[]
+
+  @@unique([organizationId, name])
+}
+
+model CompanyTag {
+  companyId String  @db.Uuid
+  tagId     String  @db.Uuid
+  company   Company @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([companyId, tagId])
+}
+
+model ContactTag {
+  contactId String  @db.Uuid
+  tagId     String  @db.Uuid
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([tagId])
+}
+
+model OpportunityTag {
+  opportunityId String      @db.Uuid
+  tagId         String      @db.Uuid
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([opportunityId, tagId])
+}
+
+model CustomFieldDefinition {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  entityType     String
+  key            String
+  label          String
+  fieldType      String
+  options        Json         @default("[]")
+  required       Boolean      @default(false)
+  position       Int          @default(0)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, entityType, key])
+}
+
+model Segment {
+  id             String          @id @default(uuid()) @db.Uuid
+  organizationId String          @db.Uuid
+  name           String
+  description    String?
+  isDynamic      Boolean         @default(true)
+  filters        Json            @default("{}")
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+  organization   Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  members        SegmentMember[]
+  campaigns      Campaign[]
+
+  @@unique([organizationId, name])
+}
+
+model SegmentMember {
+  segmentId String  @db.Uuid
+  contactId String  @db.Uuid
+  segment   Segment @relation(fields: [segmentId], references: [id], onDelete: Cascade)
+  contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([segmentId, contactId])
+}
+
+model WhatsappInstance {
+  id             String                 @id @default(uuid()) @db.Uuid
+  organizationId String                 @db.Uuid
+  name           String
+  instanceKey    String
+  phone          String?
+  status         InstanceStatus         @default(DISCONNECTED)
+  connectedAt    DateTime?
+  lastEventAt    DateTime?
+  qrExpiresAt    DateTime?
+  archivedAt     DateTime?
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  teams          WhatsappInstanceTeam[]
+  warmupProfile  WarmupProfile?
+  conversations  Conversation[]
+  messages       Message[]
+  campaigns      Campaign[]
+  chatbots       Chatbot[]
+
+  @@unique([organizationId, instanceKey])
+  @@index([instanceKey])
+  @@index([organizationId, archivedAt])
+}
+
+model WhatsappInstanceTeam {
+  instanceId String           @db.Uuid
+  teamId     String           @db.Uuid
+  instance   WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  team       Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([instanceId, teamId])
+}
+
+model WarmupProfile {
+  id                     String           @id @default(uuid()) @db.Uuid
+  instanceId             String           @unique @db.Uuid
+  initialDailyCap        Int              @default(50)
+  dailyIncrement         Int              @default(50)
+  maximumDailyCap        Int              @default(500)
+  currentDailyCap        Int              @default(50)
+  bubbleDelayMinSeconds  Int              @default(3)
+  bubbleDelayMaxSeconds  Int              @default(7)
+  contactDelayMinSeconds Int              @default(15)
+  contactDelayMaxSeconds Int              @default(30)
+  batchSize              Int              @default(20)
+  batchPauseMinSeconds   Int              @default(120)
+  batchPauseMaxSeconds   Int              @default(300)
+  sendingWindowStart     String           @default("09:00")
+  sendingWindowEnd       String           @default("18:00")
+  sendingDays            Json             @default("[1,2,3,4,5]")
+  sentToday              Int              @default(0)
+  failedToday            Int              @default(0)
+  lastResetAt            DateTime         @default(now())
+  instance               WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+}
+
+model Conversation {
+  id              String             @id @default(uuid()) @db.Uuid
+  organizationId  String             @db.Uuid
+  instanceId      String             @db.Uuid
+  contactId       String             @db.Uuid
+  assigneeId      String?            @db.Uuid
+  remoteJid       String
+  phoneJid        String?
+  status          ConversationStatus @default(WAITING)
+  unreadCount     Int                @default(0)
+  lastMessageAt   DateTime?
+  firstResponseAt DateTime?
+  closedAt        DateTime?
+  createdAt       DateTime           @default(now())
+  updatedAt       DateTime           @updatedAt
+  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance        WhatsappInstance   @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  contact         Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignee        User?              @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  messages        Message[]
+  events          ConversationEvent[]
+  chatbotSession  ChatbotSession?
+
+  @@unique([instanceId, remoteJid])
+  @@unique([instanceId, phoneJid])
+  @@index([instanceId, contactId])
+  @@index([organizationId, status, lastMessageAt])
+  @@index([organizationId, createdAt, status])
+  @@index([organizationId, closedAt])
+  @@index([assigneeId, status])
+}
+
+model ConversationEvent {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  conversationId String       @db.Uuid
+  actorId        String?      @db.Uuid
+  type           String
+  text           String
+  metadata       Json         @default("{}")
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  actor          User?        @relation("ConversationEventActor", fields: [actorId], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, createdAt])
+  @@index([organizationId, createdAt])
+}
+
+model Message {
+  id                String           @id @default(uuid()) @db.Uuid
+  instanceId        String           @db.Uuid
+  conversationId    String           @db.Uuid
+  providerMessageId String
+  direction         MessageDirection
+  type              String
+  text              String?
+  status            MessageStatus    @default(PENDING)
+  payload           Json             @default("{}")
+  sentAt            DateTime?
+  deliveredAt       DateTime?
+  readAt            DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  instance          WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  conversation      Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  media             MediaAsset[]
+
+  @@unique([instanceId, providerMessageId])
+  @@index([conversationId, createdAt])
+}
+
+model MediaAsset {
+  id          String    @id @default(uuid()) @db.Uuid
+  messageId   String?   @db.Uuid
+  key         String    @unique
+  filename    String
+  contentType String
+  sizeBytes   Int
+  expiresAt   DateTime?
+  createdAt   DateTime  @default(now())
+  message     Message?  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
+}
+
+model ConsentEvent {
+  id         String        @id @default(uuid()) @db.Uuid
+  contactId  String        @db.Uuid
+  status     ConsentStatus
+  source     String
+  evidence   String?
+  occurredAt DateTime      @default(now())
+  contact    Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@index([contactId, occurredAt])
+}
+
+model Suppression {
+  id        String      @id @default(uuid()) @db.Uuid
+  contactId String      @db.Uuid
+  channel   ChannelType
+  reason    String
+  createdAt DateTime    @default(now())
+  contact   Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([contactId, channel])
+}
+
+model Campaign {
+  id                     String              @id @default(uuid()) @db.Uuid
+  organizationId         String              @db.Uuid
+  instanceId             String?             @db.Uuid
+  segmentId              String?             @db.Uuid
+  createdById            String              @db.Uuid
+  name                   String
+  channel                ChannelType         @default(WHATSAPP)
+  status                 CampaignStatus      @default(DRAFT)
+  scheduledAt            DateTime?
+  startedAt              DateTime?
+  completedAt            DateTime?
+  bubbleDelayMinSeconds  Int                 @default(3)
+  bubbleDelayMaxSeconds  Int                 @default(7)
+  contactDelayMinSeconds Int                 @default(15)
+  contactDelayMaxSeconds Int                 @default(30)
+  batchSize              Int                 @default(20)
+  batchPauseMinSeconds   Int                 @default(120)
+  batchPauseMaxSeconds   Int                 @default(300)
+  sendingWindowStart     String              @default("09:00")
+  sendingWindowEnd       String              @default("18:00")
+  sendingDays            Json                @default("[1,2,3,4,5]")
+  sentRecipientCount     Int                 @default(0)
+  stats                  Json                @default("{}")
+  createdAt              DateTime            @default(now())
+  updatedAt              DateTime            @updatedAt
+  organization           Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance               WhatsappInstance?   @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  segment                Segment?            @relation(fields: [segmentId], references: [id], onDelete: SetNull)
+  createdBy              User                @relation(fields: [createdById], references: [id])
+  bubbles                CampaignBubble[]
+  recipients             CampaignRecipient[]
+
+  @@index([organizationId, status, scheduledAt])
+  @@index([organizationId, createdAt])
+}
+
+model CampaignBubble {
+  id         String   @id @default(uuid()) @db.Uuid
+  campaignId String   @db.Uuid
+  position   Int
+  type       String   @default("text")
+  content    String
+  mediaKey   String?
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, position])
+}
+
+model CampaignRecipient {
+  id                 String        @id @default(uuid()) @db.Uuid
+  campaignId         String        @db.Uuid
+  contactId          String        @db.Uuid
+  status             MessageStatus @default(PENDING)
+  exclusionReason    String?
+  lastBubblePosition Int           @default(-1)
+  scheduledAt        DateTime?
+  sentAt             DateTime?
+  repliedAt          DateTime?
+  createdAt          DateTime      @default(now())
+  updatedAt          DateTime      @updatedAt
+  campaign           Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact            Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status, scheduledAt])
+  @@index([contactId, status])
+}
+
+model Workflow {
+  id                   String               @id @default(uuid()) @db.Uuid
+  organizationId       String               @db.Uuid
+  createdById          String               @db.Uuid
+  name                 String
+  description          String?
+  status               WorkflowStatus       @default(DRAFT)
+  publishedVersion     Int?
+  reentryMode          String               @default("once_per_version")
+  reentryCooldownHours Int?
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  organization         Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy            User                 @relation(fields: [createdById], references: [id])
+  versions             WorkflowVersion[]
+  enrollments          WorkflowEnrollment[]
+}
+
+model WorkflowVersion {
+  id          String               @id @default(uuid()) @db.Uuid
+  workflowId  String               @db.Uuid
+  version     Int
+  graph       Json
+  publishedAt DateTime?
+  createdAt   DateTime             @default(now())
+  workflow    Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  enrollments WorkflowEnrollment[]
+
+  @@unique([workflowId, version])
+}
+
+model WorkflowEnrollment {
+  id            String                  @id @default(uuid()) @db.Uuid
+  workflowId    String                  @db.Uuid
+  versionId     String                  @db.Uuid
+  contactId     String                  @db.Uuid
+  status        EnrollmentStatus        @default(ACTIVE)
+  currentNodeId String?
+  wakeAt        DateTime?
+  stopReason    String?
+  context       Json                    @default("{}")
+  startedAt     DateTime                @default(now())
+  completedAt   DateTime?
+  workflow      Workflow                @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  version       WorkflowVersion         @relation(fields: [versionId], references: [id])
+  contact       Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  executions    WorkflowStepExecution[]
+
+  @@index([status, wakeAt])
+  @@index([workflowId, contactId])
+  @@index([contactId, status])
+}
+
+model WorkflowStepExecution {
+  id           String             @id @default(uuid()) @db.Uuid
+  enrollmentId String             @db.Uuid
+  nodeId       String
+  status       String
+  input        Json               @default("{}")
+  output       Json               @default("{}")
+  error        String?
+  startedAt    DateTime           @default(now())
+  completedAt  DateTime?
+  enrollment   WorkflowEnrollment @relation(fields: [enrollmentId], references: [id], onDelete: Cascade)
+
+  @@index([enrollmentId, startedAt])
+}
+
+model Chatbot {
+  id                String           @id @default(uuid()) @db.Uuid
+  organizationId    String           @db.Uuid
+  instanceId        String           @db.Uuid
+  createdById       String           @db.Uuid
+  name              String
+  description       String?
+  status            WorkflowStatus   @default(DRAFT)
+  responseProvider  String           @default("RULES")
+  providerConfig    Json             @default("{}")
+  publishedVersion  Int?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance          WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  createdBy         User             @relation(fields: [createdById], references: [id])
+  versions          ChatbotVersion[]
+  sessions          ChatbotSession[]
+
+  @@index([organizationId, status, updatedAt])
+  @@index([instanceId, status])
+}
+
+model ChatbotVersion {
+  id          String           @id @default(uuid()) @db.Uuid
+  chatbotId   String           @db.Uuid
+  version     Int
+  graph       Json
+  publishedAt DateTime?
+  createdAt   DateTime         @default(now())
+  chatbot     Chatbot          @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  sessions    ChatbotSession[]
+
+  @@unique([chatbotId, version])
+}
+
+model ChatbotSession {
+  id                   String               @id @default(uuid()) @db.Uuid
+  chatbotId            String               @db.Uuid
+  versionId            String               @db.Uuid
+  conversationId       String               @unique @db.Uuid
+  status               ChatbotSessionStatus @default(ACTIVE)
+  currentNodeId        String?
+  lastInboundMessageId String?               @db.Uuid
+  context              Json                 @default("{}")
+  stopReason           String?
+  startedAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  completedAt          DateTime?
+  chatbot              Chatbot              @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  version              ChatbotVersion       @relation(fields: [versionId], references: [id])
+  conversation         Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  executions           ChatbotStepExecution[]
+
+  @@index([chatbotId, status])
+  @@index([status, updatedAt])
+}
+
+model ChatbotStepExecution {
+  id               String         @id @default(uuid()) @db.Uuid
+  sessionId        String         @db.Uuid
+  nodeId           String
+  inboundMessageId String         @db.Uuid
+  status           String
+  input            Json           @default("{}")
+  output           Json           @default("{}")
+  error            String?
+  startedAt        DateTime       @default(now())
+  completedAt      DateTime?
+  session          ChatbotSession @relation(fields: [sessionId], references: [id], onDelete: Cascade)
+
+  @@unique([sessionId, nodeId, inboundMessageId])
+  @@index([sessionId, startedAt])
+}
+
+model Notification {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  userId         String       @db.Uuid
+  type           String
+  title          String
+  body           String?
+  actionUrl      String?
+  readAt         DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, readAt, createdAt])
+}
+
+model EmailTemplate {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  name           String
+  subject        String
+  html           String
+  text           String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, name])
+}
+
+model ApiKey {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  name           String
+  prefix         String
+  keyHash        String       @unique
+  scopes         Json
+  expiresAt      DateTime?
+  lastUsedAt     DateTime?
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, prefix])
+}
+
+model OutboundWebhook {
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String            @db.Uuid
+  name            String
+  url             String
+  secretEncrypted String
+  events          Json
+  enabled         Boolean           @default(true)
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  deliveries      WebhookDelivery[]
+}
+
+model WebhookDelivery {
+  id            String          @id @default(uuid()) @db.Uuid
+  webhookId     String          @db.Uuid
+  eventId       String
+  eventType     String
+  payload       Json
+  attempts      Int             @default(0)
+  status        String          @default("pending")
+  nextAttemptAt DateTime?
+  deliveredAt   DateTime?
+  lastError     String?
+  createdAt     DateTime        @default(now())
+  webhook       OutboundWebhook @relation(fields: [webhookId], references: [id], onDelete: Cascade)
+
+  @@unique([webhookId, eventId])
+  @@index([status, nextAttemptAt])
+}
+
+model IdempotencyRecord {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @db.Uuid
+  key            String
+  route          String
+  requestHash    String
+  responseCode   Int
+  responseBody   Json
+  expiresAt      DateTime
+  createdAt      DateTime @default(now())
+
+  @@unique([organizationId, key, route])
+  @@index([expiresAt])
+}
+
+model InboundWebhookEvent {
+  id          String    @id @default(uuid()) @db.Uuid
+  provider    String
+  instanceKey String
+  eventKey    String
+  eventType   String
+  payload     Json
+  status      String    @default("received")
+  error       String?
+  receivedAt  DateTime  @default(now())
+  processedAt DateTime?
+
+  @@unique([provider, instanceKey, eventKey])
+  @@index([status, receivedAt])
+}
+
+model AuditLog {
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  userId         String?      @db.Uuid
+  action         String
+  entityType     String
+  entityId       String?
+  before         Json?
+  after          Json?
+  ipAddress      String?
+  userAgent      String?
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user           User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, createdAt])
+  @@index([entityType, entityId])
+}

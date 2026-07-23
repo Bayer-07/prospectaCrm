@@ -1,0 +1,226 @@
+import { forwardRef, memo, useImperativeHandle, useLayoutEffect, useRef, type ClipboardEvent, type KeyboardEvent, type ReactNode } from 'react';
+
+export type WhatsappToken = {
+  type: 'text' | 'bold' | 'italic' | 'strike' | 'code';
+  value: string;
+  marker?: string;
+};
+
+const tokenPattern = /```([\s\S]+?)```|`([^`\n]+?)`|\*([^*\n]+?)\*|_([^_\n]+?)_|~([^~\n]+?)~/g;
+
+export function tokenizeWhatsappText(text: string): WhatsappToken[] {
+  const tokens: WhatsappToken[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(tokenPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) tokens.push({ type: 'text', value: text.slice(cursor, index) });
+    const type = match[1] !== undefined || match[2] !== undefined ? 'code' : match[3] !== undefined ? 'bold' : match[4] !== undefined ? 'italic' : 'strike';
+    const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? '';
+    const marker = match[1] !== undefined ? '```' : match[2] !== undefined ? '`' : markers[type];
+    if (!value || value.trim() !== value) tokens.push({ type: 'text', value: match[0] });
+    else tokens.push({ type, value, marker });
+    cursor = index + match[0].length;
+  }
+  if (cursor < text.length) tokens.push({ type: 'text', value: text.slice(cursor) });
+  return tokens;
+}
+
+const markers = { bold: '*', italic: '_', strike: '~', code: '```' } as const;
+
+function renderTokens(text: string, showMarkers: boolean): ReactNode[] {
+  return tokenizeWhatsappText(text).map((token, index) => {
+    if (token.type === 'text') return token.value;
+    const marker = token.marker || markers[token.type];
+    const content = token.type === 'code' ? token.value : renderTokens(token.value, showMarkers);
+    const formatted = token.type === 'bold'
+      ? <strong>{content}</strong>
+      : token.type === 'italic'
+        ? <em>{content}</em>
+        : token.type === 'strike'
+          ? <del>{content}</del>
+          : <code>{content}</code>;
+    return <span key={`${token.type}-${index}`} className={`whatsapp-format whatsapp-format-${token.type}`}>
+      {showMarkers && <span className="whatsapp-marker">{marker}</span>}
+      {formatted}
+      {showMarkers && <span className="whatsapp-marker">{marker}</span>}
+    </span>;
+  });
+}
+
+export const WhatsappText = memo(function WhatsappText({ text, showMarkers = false }: { text: string; showMarkers?: boolean }) {
+  return <>{renderTokens(text, showMarkers)}</>;
+});
+
+export type WhatsappComposerHandle = {
+  focus(): void;
+  moveCaretToEnd(): void;
+  insertText(text: string): void;
+};
+
+function selectionOffsets(root: HTMLElement) {
+  const selection = window.getSelection();
+  if (!selection?.rangeCount) return null;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.startContainer) || !root.contains(range.endContainer)) return null;
+  const startRange = range.cloneRange();
+  startRange.selectNodeContents(root);
+  startRange.setEnd(range.startContainer, range.startOffset);
+  const endRange = range.cloneRange();
+  endRange.selectNodeContents(root);
+  endRange.setEnd(range.endContainer, range.endOffset);
+  return { start: startRange.toString().length, end: endRange.toString().length };
+}
+
+function placeCaret(root: HTMLElement, requestedOffset: number) {
+  const selection = window.getSelection();
+  if (!selection) return;
+  const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+  let node = walker.nextNode();
+  let remaining = Math.max(0, requestedOffset);
+  while (node) {
+    const length = node.textContent?.length ?? 0;
+    if (remaining <= length) {
+      const range = document.createRange();
+      range.setStart(node, remaining);
+      range.collapse(true);
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    remaining -= length;
+    node = walker.nextNode();
+  }
+  const range = document.createRange();
+  range.selectNodeContents(root);
+  range.collapse(false);
+  selection.removeAllRanges();
+  selection.addRange(range);
+}
+
+function appendComposerText(target: Node, text: string) {
+  for (const token of tokenizeWhatsappText(text)) {
+    if (token.type === 'text') {
+      target.appendChild(document.createTextNode(token.value));
+      continue;
+    }
+    const wrapper = document.createElement('span');
+    wrapper.className = `whatsapp-format whatsapp-format-${token.type}`;
+    const marker = token.marker || markers[token.type];
+    const openingMarker = document.createElement('span');
+    openingMarker.className = 'whatsapp-marker';
+    openingMarker.textContent = marker;
+    wrapper.appendChild(openingMarker);
+    const formatted = document.createElement(token.type === 'bold' ? 'strong' : token.type === 'italic' ? 'em' : token.type === 'strike' ? 'del' : 'code');
+    if (token.type === 'code') formatted.textContent = token.value;
+    else appendComposerText(formatted, token.value);
+    wrapper.appendChild(formatted);
+    const closingMarker = openingMarker.cloneNode(true);
+    wrapper.appendChild(closingMarker);
+    target.appendChild(wrapper);
+  }
+}
+
+function renderComposerText(root: HTMLElement, text: string) {
+  const fragment = document.createDocumentFragment();
+  appendComposerText(fragment, text);
+  root.replaceChildren(fragment);
+}
+
+export const WhatsappComposer = forwardRef<WhatsappComposerHandle, {
+  value: string;
+  disabled?: boolean;
+  placeholder: string;
+  onChange(value: string): void;
+  onPaste(event: ClipboardEvent<HTMLDivElement>): void;
+  onKeyDown?(event: KeyboardEvent<HTMLDivElement>): boolean;
+  onSubmit(): void;
+}>(function WhatsappComposer({ value, disabled = false, placeholder, onChange, onPaste, onKeyDown, onSubmit }, forwardedRef) {
+  const rootRef = useRef<HTMLDivElement>(null);
+  const pendingCaretRef = useRef<number | null>(null);
+  const lastSelectionRef = useRef<{ start: number; end: number } | null>(null);
+
+  const replaceSelection = (replacement: string) => {
+    const root = rootRef.current;
+    const offsets = (root ? selectionOffsets(root) : null) || lastSelectionRef.current;
+    const start = offsets?.start ?? value.length;
+    const end = offsets?.end ?? start;
+    const caret = start + replacement.length;
+    pendingCaretRef.current = caret;
+    lastSelectionRef.current = { start: caret, end: caret };
+    onChange(`${value.slice(0, start)}${replacement}${value.slice(end)}`);
+  };
+
+  useImperativeHandle(forwardedRef, () => ({
+    focus: () => rootRef.current?.focus(),
+    moveCaretToEnd: () => {
+      const root = rootRef.current;
+      if (!root) return;
+      root.focus();
+      const end = root.textContent?.length ?? 0;
+      lastSelectionRef.current = { start: end, end };
+      placeCaret(root, end);
+    },
+    insertText: replaceSelection,
+  }), [value, onChange]);
+
+  useLayoutEffect(() => {
+    const root = rootRef.current;
+    if (!root) return;
+    renderComposerText(root, value);
+    if (pendingCaretRef.current !== null) {
+      const caret = pendingCaretRef.current;
+      placeCaret(root, caret);
+      lastSelectionRef.current = { start: caret, end: caret };
+    } else {
+      lastSelectionRef.current = { start: value.length, end: value.length };
+    }
+    pendingCaretRef.current = null;
+  }, [value]);
+
+  const rememberSelection = () => {
+    const root = rootRef.current;
+    const offsets = root ? selectionOffsets(root) : null;
+    if (offsets) lastSelectionRef.current = offsets;
+  };
+
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (onKeyDown?.(event)) {
+      event.preventDefault();
+      return;
+    }
+    if (event.key !== 'Enter') return;
+    event.preventDefault();
+    if (event.shiftKey) replaceSelection('\n');
+    else onSubmit();
+  };
+
+  return <div
+    ref={rootRef}
+    className="whatsapp-composer"
+    contentEditable={!disabled}
+    suppressContentEditableWarning
+    role="textbox"
+    aria-multiline="true"
+    aria-disabled={disabled}
+    data-placeholder={placeholder}
+    tabIndex={disabled ? -1 : 0}
+    onInput={(event) => {
+      const root = event.currentTarget;
+      const offsets = selectionOffsets(root);
+      pendingCaretRef.current = offsets?.start ?? null;
+      if (offsets) lastSelectionRef.current = offsets;
+      onChange(root.textContent ?? '');
+    }}
+    onKeyUp={rememberSelection}
+    onMouseUp={rememberSelection}
+    onKeyDown={handleKeyDown}
+    onPaste={(event) => {
+      onPaste(event);
+      if (event.defaultPrevented) return;
+      const pastedText = event.clipboardData.getData('text/plain').replace(/\r\n/g, '\n');
+      if (!pastedText) return;
+      event.preventDefault();
+      replaceSelection(pastedText);
+    }}
+  />;
+});

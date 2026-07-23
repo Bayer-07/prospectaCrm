@@ -1,0 +1,16 @@
+{
+  "name": "prospeccao-crm",
+  "private": true,
+  "packageManager": "pnpm@11.9.0",
+  "scripts": {
+    "dev": "pnpm --parallel --filter @prospecta/api --filter @prospecta/worker --filter @prospecta/web dev",
+    "build": "pnpm --filter @prospecta/contracts --filter @prospecta/database build && pnpm --filter @prospecta/api --filter @prospecta/worker --filter @prospecta/web build",
+    "test": "pnpm -r test",
+    "typecheck": "pnpm --filter @prospecta/contracts --filter @prospecta/database build && pnpm --filter @prospecta/api --filter @prospecta/worker --filter @prospecta/web typecheck",
+    "lint": "pnpm -r lint",
+    "db:generate": "pnpm --filter @prospecta/database db:generate",
+    "db:migrate": "pnpm --filter @prospecta/database db:migrate",
+    "db:seed": "pnpm --filter @prospecta/database db:seed",
+    "bootstrap:admin": "pnpm --filter @prospecta/api bootstrap:admin"
+  }
+}

@@ -1,0 +1,241 @@
+name: prospecta
+
+services:
+  caddy:
+    image: caddy:2.10-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      APP_ADDRESS: ${APP_ADDRESS:-http://localhost}
+    volumes:
+      - ./infra/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      api:
+        condition: service_healthy
+      web:
+        condition: service_started
+    networks: [edge, app]
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        VITE_API_URL: /api/v1
+        VITE_SOCKET_URL: /
+    restart: unless-stopped
+    expose: ["80"]
+    networks: [app]
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      APP_URL: ${APP_ADDRESS:-http://localhost}
+      API_INTERNAL_URL: http://api:3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:-prospecta}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
+      REDIS_URL: redis://redis:6379
+      EVOLUTION_API_URL: http://evolution:8080
+      S3_ENDPOINT: http://minio:9000
+    expose: ["3000"]
+    depends_on:
+      postgres: { condition: service_healthy }
+      redis: { condition: service_healthy }
+      minio: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3000/health"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks: [app, egress]
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:-prospecta}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
+      REDIS_URL: redis://redis:6379
+      EVOLUTION_API_URL: http://evolution:8080
+      S3_ENDPOINT: http://minio:9000
+      S3_DELIVERY_ENDPOINT: ${S3_DELIVERY_ENDPOINT_DOCKER:-http://minio.local:9000}
+    depends_on:
+      api: { condition: service_healthy }
+      evolution: { condition: service_started }
+    networks: [app, egress]
+
+  postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-prospecta}
+      POSTGRES_USER: ${POSTGRES_USER:-prospecta}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prospecta}
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-prospecta} -d ${POSTGRES_DB:-prospecta}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [app]
+
+  redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [app]
+
+  minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    restart: unless-stopped
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: ${S3_ACCESS_KEY:-prospecta}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-prospecta-secret}
+    volumes:
+      - minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks:
+      app:
+        aliases:
+          - minio.local
+
+  evolution:
+    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7}
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      SERVER_TYPE: http
+      SERVER_PORT: 8080
+      SERVER_URL: ${EVOLUTION_PUBLIC_URL:-http://evolution:8080}
+      # A Evolution não é publicada pelo proxy; somente API/worker a acessam com apikey.
+      # O wildcard evita que o middleware recuse chamadas servidor-a-servidor sem Origin.
+      CORS_ORIGIN: "*"
+      AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
+      AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
+      DATABASE_ENABLED: "true"
+      DATABASE_PROVIDER: postgresql
+      DATABASE_CONNECTION_URI: postgresql://${EVOLUTION_POSTGRES_USER:-evolution}:${EVOLUTION_POSTGRES_PASSWORD:-evolution}@evolution-postgres:5432/${EVOLUTION_POSTGRES_DB:-evolution}?schema=public
+      DATABASE_CONNECTION_CLIENT_NAME: prospecta_evolution
+      DATABASE_SAVE_DATA_INSTANCE: "true"
+      DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
+      DATABASE_SAVE_MESSAGE_UPDATE: "true"
+      DATABASE_SAVE_DATA_CONTACTS: "true"
+      DATABASE_SAVE_DATA_CHATS: "true"
+      DATABASE_SAVE_DATA_HISTORIC: "false"
+      CACHE_REDIS_ENABLED: "true"
+      CACHE_REDIS_URI: redis://evolution-redis:6379/0
+      CACHE_REDIS_PREFIX_KEY: evolution
+      CACHE_LOCAL_ENABLED: "false"
+      S3_ENABLED: "true"
+      S3_ACCESS_KEY: ${EVOLUTION_S3_ACCESS_KEY:-evolution}
+      S3_SECRET_KEY: ${EVOLUTION_S3_SECRET_KEY:-evolution-secret}
+      S3_BUCKET: evolution-media
+      S3_PORT: 9000
+      S3_ENDPOINT: evolution-minio
+      S3_USE_SSL: "false"
+      WEBSOCKET_ENABLED: "false"
+      WEBHOOK_GLOBAL_ENABLED: "false"
+      CONFIG_SESSION_PHONE_CLIENT: Prospecta CRM
+      CONFIG_SESSION_PHONE_NAME: Chrome
+      QRCODE_LIMIT: 30
+      # Evita serialização e escrita de logs por mensagem em produção.
+      # INFO/WEBHOOKS pode ser reativado temporariamente pelo .env para diagnóstico.
+      LOG_LEVEL: ${EVOLUTION_LOG_LEVEL:-ERROR,WARN}
+      LOG_BAILEYS: error
+      TELEMETRY: "false"
+    volumes:
+      - evolution_instances:/evolution/instances
+    expose: ["8080"]
+    depends_on:
+      evolution-postgres: { condition: service_healthy }
+      evolution-redis: { condition: service_healthy }
+      evolution-minio: { condition: service_healthy }
+    networks: [app, egress]
+
+  evolution-minio:
+    image: minio/minio:RELEASE.2025-07-23T15-54-02Z
+    restart: unless-stopped
+    command: server /data
+    environment:
+      MINIO_ROOT_USER: ${EVOLUTION_S3_ACCESS_KEY:-evolution}
+      MINIO_ROOT_PASSWORD: ${EVOLUTION_S3_SECRET_KEY:-evolution-secret}
+    volumes:
+      - evolution_minio_data:/data
+    healthcheck:
+      test: ["CMD", "mc", "ready", "local"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [app]
+
+  evolution-postgres:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${EVOLUTION_POSTGRES_DB:-evolution}
+      POSTGRES_USER: ${EVOLUTION_POSTGRES_USER:-evolution}
+      POSTGRES_PASSWORD: ${EVOLUTION_POSTGRES_PASSWORD:-evolution}
+    volumes:
+      - evolution_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${EVOLUTION_POSTGRES_USER:-evolution} -d ${EVOLUTION_POSTGRES_DB:-evolution}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+    networks: [app]
+
+  evolution-redis:
+    image: redis:7.4-alpine
+    restart: unless-stopped
+    command: redis-server --appendonly yes --maxmemory-policy noeviction
+    volumes:
+      - evolution_redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+    networks: [app]
+
+networks:
+  edge:
+  app:
+    internal: true
+  egress:
+
+volumes:
+  caddy_data:
+  caddy_config:
+  postgres_data:
+  redis_data:
+  minio_data:
+  evolution_instances:
+  evolution_postgres_data:
+  evolution_redis_data:
+  evolution_minio_data:
