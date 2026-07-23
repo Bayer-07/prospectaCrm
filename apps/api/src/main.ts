@@ -5,6 +5,8 @@ import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
+import { filterPublicApiDocument } from './swagger/public-api-document.js';
+import { SWAGGER_DARK_THEME } from './swagger/swagger-dark-theme.js';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
@@ -21,13 +23,30 @@ async function bootstrap() {
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
   const config = new DocumentBuilder()
-    .setTitle('Prospecta CRM API')
-    .setDescription('API interna e pública do CRM de prospecção')
+    .setTitle('Prospecta CRM · API de Integração')
+    .setDescription('Endpoints destinados a integrações externas. Gere uma chave em Configurações → API e webhooks e informe-a no botão Authorize.')
     .setVersion('1.0')
-    .addCookieAuth('prospecta_session')
-    .addApiKey({ type: 'apiKey', name: 'Authorization', in: 'header' }, 'api-key')
+    .addServer('/', 'Servidor atual')
+    .addBearerAuth({
+      type: 'http',
+      scheme: 'bearer',
+      bearerFormat: 'API Key',
+      description: 'Informe a chave gerada em Configurações → API e webhooks.',
+    }, 'api-key')
+    .addSecurityRequirements('api-key')
     .build();
-  SwaggerModule.setup('docs', app, SwaggerModule.createDocument(app, config));
+  const publicApiDocument = filterPublicApiDocument(SwaggerModule.createDocument(app, config));
+  SwaggerModule.setup('docs', app, publicApiDocument, {
+    customCss: SWAGGER_DARK_THEME,
+    customSiteTitle: 'Swagger · Prospecta CRM',
+    swaggerOptions: {
+      displayRequestDuration: true,
+      filter: true,
+      operationsSorter: 'alpha',
+      persistAuthorization: true,
+      tagsSorter: 'alpha',
+    },
+  });
 
   const port = Number(process.env.PORT || 3000);
   await app.listen(port, '0.0.0.0');
