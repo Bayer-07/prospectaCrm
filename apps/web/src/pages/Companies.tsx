@@ -1,13 +1,19 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, Download, Filter, Globe2, MoreHorizontal, Plus, Search, Users } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { api, dateTime, initials, type Envelope } from '../lib/api';
 import type { Company } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading } from '../components/ui';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 
 export function CompaniesPage() {
-  const client = useQueryClient(); const [search, setSearch] = useState(''); const [modal, setModal] = useState(false);
+  const client = useQueryClient();
+  const [searchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('search') || '';
+  const [search, setSearch] = useState(requestedSearch);
+  const [modal, setModal] = useState(false);
+  useEffect(() => setSearch(requestedSearch), [requestedSearch]);
   const debouncedSearch = useDebouncedValue(search);
   const query = useQuery({ queryKey: ['companies', debouncedSearch], queryFn: () => api<Envelope<Company[]>>(`/companies?limit=100&search=${encodeURIComponent(debouncedSearch)}`), placeholderData: (previous) => previous });
   if (query.isLoading) return <PageLoading />;

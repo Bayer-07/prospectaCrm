@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { ContactRound, Download, Filter, Mail, MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2 } from 'lucide-react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, initials, type Envelope } from '../lib/api';
 import type { Contact } from '../lib/types';
 import { Button, Empty, Modal, PageLoading, SelectField, Status } from '../components/ui';
@@ -13,13 +13,16 @@ type WhatsappInstance = { id: string; name: string; phone?: string; status: stri
 
 export function ContactsPage() {
   const client = useQueryClient();
-  const [search, setSearch] = useState('');
+  const [searchParams] = useSearchParams();
+  const requestedSearch = searchParams.get('search') || '';
+  const [search, setSearch] = useState(requestedSearch);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
   const [starting, setStarting] = useState<Contact | null>(null);
   const [menu, setMenu] = useState<ContactMenu | null>(null);
   const [actionError, setActionError] = useState('');
+  useEffect(() => setSearch(requestedSearch), [requestedSearch]);
   const debouncedSearch = useDebouncedValue(search);
   const query = useQuery({
     queryKey: ['contacts', debouncedSearch],

@@ -5,6 +5,7 @@ import { Redis } from 'ioredis';
 export const QUEUES = {
   inbound: 'inbound-webhooks', outbound: 'outbound-messages', campaigns: 'campaigns',
   automations: 'automations', externalWebhooks: 'external-webhooks', maintenance: 'maintenance',
+  transactionalEmails: 'transactional-emails',
 } as const;
 
 export const QUEUE_CONNECTION = Symbol('QUEUE_CONNECTION');
@@ -13,6 +14,7 @@ export const OUTBOUND_QUEUE = Symbol('OUTBOUND_QUEUE');
 export const CAMPAIGN_QUEUE = Symbol('CAMPAIGN_QUEUE');
 export const AUTOMATION_QUEUE = Symbol('AUTOMATION_QUEUE');
 export const EXTERNAL_WEBHOOK_QUEUE = Symbol('EXTERNAL_WEBHOOK_QUEUE');
+export const TRANSACTIONAL_EMAIL_QUEUE = Symbol('TRANSACTIONAL_EMAIL_QUEUE');
 
 const queueOptions = (connection: Redis) => ({
   connection,
@@ -28,7 +30,8 @@ const queueOptions = (connection: Redis) => ({
     { provide: CAMPAIGN_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.campaigns, queueOptions(connection)) },
     { provide: AUTOMATION_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.automations, queueOptions(connection)) },
     { provide: EXTERNAL_WEBHOOK_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.externalWebhooks, queueOptions(connection)) },
+    { provide: TRANSACTIONAL_EMAIL_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.transactionalEmails, queueOptions(connection)) },
   ],
-  exports: [QUEUE_CONNECTION, INBOUND_QUEUE, OUTBOUND_QUEUE, CAMPAIGN_QUEUE, AUTOMATION_QUEUE, EXTERNAL_WEBHOOK_QUEUE],
+  exports: [QUEUE_CONNECTION, INBOUND_QUEUE, OUTBOUND_QUEUE, CAMPAIGN_QUEUE, AUTOMATION_QUEUE, EXTERNAL_WEBHOOK_QUEUE, TRANSACTIONAL_EMAIL_QUEUE],
 })
 export class QueueModule {}

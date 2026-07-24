@@ -1,14 +1,21 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
+import type { Queue } from 'bullmq';
+import type { UserInviteEmailJob } from '@prospecta/contracts';
 import { createHash, randomBytes } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { AuthContext } from '../auth/types.js';
 import { AuthCacheService } from '../auth/auth-cache.service.js';
+import { TRANSACTIONAL_EMAIL_QUEUE } from '../queue/queue.module.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
 @Injectable()
 export class UsersService {
-  constructor(private readonly db: PrismaService, private readonly authCache?: AuthCacheService) {}
+  constructor(
+    private readonly db: PrismaService,
+    @Inject(TRANSACTIONAL_EMAIL_QUEUE) private readonly transactionalEmails: Queue<UserInviteEmailJob>,
+    private readonly authCache?: AuthCacheService,
+  ) {}
 
   list(auth: AuthContext) {
     return this.db.user.findMany({
@@ -75,29 +82,61 @@ export class UsersService {
 
   async createInvite(auth: AuthContext, input: { name: string; email: string; roleId: string; teamId?: string }) {
     if (!auth.userId) throw new BadRequestException('Convites exigem sessão de usuário');
-    const email = input.email.trim().toLowerCase();
+    const name = input.name?.trim();
+    const email = input.email?.trim().toLowerCase() || '';
+    if (!name || name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido');
+    if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BadRequestException('Informe um e-mail válido');
     const role = await this.db.role.findFirst({ where: { id: input.roleId, organizationId: auth.organizationId } });
     if (!role) throw new NotFoundException('Papel não encontrado');
+    if (input.teamId) {
+      const team = await this.db.team.findFirst({ where: { id: input.teamId, organizationId: auth.organizationId }, select: { id: true } });
+      if (!team) throw new NotFoundException('Equipe não encontrada');
+    }
     const existing = await this.db.user.findFirst({ where: { organizationId: auth.organizationId, email } });
     if (existing?.status === 'ACTIVE') throw new BadRequestException('Já existe um usuário ativo com este e-mail');
 
     const user = existing ?? await this.db.user.create({
       data: {
-        organizationId: auth.organizationId, name: input.name.trim(), email,
+        organizationId: auth.organizationId, name, email,
         roleId: input.roleId, teamId: input.teamId, status: 'INVITED',
       },
     });
     if (existing) {
-      await this.db.user.update({ where: { id: existing.id }, data: { name: input.name.trim(), roleId: input.roleId, teamId: input.teamId, status: 'INVITED' } });
+      await this.db.user.update({ where: { id: existing.id }, data: { name, roleId: input.roleId, teamId: input.teamId, status: 'INVITED' } });
       this.authCache?.invalidateUser(existing.id);
     }
     await this.db.inviteToken.updateMany({ where: { userId: user.id, usedAt: null }, data: { usedAt: new Date() } });
     const rawToken = randomBytes(32).toString('base64url');
-    await this.db.inviteToken.create({
+    const invite = await this.db.inviteToken.create({
       data: { userId: user.id, createdById: auth.userId, tokenHash: hash(rawToken), expiresAt: new Date(Date.now() + 72 * 3600_000) },
     });
-    await this.audit(auth, 'user.invite_created', 'User', user.id, { email, roleId: input.roleId, teamId: input.teamId });
-    return { userId: user.id, inviteUrl: `${process.env.APP_URL || 'http://localhost:5173'}/aceitar-convite?token=${rawToken}`, expiresInHours: 72 };
+    const inviteUrl = `${(process.env.APP_URL || 'http://localhost:5173').replace(/\/+$/, '')}/aceitar-convite?token=${rawToken}`;
+    try {
+      await this.transactionalEmails.add('send-user-invite', {
+        inviteTokenId: invite.id,
+        inviteUrl,
+        expiresInHours: 72,
+      }, {
+        jobId: `user-invite-${invite.id}`,
+        attempts: 6,
+        backoff: { type: 'exponential', delay: 5_000 },
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Fila de e-mail indisponível';
+      await this.db.inviteToken.update({
+        where: { id: invite.id },
+        data: { emailStatus: 'FAILED', emailError: message.slice(0, 1000) },
+      });
+      throw new ServiceUnavailableException('O convite foi criado, mas não foi possível agendar o e-mail. Tente novamente.');
+    }
+    await this.audit(auth, 'user.invite_created', 'User', user.id, {
+      email,
+      roleId: input.roleId,
+      teamId: input.teamId,
+      inviteTokenId: invite.id,
+      emailDelivery: 'QUEUED',
+    });
+    return { userId: user.id, email, inviteUrl, expiresInHours: 72, emailDelivery: 'QUEUED' as const };
   }
 
   async createReset(auth: AuthContext, userId: string) {

@@ -1,7 +1,7 @@
 import { FormEvent, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
-import { AlertTriangle, BookOpen, Check, Copy, ExternalLink, KeyRound, Link2, MessageSquareText, MoreHorizontal, Plus, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2, UserPlus, Users } from 'lucide-react';
+import { AlertTriangle, BookOpen, Check, Copy, ExternalLink, KeyRound, Mail, MessageSquareText, MoreHorizontal, Plus, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2, UserPlus, Users } from 'lucide-react';
 import { api, dateTime, initials, type Envelope } from '../lib/api';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 
@@ -9,6 +9,7 @@ type User = { id: string; name: string; email: string; status: string; lastLogin
 type RolePermission = { resource: string; action: string; scope: 'ALL' | 'TEAM' | 'OWN' };
 type Metadata = { teams: Array<{ id: string; name: string }>; roles: Array<{ id: string; key: string; name: string; permissions: RolePermission[] }> };
 type Instance = { id: string; name: string; instanceKey: string; phone?: string; status: string; lastEventAt?: string; teams: Array<{ team: { name: string } }>; warmupProfile: { currentDailyCap: number; sentToday: number; maximumDailyCap: number }; _count?: { conversations: number } };
+type InviteResult = { userId: string; email: string; inviteUrl: string; expiresInHours: number; emailDelivery: 'QUEUED' };
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -19,11 +20,11 @@ export function SettingsPage() {
 }
 
 function UsersSettings() {
-  const client = useQueryClient(); const [modal, setModal] = useState(false); const [link, setLink] = useState('');
+  const client = useQueryClient(); const [modal, setModal] = useState(false); const [invite, setInvite] = useState<InviteResult | null>(null);
   const users = useQuery({ queryKey: ['users'], queryFn: () => api<Envelope<User[]>>('/users') });
   const metadata = useQuery({ queryKey: ['user-metadata'], queryFn: () => api<Envelope<Metadata>>('/users/metadata') });
   if (users.isLoading || metadata.isLoading) return <PageLoading />;
-  return <><div className="settings-heading"><div><h2>Usuários e equipes</h2><p>Gerencie quem acessa a plataforma e o escopo de dados.</p></div><Button onClick={() => setModal(true)}><UserPlus size={15} />Convidar usuário</Button></div><div className="settings-table"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Equipe</th><th>Status</th><th>Último acesso</th><th /></tr></thead><tbody>{users.data?.data.map((user) => <tr key={user.id}><td><div className="entity-cell"><span className="contact-avatar">{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email}</small></div></div></td><td>{user.role.name}</td><td>{user.team?.name || 'Sem equipe'}</td><td><Status value={user.status} /></td><td>{dateTime(user.lastLoginAt)}</td><td><button className="icon-button"><MoreHorizontal size={17} /></button></td></tr>)}</tbody></table></div>{modal && <InviteModal metadata={metadata.data!.data} onClose={() => setModal(false)} onCreated={(url) => { setModal(false); setLink(url); client.invalidateQueries({ queryKey: ['users'] }); }} />}{link && <LinkModal title="Link de convite criado" link={link} onClose={() => setLink('')} />}</>;
+  return <><div className="settings-heading"><div><h2>Usuários e equipes</h2><p>Gerencie quem acessa a plataforma e o escopo de dados.</p></div><Button onClick={() => setModal(true)}><UserPlus size={15} />Convidar usuário</Button></div><div className="settings-table"><table><thead><tr><th>Usuário</th><th>Papel</th><th>Equipe</th><th>Status</th><th>Último acesso</th><th /></tr></thead><tbody>{users.data?.data.map((user) => <tr key={user.id}><td><div className="entity-cell"><span className="contact-avatar">{initials(user.name)}</span><div><strong>{user.name}</strong><small>{user.email}</small></div></div></td><td>{user.role.name}</td><td>{user.team?.name || 'Sem equipe'}</td><td><Status value={user.status} /></td><td>{dateTime(user.lastLoginAt)}</td><td><button className="icon-button"><MoreHorizontal size={17} /></button></td></tr>)}</tbody></table></div>{modal && <InviteModal metadata={metadata.data!.data} onClose={() => setModal(false)} onCreated={(result) => { setModal(false); setInvite(result); client.invalidateQueries({ queryKey: ['users'] }); }} />}{invite && <InviteSentModal invite={invite} onClose={() => setInvite(null)} />}</>;
 }
 
 const permissionRows = [
@@ -50,10 +51,10 @@ function RolePermissionsModal({ role, onClose, onSaved }: { role: Metadata['role
   return <Modal title={`Permissões · ${role.name}`} onClose={onClose}><div className="settings-table permissions-table"><table><thead><tr><th>Funcionalidade</th><th>Leitura</th><th>Alteração</th><th>Extra</th></tr></thead><tbody>{permissionRows.map(([resource, label]) => <tr key={resource}><td><strong>{label}</strong></td>{['read', 'write'].map((action) => <td key={action}><select value={scopes[`${resource}:${action}`]} onChange={(event) => setScopes({ ...scopes, [`${resource}:${action}`]: event.target.value })}><option value="NONE">Sem acesso</option><option value="OWN">Próprios</option><option value="TEAM">Equipe</option><option value="ALL">Todos</option></select></td>)}<td>{resource === 'campaigns' ? <select value={scopes['campaigns:launch']} onChange={(event) => setScopes({ ...scopes, 'campaigns:launch': event.target.value })}><option value="NONE">Não inicia</option><option value="OWN">Próprios</option><option value="TEAM">Equipe</option><option value="ALL">Todos</option></select> : '—'}</td></tr>)}</tbody></table></div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button loading={mutation.isPending} onClick={() => mutation.mutate()}>Salvar permissões</Button></div></Modal>;
 }
 
-function InviteModal({ metadata, onClose, onCreated }: { metadata: Metadata; onClose(): void; onCreated(url: string): void }) {
+function InviteModal({ metadata, onClose, onCreated }: { metadata: Metadata; onClose(): void; onCreated(result: InviteResult): void }) {
   const [form, setForm] = useState({ name: '', email: '', roleId: metadata.roles[0]?.id || '', teamId: metadata.teams[0]?.id || '' });
-  const mutation = useMutation({ mutationFn: () => api<Envelope<{ inviteUrl: string }>>('/users/invite', { method: 'POST', body: JSON.stringify(form) }), onSuccess: (result) => onCreated(result.data.inviteUrl) });
-  return <Modal title="Convidar usuário" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /><Field label="E-mail" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /><div className="form-grid"><SelectField label="Papel" value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>{metadata.roles.map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}</SelectField><SelectField label="Equipe" value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{metadata.teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</SelectField></div><div className="consent-note"><Link2 size={17} /><p><strong>Convite manual</strong><span>Você receberá um link válido por 72 horas para compartilhar com o usuário.</span></p></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Gerar convite</Button></div></form></Modal>;
+  const mutation = useMutation({ mutationFn: () => api<Envelope<InviteResult>>('/users/invite', { method: 'POST', body: JSON.stringify(form) }), onSuccess: (result) => onCreated(result.data) });
+  return <Modal title="Convidar usuário" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /><Field label="E-mail" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /><div className="form-grid"><SelectField label="Papel" value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>{metadata.roles.map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}</SelectField><SelectField label="Equipe" value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{metadata.teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</SelectField></div><div className="consent-note"><Mail size={17} /><p><strong>Envio automático por e-mail</strong><span>O usuário receberá um convite pessoal para criar a senha. O link será válido por 72 horas.</span></p></div>{mutation.error && <div className="form-error">{mutation.error.message}</div>}<div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Enviar convite</Button></div></form></Modal>;
 }
 
 function WhatsappSettings() {
@@ -112,7 +113,25 @@ function SwaggerDocsSettings({ onBack }: { onBack(): void }) {
 
 function SecuritySettings() { return <><div className="settings-heading"><div><h2>Segurança e retenção</h2><p>Políticas organizacionais aplicadas no servidor.</p></div></div><div className="security-grid"><article><ShieldCheck /><div><strong>Autorização por escopo</strong><p>Papéis customizáveis com acesso a todos, equipe ou registros próprios.</p></div><Status value="active" /></article><article><KeyRound /><div><strong>Sessões seguras</strong><p>Argon2id, cookies HttpOnly, CSRF e expiração em 7 dias.</p></div><Status value="active" /></article><article><MessageSquareText /><div><strong>Retenção de mensagens</strong><p>Conteúdo e mídias são removidos após 24 meses por padrão.</p></div><span className="neutral-pill">24 meses</span></article></div></>; }
 
-function LinkModal({ title, link, onClose }: { title: string; link: string; onClose(): void }) {
-  const [copied, setCopied] = useState(false); const copy = async () => { await navigator.clipboard.writeText(link); setCopied(true); };
-  return <Modal title={title} onClose={onClose}><div className="link-result"><div><code>{link}</code><button onClick={() => void copy()}>{copied ? <Check size={16} /> : <Copy size={16} />}</button></div><p>Compartilhe este link por um canal seguro. Ele será invalidado após o uso.</p></div></Modal>;
+function InviteSentModal({ invite, onClose }: { invite: InviteResult; onClose(): void }) {
+  const [copied, setCopied] = useState(false);
+  const copy = async () => {
+    await navigator.clipboard.writeText(invite.inviteUrl);
+    setCopied(true);
+  };
+  return <Modal title="Convite em envio" onClose={onClose}>
+    <div className="invite-sent-result">
+      <span><Mail size={24} /></span>
+      <div>
+        <h3>O convite será entregue em instantes</h3>
+        <p>Enviamos o acesso para <strong>{invite.email}</strong>. O link pessoal expira em {invite.expiresInHours} horas.</p>
+      </div>
+    </div>
+    <div className="invite-fallback-link">
+      <span>Link manual de contingência</span>
+      <div><code>{invite.inviteUrl}</code><button type="button" onClick={() => void copy()} aria-label="Copiar link do convite">{copied ? <Check size={16} /> : <Copy size={16} />}</button></div>
+      <p>Use este link apenas se o usuário não receber o e-mail. Ele será invalidado após o primeiro uso.</p>
+    </div>
+    <div className="modal-actions"><Button onClick={onClose}>Concluir</Button></div>
+  </Modal>;
 }

@@ -1,4 +1,4 @@
-import { memo, type FormEvent, type KeyboardEvent, useCallback, useDeferredValue, useMemo, useRef, useState } from 'react';
+import { memo, type FormEvent, type KeyboardEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, TouchSensor,
   useDraggable, useDroppable, useSensor, useSensors,
@@ -8,6 +8,7 @@ import {
   Building2, CalendarDays, ChevronDown, CircleDollarSign, Clock3, Filter,
   LayoutGrid, Mail, Phone, Plus, Search, Tag, UserRound, UsersRound, X,
 } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
 import { api, dateTime, initials, money, type Envelope } from '../lib/api';
 import type { Company, Contact, Opportunity, Pipeline, Stage } from '../lib/types';
 import { Button, Field, Modal, PageLoading, SelectField } from '../components/ui';
@@ -80,12 +81,21 @@ const StageColumn = memo(function StageColumn({ stage, onOpen }: { stage: Stage;
 
 export function PipelinePage() {
   const client = useQueryClient();
-  const [pipelineId, setPipelineId] = useState('');
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedPipelineId = searchParams.get('pipeline') || '';
+  const requestedOpportunityId = searchParams.get('opportunity');
+  const requestedSearch = searchParams.get('search') || '';
+  const [pipelineId, setPipelineId] = useState(requestedPipelineId);
   const [modal, setModal] = useState(false);
-  const [search, setSearch] = useState('');
+  const [search, setSearch] = useState(requestedSearch);
   const deferredSearch = useDeferredValue(search);
   const [activeId, setActiveId] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(requestedOpportunityId);
+  useEffect(() => {
+    if (requestedPipelineId) setPipelineId(requestedPipelineId);
+    setSearch(requestedSearch);
+    if (requestedOpportunityId) setSelectedId(requestedOpportunityId);
+  }, [requestedOpportunityId, requestedPipelineId, requestedSearch]);
   const pipelines = useQuery({ queryKey: ['pipelines'], queryFn: () => api<Envelope<Array<Omit<Pipeline, 'stages'> & { stages: Stage[] }>>>('/pipelines'), staleTime: 5 * 60_000 });
   const selectedPipelineId = pipelineId || pipelines.data?.data[0]?.id || '';
   const kanbanKey = ['kanban', selectedPipelineId] as const;
@@ -137,8 +147,15 @@ export function PipelinePage() {
     ...stage,
     opportunities: stage.opportunities.filter((opportunity) => !normalizedSearch || opportunity.title.toLocaleLowerCase('pt-BR').includes(normalizedSearch) || opportunity.company?.name.toLocaleLowerCase('pt-BR').includes(normalizedSearch)),
   })), [kanban.data?.data.stages, normalizedSearch]);
+  const closeOpportunity = () => {
+    setSelectedId(null);
+    if (!searchParams.has('opportunity')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('opportunity');
+    setSearchParams(next, { replace: true });
+  };
   if (pipelines.isLoading || kanban.isLoading) return <PageLoading />;
-  return <div className="pipeline-page"><div className="toolbar"><div className="toolbar-left"><label className="compact-select"><LayoutGrid size={16} /><select value={selectedPipelineId} onChange={(event) => setPipelineId(event.target.value)}>{pipelines.data?.data.map((pipeline) => <option value={pipeline.id} key={pipeline.id}>{pipeline.name}</option>)}</select><ChevronDown size={15} /></label><button className="filter-button"><Filter size={16} />Filtros</button><div className="inline-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no funil…" /></div></div><Button onClick={() => setModal(true)}><Plus size={16} />Nova oportunidade</Button></div><DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}><div className="kanban-board">{stages.map((stage) => <StageColumn stage={stage} key={stage.id} onOpen={setSelectedId} />)}</div><DragOverlay dropAnimation={{ duration: 180, easing: 'ease-out' }}>{activeOpportunity ? <OpportunityCard opportunity={activeOpportunity} overlay /> : null}</DragOverlay></DndContext>{modal && <OpportunityModal pipeline={kanban.data!.data} onClose={() => setModal(false)} onCreated={() => { setModal(false); void client.invalidateQueries({ queryKey: kanbanKey }); }} />}{selectedId && <OpportunityDrawer id={selectedId} onClose={() => setSelectedId(null)} />}</div>;
+  return <div className="pipeline-page"><div className="toolbar"><div className="toolbar-left"><label className="compact-select"><LayoutGrid size={16} /><select value={selectedPipelineId} onChange={(event) => setPipelineId(event.target.value)}>{pipelines.data?.data.map((pipeline) => <option value={pipeline.id} key={pipeline.id}>{pipeline.name}</option>)}</select><ChevronDown size={15} /></label><button className="filter-button"><Filter size={16} />Filtros</button><div className="inline-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no funil…" /></div></div><Button onClick={() => setModal(true)}><Plus size={16} />Nova oportunidade</Button></div><DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}><div className="kanban-board">{stages.map((stage) => <StageColumn stage={stage} key={stage.id} onOpen={setSelectedId} />)}</div><DragOverlay dropAnimation={{ duration: 180, easing: 'ease-out' }}>{activeOpportunity ? <OpportunityCard opportunity={activeOpportunity} overlay /> : null}</DragOverlay></DndContext>{modal && <OpportunityModal pipeline={kanban.data!.data} onClose={() => setModal(false)} onCreated={() => { setModal(false); void client.invalidateQueries({ queryKey: kanbanKey }); }} />}{selectedId && <OpportunityDrawer id={selectedId} onClose={closeOpportunity} />}</div>;
 }
 
 function OpportunityDrawer({ id, onClose }: { id: string; onClose(): void }) {

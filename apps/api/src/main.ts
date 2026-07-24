@@ -6,6 +6,7 @@ import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
+import { configuredCorsOrigins } from './config/cors-origins.js';
 import { filterPublicApiDocument } from './swagger/public-api-document.js';
 import { SWAGGER_DARK_THEME } from './swagger/swagger-dark-theme.js';
 
@@ -16,7 +17,7 @@ async function bootstrap() {
   app.use(compression({ threshold: 1_024 }));
   app.use(cookieParser());
   app.enableCors({
-    origin: (process.env.APP_URL || 'http://localhost:5173').split(','),
+    origin: configuredCorsOrigins(),
     credentials: true,
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'Idempotency-Key'],
@@ -53,7 +54,7 @@ async function bootstrap() {
   const port = Number(process.env.PORT || 3000);
   const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '::');
   await app.listen(port, host);
-  console.log(`BZS One API disponível em http://localhost:${port}`);
+  console.log(`BZS One API ouvindo em ${host}:${port}`);
 }
 
 void bootstrap();

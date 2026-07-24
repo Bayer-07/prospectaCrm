@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { renderBzsEmailLayout, sgaProspectingEmailTemplates } from './email-templates.js';
+import { renderBzsEmailLayout, renderUserInviteEmail, sgaProspectingEmailTemplates } from './email-templates.js';
 
 describe('modelos de prospecção do SGA', () => {
   it('oferece uma cadência com cinco modelos únicos e versões alternativas', () => {
@@ -29,5 +29,26 @@ describe('modelos de prospecção do SGA', () => {
     expect(html).toContain('@media only screen and (max-width:620px)');
     expect(html).toContain('BZS ONE');
     expect(html).not.toContain('%unsubscribe_url%');
+  });
+});
+
+describe('modelo transacional de convite', () => {
+  it('gera versões HTML e texto sem descadastro e protege o conteúdo dinâmico', () => {
+    const email = renderUserInviteEmail({
+      recipientName: 'Gabriel <Bayer>',
+      inviterName: 'Administrador',
+      organizationName: 'BZS Tecnologia',
+      roleName: 'Vendedor',
+      inviteUrl: 'https://one.bzs.com.br/aceitar-convite?token=seguro',
+      expiresInHours: 72,
+    });
+
+    expect(email.subject).toBe('Você foi convidado para acessar o BZS One');
+    expect(email.html).toContain('Gabriel &lt;Bayer&gt;');
+    expect(email.html).toContain('Aceitar convite');
+    expect(email.html).toContain('ACESSO SEGURO');
+    expect(email.html).not.toContain('%unsubscribe_url%');
+    expect(email.text).toContain('token=seguro');
+    expect(email.text).toContain('expira em 72 horas');
   });
 });

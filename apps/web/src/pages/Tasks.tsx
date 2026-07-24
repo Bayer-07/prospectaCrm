@@ -1,4 +1,18 @@
 import { FormEvent, MouseEvent, useEffect, useMemo, useRef, useState } from 'react';
+import {
+  DndContext,
+  DragEndEvent,
+  DragMoveEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  TouchSensor,
+  pointerWithin,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+} from '@dnd-kit/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   CalendarDays,
@@ -32,6 +46,8 @@ type Task = {
 type Metadata = { users: Array<{ id: string; name: string; teamId?: string }> };
 type CalendarView = 'month' | 'week';
 type TaskFilter = 'OPEN' | 'COMPLETED' | 'ALL';
+type TaskDropTarget = { view: CalendarView; dateKey: string };
+type TaskDropIndicator = TaskDropTarget & { minute?: number };
 
 const weekdayFormatter = new Intl.DateTimeFormat('pt-BR', { weekday: 'short' });
 const monthTitleFormatter = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' });
@@ -46,6 +62,9 @@ export function TasksPage() {
   const [filter, setFilter] = useState<TaskFilter>('OPEN');
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [modal, setModal] = useState<{ dueAt: Date; task?: Task } | null>(null);
+  const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
+  const [dropIndicator, setDropIndicator] = useState<TaskDropIndicator | null>(null);
+  const [dragError, setDragError] = useState<string | null>(null);
   const range = useMemo(() => visibleRange(anchor, view), [anchor, view]);
   const query = useQuery({
     queryKey: ['tasks', range.start.toISOString(), range.end.toISOString(), filter],
@@ -61,7 +80,39 @@ export function TasksPage() {
     mutationFn: (id: string) => api(`/tasks/${id}/complete`, { method: 'PATCH' }),
     onSuccess: () => client.invalidateQueries({ queryKey: ['tasks'] }),
   });
+  const move = useMutation({
+    mutationFn: ({ id, dueAt }: { id: string; dueAt: Date }) => api(`/tasks/${id}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ dueAt: dueAt.toISOString() }),
+    }),
+    onMutate: async ({ id, dueAt }) => {
+      setDragError(null);
+      await client.cancelQueries({ queryKey: ['tasks'] });
+      const previous = client.getQueriesData<Envelope<Task[]>>({ queryKey: ['tasks'] });
+      client.setQueriesData<Envelope<Task[]>>({ queryKey: ['tasks'] }, (current) => {
+        if (!current) return current;
+        return {
+          ...current,
+          data: current.data
+            .map((task) => task.id === id ? { ...task, dueAt: dueAt.toISOString() } : task)
+            .sort((left, right) => new Date(left.dueAt).getTime() - new Date(right.dueAt).getTime()),
+        };
+      });
+      return { previous };
+    },
+    onError: (error, _variables, context) => {
+      for (const [queryKey, data] of context?.previous || []) client.setQueryData(queryKey, data);
+      setDragError(apiErrorMessage(error, 'Não foi possível reagendar a tarefa'));
+    },
+    onSettled: () => client.invalidateQueries({ queryKey: ['tasks'] }),
+  });
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 5 } }),
+    useSensor(TouchSensor, { activationConstraint: { delay: 160, tolerance: 8 } }),
+  );
   const tasks = query.data?.data || [];
+  const activeTask = activeTaskId ? tasks.find((task) => task.id === activeTaskId) : undefined;
+  const movingTaskId = move.isPending ? move.variables?.id : undefined;
   const tasksByDay = useMemo(() => {
     const grouped = new Map<string, Task[]>();
     for (const task of tasks) {
@@ -87,6 +138,16 @@ export function TasksPage() {
   const saveView = (next: CalendarView) => {
     setView(next);
     localStorage.setItem('bzs-task-calendar-view', next);
+  };
+  const finishDrag = (event: DragEndEvent) => {
+    setActiveTaskId(null);
+    setDropIndicator(null);
+    const task = tasks.find((item) => item.id === String(event.active.id));
+    const target = getTaskDropIndicator(event);
+    if (!task || task.status !== 'OPEN' || !target) return;
+
+    const dueAt = taskDropDueAt(task.dueAt, target.dateKey, target.minute);
+    if (dueAt.getTime() !== new Date(task.dueAt).getTime()) move.mutate({ id: task.id, dueAt });
   };
 
   return <div className="tasks-page task-calendar-page">
@@ -114,21 +175,47 @@ export function TasksPage() {
       </div>
     </div>
 
-    {view === 'month'
-      ? <MonthCalendar
-        range={range}
-        anchor={anchor}
-        tasksByDay={tasksByDay}
-        onCreate={createAt}
-        onOpen={openTask}
-        onComplete={(task) => task.status === 'OPEN' && complete.mutate(task.id)}
-      />
-      : <WeekCalendar
-        range={range}
-        tasks={tasks}
-        onCreate={createAt}
-        onOpen={openTask}
-      />}
+    <DndContext
+      sensors={sensors}
+      collisionDetection={pointerWithin}
+      onDragStart={(event: DragStartEvent) => {
+        setDragError(null);
+        setActiveTaskId(String(event.active.id));
+      }}
+      onDragMove={(event: DragMoveEvent) => setDropIndicator(getTaskDropIndicator(event))}
+      onDragEnd={finishDrag}
+      onDragCancel={() => {
+        setActiveTaskId(null);
+        setDropIndicator(null);
+      }}
+    >
+      {view === 'month'
+        ? <MonthCalendar
+          range={range}
+          anchor={anchor}
+          tasksByDay={tasksByDay}
+          movingTaskId={movingTaskId}
+          onCreate={createAt}
+          onOpen={openTask}
+          onComplete={(task) => task.status === 'OPEN' && complete.mutate(task.id)}
+        />
+        : <WeekCalendar
+          range={range}
+          tasks={tasks}
+          movingTaskId={movingTaskId}
+          dropIndicator={dropIndicator}
+          onCreate={createAt}
+          onOpen={openTask}
+        />}
+      <DragOverlay dropAnimation={{ duration: 160, easing: 'ease-out' }}>
+        {activeTask ? <TaskDragPreview task={activeTask} view={view} /> : null}
+      </DragOverlay>
+    </DndContext>
+
+    {dragError && <div className="task-drag-error" role="alert">
+      <span>{dragError}</span>
+      <button type="button" onClick={() => setDragError(null)} aria-label="Fechar aviso">×</button>
+    </div>}
 
     {modal && <TaskModal
       initialDueAt={modal.dueAt}
@@ -147,6 +234,7 @@ function MonthCalendar({
   range,
   anchor,
   tasksByDay,
+  movingTaskId,
   onCreate,
   onOpen,
   onComplete,
@@ -154,6 +242,7 @@ function MonthCalendar({
   range: { start: Date; end: Date };
   anchor: Date;
   tasksByDay: Map<string, Task[]>;
+  movingTaskId?: string;
   onCreate(date: Date): void;
   onOpen(task: Task): void;
   onComplete(task: Task): void;
@@ -170,49 +259,132 @@ function MonthCalendar({
         const key = localDateKey(day);
         const dayTasks = tasksByDay.get(key) || [];
         const outside = day.getMonth() !== anchor.getMonth();
-        return <div
+        return <MonthDay
           key={key}
-          className={`task-month-day${outside ? ' outside' : ''}${key === todayKey ? ' today' : ''}`}
-          onClick={() => onCreate(defaultTaskTime(day))}
-        >
-          <button
-            className="task-month-day-number"
-            onClick={(event) => { event.stopPropagation(); onCreate(defaultTaskTime(day)); }}
-            aria-label={`Criar tarefa em ${fullDateFormatter.format(day)}`}
-          >{day.getDate()}</button>
-          <div className="task-month-events">
-            {dayTasks.slice(0, 4).map((task) => <button
-              key={task.id}
-              className={`task-calendar-event priority-${task.priority.toLowerCase()}${task.status === 'COMPLETED' ? ' completed' : ''}`}
-              onClick={(event) => { event.stopPropagation(); onOpen(task); }}
-              title={`${timeFormatter.format(new Date(task.dueAt))} · ${task.title}`}
-            >
-              <span className="task-event-time">{timeFormatter.format(new Date(task.dueAt))}</span>
-              <strong>{task.title}</strong>
-              <span
-                className="task-event-check"
-                role="button"
-                tabIndex={task.status === 'OPEN' ? 0 : -1}
-                aria-label={task.status === 'COMPLETED' ? 'Tarefa concluída' : 'Concluir tarefa'}
-                onClick={(event) => { event.stopPropagation(); onComplete(task); }}
-              >{task.status === 'COMPLETED' ? <Check size={12} /> : <Circle size={12} />}</span>
-            </button>)}
-            {dayTasks.length > 4 && <button className="task-more-events" onClick={(event) => event.stopPropagation()}>+{dayTasks.length - 4} tarefas</button>}
-          </div>
-        </div>;
+          day={day}
+          tasks={dayTasks}
+          outside={outside}
+          today={key === todayKey}
+          movingTaskId={movingTaskId}
+          onCreate={onCreate}
+          onOpen={onOpen}
+          onComplete={onComplete}
+        />;
       })}
     </div>
   </section>;
 }
 
+function MonthDay({
+  day,
+  tasks,
+  outside,
+  today,
+  movingTaskId,
+  onCreate,
+  onOpen,
+  onComplete,
+}: {
+  day: Date;
+  tasks: Task[];
+  outside: boolean;
+  today: boolean;
+  movingTaskId?: string;
+  onCreate(date: Date): void;
+  onOpen(task: Task): void;
+  onComplete(task: Task): void;
+}) {
+  const dateKey = localDateKey(day);
+  const drop = useDroppable({ id: `task-month-${dateKey}`, data: { view: 'month', dateKey } satisfies TaskDropTarget });
+  return <div
+    ref={drop.setNodeRef}
+    className={`task-month-day${outside ? ' outside' : ''}${today ? ' today' : ''}${drop.isOver ? ' drop-over' : ''}`}
+    onClick={() => onCreate(defaultTaskTime(day))}
+  >
+    <button
+      className="task-month-day-number"
+      onClick={(event) => { event.stopPropagation(); onCreate(defaultTaskTime(day)); }}
+      aria-label={`Criar tarefa em ${fullDateFormatter.format(day)}`}
+    >{day.getDate()}</button>
+    <div className="task-month-events">
+      {tasks.slice(0, 4).map((task) => <MonthTaskEvent
+        key={task.id}
+        task={task}
+        saving={movingTaskId === task.id}
+        onOpen={onOpen}
+        onComplete={onComplete}
+      />)}
+      {tasks.length > 4 && <button className="task-more-events" onClick={(event) => event.stopPropagation()}>+{tasks.length - 4} tarefas</button>}
+    </div>
+  </div>;
+}
+
+function MonthTaskEvent({ task, saving, onOpen, onComplete }: {
+  task: Task;
+  saving: boolean;
+  onOpen(task: Task): void;
+  onComplete(task: Task): void;
+}) {
+  const drag = useDraggable({
+    id: task.id,
+    data: { taskId: task.id },
+    disabled: task.status !== 'OPEN' || saving,
+  });
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const moved = useRef(false);
+  return <button
+    ref={drag.setNodeRef}
+    {...drag.attributes}
+    {...drag.listeners}
+    className={`task-calendar-event priority-${task.priority.toLowerCase()}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
+    onPointerDownCapture={(event) => {
+      pointerStart.current = { x: event.clientX, y: event.clientY };
+      moved.current = false;
+    }}
+    onPointerMoveCapture={(event) => {
+      if (!pointerStart.current) return;
+      if (Math.hypot(
+        event.clientX - pointerStart.current.x,
+        event.clientY - pointerStart.current.y,
+      ) >= 5) moved.current = true;
+    }}
+    onClick={(event) => {
+      event.stopPropagation();
+      if (moved.current) {
+        moved.current = false;
+        pointerStart.current = null;
+        return;
+      }
+      pointerStart.current = null;
+      onOpen(task);
+    }}
+    title={`${timeFormatter.format(new Date(task.dueAt))} · ${task.title}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
+  >
+    <span className="task-event-time">{timeFormatter.format(new Date(task.dueAt))}</span>
+    <strong>{task.title}</strong>
+    <span
+      className="task-event-check"
+      role="button"
+      tabIndex={task.status === 'OPEN' ? 0 : -1}
+      aria-label={task.status === 'COMPLETED' ? 'Tarefa concluída' : 'Concluir tarefa'}
+      onPointerDown={(event) => event.stopPropagation()}
+      onClick={(event) => { event.stopPropagation(); onComplete(task); }}
+    >{task.status === 'COMPLETED' ? <Check size={12} /> : <Circle size={12} />}</span>
+  </button>;
+}
+
 function WeekCalendar({
   range,
   tasks,
+  movingTaskId,
+  dropIndicator,
   onCreate,
   onOpen,
 }: {
   range: { start: Date; end: Date };
   tasks: Task[];
+  movingTaskId?: string;
+  dropIndicator: TaskDropIndicator | null;
   onCreate(date: Date): void;
   onOpen(task: Task): void;
 }) {
@@ -254,32 +426,138 @@ function WeekCalendar({
       <div className="task-week-days">
         {days.map((day) => {
           const key = localDateKey(day);
-          return <div
+          return <WeekDay
             key={key}
-            className={`task-week-day${key === todayKey ? ' today' : ''}`}
-            onClick={(event) => createFromPosition(event, day)}
-          >
-            {hours.map((hour) => <div className="task-week-hour-slot" key={hour} />)}
-            {(taskGroups.get(key) || []).map((task) => {
-              const date = new Date(task.dueAt);
-              const minute = (date.getHours() * 60) + date.getMinutes();
-              return <button
-                key={task.id}
-                className={`task-week-event priority-${task.priority.toLowerCase()}${task.status === 'COMPLETED' ? ' completed' : ''}`}
-                style={{ top: `${(minute / 1440) * 100}%` }}
-                onClick={(event) => { event.stopPropagation(); onOpen(task); }}
-                title={task.title}
-              >
-                <strong>{task.title}</strong>
-                <span>{timeFormatter.format(date)}{task.assignee ? ` · ${task.assignee.name}` : ''}</span>
-              </button>;
-            })}
-            {key === todayKey && <CurrentTimeLine />}
-          </div>;
+            day={day}
+            tasks={taskGroups.get(key) || []}
+            today={key === todayKey}
+            movingTaskId={movingTaskId}
+            dropMinute={dropIndicator?.view === 'week' && dropIndicator.dateKey === key
+              ? dropIndicator.minute
+              : undefined}
+            onCreateFromPosition={createFromPosition}
+            onOpen={onOpen}
+          />;
         })}
       </div>
     </div>
   </section>;
+}
+
+function WeekDay({
+  day,
+  tasks,
+  today,
+  movingTaskId,
+  dropMinute,
+  onCreateFromPosition,
+  onOpen,
+}: {
+  day: Date;
+  tasks: Task[];
+  today: boolean;
+  movingTaskId?: string;
+  dropMinute?: number;
+  onCreateFromPosition(event: MouseEvent<HTMLDivElement>, day: Date): void;
+  onOpen(task: Task): void;
+}) {
+  const dateKey = localDateKey(day);
+  const drop = useDroppable({ id: `task-week-${dateKey}`, data: { view: 'week', dateKey } satisfies TaskDropTarget });
+  const taskLayout = new Map(
+    calculateWeekTaskLayout(tasks).map((position) => [position.id, position]),
+  );
+  return <div
+    ref={drop.setNodeRef}
+    className={`task-week-day${today ? ' today' : ''}${drop.isOver ? ' drop-over' : ''}`}
+    onClick={(event) => onCreateFromPosition(event, day)}
+  >
+    {hours.map((hour) => <div className="task-week-hour-slot" key={hour} />)}
+    {drop.isOver && dropMinute !== undefined && <span
+      className="task-week-drop-line"
+      style={{ top: `${(dropMinute / 1440) * 100}%` }}
+      aria-hidden="true"
+    ><i>{minutesLabel(dropMinute)}</i></span>}
+    {tasks.map((task) => {
+      const position = taskLayout.get(task.id);
+      return <WeekTaskEvent
+        key={task.id}
+        task={task}
+        column={position?.column || 0}
+        columnCount={position?.columnCount || 1}
+        stack={position?.stack || 0}
+        saving={movingTaskId === task.id}
+        onOpen={onOpen}
+      />;
+    })}
+    {today && <CurrentTimeLine />}
+  </div>;
+}
+
+function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: {
+  task: Task;
+  column: number;
+  columnCount: number;
+  stack: number;
+  saving: boolean;
+  onOpen(task: Task): void;
+}) {
+  const drag = useDraggable({
+    id: task.id,
+    data: { taskId: task.id },
+    disabled: task.status !== 'OPEN' || saving,
+  });
+  const date = new Date(task.dueAt);
+  const minute = (date.getHours() * 60) + date.getMinutes();
+  const slotWidth = 100 / columnCount;
+  const left = column * slotWidth;
+  const right = Math.max(0, 100 - Math.min(100, ((column + 1) * slotWidth) + (columnCount > 1 ? 25 : 0)));
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const moved = useRef(false);
+  return <button
+    ref={drag.setNodeRef}
+    {...drag.attributes}
+    {...drag.listeners}
+    className={`task-week-event priority-${task.priority.toLowerCase()}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
+    style={{
+      top: `${(minute / 1440) * 100}%`,
+      left: `calc(${left}% + 3px)`,
+      right: `calc(${right}% + 3px)`,
+      zIndex: 2 + stack,
+    }}
+    onPointerDownCapture={(event) => {
+      pointerStart.current = { x: event.clientX, y: event.clientY };
+      moved.current = false;
+    }}
+    onPointerMoveCapture={(event) => {
+      if (!pointerStart.current) return;
+      if (Math.hypot(
+        event.clientX - pointerStart.current.x,
+        event.clientY - pointerStart.current.y,
+      ) >= 5) moved.current = true;
+    }}
+    onClick={(event) => {
+      event.stopPropagation();
+      if (moved.current) {
+        moved.current = false;
+        pointerStart.current = null;
+        return;
+      }
+      pointerStart.current = null;
+      onOpen(task);
+    }}
+    title={`${task.title}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
+  >
+    <strong>{task.title}</strong>
+    <span>{timeFormatter.format(date)}{task.assignee ? ` · ${task.assignee.name}` : ''}</span>
+  </button>;
+}
+
+function TaskDragPreview({ task, view }: { task: Task; view: CalendarView }) {
+  const date = new Date(task.dueAt);
+  return <div className={`task-drag-preview ${view}`}>
+    <strong>{task.title}</strong>
+    <span>{timeFormatter.format(date)}{task.assignee ? ` · ${task.assignee.name}` : ''}</span>
+  </div>;
 }
 
 function CurrentTimeLine() {
@@ -370,6 +648,78 @@ function visibleRange(anchor: Date, view: CalendarView) {
   const first = new Date(anchor.getFullYear(), anchor.getMonth(), 1);
   const start = startOfWeek(first);
   return { start, end: addDays(start, 42) };
+}
+
+export function taskDropDueAt(currentDueAt: string | Date, dateKey: string, minute?: number) {
+  const current = new Date(currentDueAt);
+  const [year, month, day] = dateKey.split('-').map(Number);
+  const next = new Date(year, month - 1, day);
+  const targetMinute = minute === undefined
+    ? (current.getHours() * 60) + current.getMinutes()
+    : snapTaskMinutes(minute);
+  next.setHours(Math.floor(targetMinute / 60), targetMinute % 60, 0, 0);
+  return next;
+}
+
+export function snapTaskMinutes(value: number) {
+  const bounded = Math.max(0, Math.min(1439, value));
+  return Math.min(1410, Math.round(bounded / 30) * 30);
+}
+
+export function calculateWeekTaskLayout(tasks: Array<{ id: string; dueAt: string | Date }>) {
+  const visualDurationMinutes = 60;
+  const sorted = tasks
+    .map((task) => ({
+      id: task.id,
+      start: new Date(task.dueAt).getTime() / 60_000,
+    }))
+    .sort((left, right) => left.start - right.start);
+  const result: Array<{ id: string; column: number; columnCount: number; stack: number }> = [];
+  let cluster: typeof sorted = [];
+  let clusterEnd = Number.NEGATIVE_INFINITY;
+
+  const positionCluster = () => {
+    if (!cluster.length) return;
+    const columnEnds: number[] = [];
+    const positioned = cluster.map((task, stack) => {
+      let column = columnEnds.findIndex((end) => end <= task.start);
+      if (column === -1) column = columnEnds.length;
+      columnEnds[column] = task.start + visualDurationMinutes;
+      return { id: task.id, column, stack };
+    });
+    const columnCount = Math.max(1, columnEnds.length);
+    for (const task of positioned) result.push({ ...task, columnCount });
+  };
+
+  for (const task of sorted) {
+    if (cluster.length && task.start >= clusterEnd) {
+      positionCluster();
+      cluster = [];
+      clusterEnd = Number.NEGATIVE_INFINITY;
+    }
+    cluster.push(task);
+    clusterEnd = Math.max(clusterEnd, task.start + visualDurationMinutes);
+  }
+  positionCluster();
+  return result;
+}
+
+function getTaskDropIndicator(event: DragMoveEvent | DragEndEvent): TaskDropIndicator | null {
+  const over = event.over;
+  const target = over?.data.current as TaskDropTarget | undefined;
+  if (!over || !target?.dateKey) return null;
+  if (target.view === 'month') return target;
+
+  const translatedTop = event.active.rect.current.translated?.top;
+  if (translatedTop === undefined || !over.rect.height) return null;
+  return {
+    ...target,
+    minute: snapTaskMinutes(((translatedTop - over.rect.top) / over.rect.height) * 1440),
+  };
+}
+
+function minutesLabel(minutes: number) {
+  return `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`;
 }
 
 function startOfWeek(value: Date) {

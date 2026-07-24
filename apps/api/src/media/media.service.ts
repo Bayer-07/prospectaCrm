@@ -15,15 +15,20 @@ const ALLOWED_TYPES = new Set([
 @Injectable()
 export class MediaService implements OnModuleInit {
   private readonly bucket = process.env.S3_BUCKET || 'prospecta-media';
-  private readonly client = new S3Client({
+  private readonly storageEndpoint = process.env.S3_ENDPOINT || 'http://localhost:9000';
+  private readonly publicEndpoint = process.env.S3_PUBLIC_ENDPOINT || this.storageEndpoint;
+  private readonly clientOptions = {
     region: process.env.S3_REGION || 'us-east-1',
-    endpoint: process.env.S3_ENDPOINT || 'http://localhost:9000',
     forcePathStyle: true,
     credentials: {
       accessKeyId: process.env.S3_ACCESS_KEY || 'prospecta',
       secretAccessKey: process.env.S3_SECRET_KEY || 'prospecta-secret',
     },
-  });
+  };
+  private readonly client = new S3Client({ ...this.clientOptions, endpoint: this.storageEndpoint });
+  private readonly publicClient = this.publicEndpoint === this.storageEndpoint
+    ? this.client
+    : new S3Client({ ...this.clientOptions, endpoint: this.publicEndpoint });
 
   constructor(private readonly db: PrismaService) {}
 
@@ -48,7 +53,7 @@ export class MediaService implements OnModuleInit {
     const key = `${auth.organizationId}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}-${safeName}`;
     const asset = await this.db.mediaAsset.create({ data: { key, filename, contentType, sizeBytes } });
     const expiresIn = 10 * 60;
-    const uploadUrl = await getSignedUrl(this.client, new PutObjectCommand({
+    const uploadUrl = await getSignedUrl(this.publicClient, new PutObjectCommand({
       Bucket: this.bucket, Key: key, ContentType: contentType, ContentLength: sizeBytes,
       Metadata: { organization: auth.organizationId, asset: asset.id },
     }), { expiresIn });
@@ -59,7 +64,7 @@ export class MediaService implements OnModuleInit {
     const asset = await this.db.mediaAsset.findUnique({ where: { id } });
     if (!asset || !asset.key.startsWith(`${auth.organizationId}/`)) throw new NotFoundException('Mídia não encontrada');
     const expiresIn = 15 * 60;
-    const url = await getSignedUrl(this.client, new GetObjectCommand({
+    const url = await getSignedUrl(this.publicClient, new GetObjectCommand({
       Bucket: this.bucket, Key: asset.key, ResponseContentDisposition: `${attachment ? 'attachment' : 'inline'}; filename="${asset.filename.replace(/"/g, '')}"`,
     }), { expiresIn });
     return { url, expiresAt: new Date(Date.now() + expiresIn * 1000), filename: asset.filename, contentType: asset.contentType };

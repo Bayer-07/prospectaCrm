@@ -13,6 +13,55 @@ Plataforma interna integrada da BZS Tecnologia. A estrutura atual reúne CRM, at
 | Evolution API | http://localhost:8082 |
 | MinIO | http://localhost:9001 |
 
+## Acesso pela rede local
+
+O frontend usa `/api/v1` e `/socket.io` como endereços relativos. Assim, um
+computador que abrir `http://IP_DO_SERVIDOR:5173` envia as requisições ao
+servidor, e não ao próprio `localhost`.
+
+Descubra o IPv4 do servidor no PowerShell:
+
+```powershell
+Get-NetIPAddress -AddressFamily IPv4 |
+  Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
+  Select-Object IPAddress, InterfaceAlias
+```
+
+No `.env`, substitua `192.168.0.10` pelo IP reservado do servidor:
+
+```dotenv
+APP_URL=http://192.168.0.10:5173
+APP_ADDRESS=http://192.168.0.10
+API_URL=http://192.168.0.10:5173/api/v1
+CORS_ORIGINS=http://192.168.0.10:5173,http://192.168.0.10,http://localhost:5173,http://127.0.0.1:5173
+HOST=::
+S3_PUBLIC_ENDPOINT=http://192.168.0.10:9000
+S3_BIND_ADDRESS=0.0.0.0
+VITE_API_URL=/api/v1
+VITE_SOCKET_URL=/
+```
+
+Reinicie a aplicação depois de alterar o `.env`. Os outros computadores
+podem então acessar:
+
+- sistema: `http://192.168.0.10:5173`;
+- API para integrações: `http://192.168.0.10:5173/api/v1`;
+- Swagger: `http://192.168.0.10:5173/docs`.
+
+No Docker Compose completo, o Caddy publica o sistema sem a porta `5173`:
+`http://192.168.0.10`, `http://192.168.0.10/api/v1` e
+`http://192.168.0.10/docs`.
+
+`DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_URL`, `API_INTERNAL_URL` e
+`S3_ENDPOINT` podem continuar apontando para `localhost` ou para nomes de
+serviços Docker: são conexões internas executadas no servidor e nunca são
+enviadas ao navegador.
+
+Use uma reserva DHCP ou IP fixo para o endereço do servidor não mudar. No
+Firewall do Windows, libere somente para a rede privada/local as portas
+`5173` (aplicação) e `9000` (mídias). Se clientes externos chamarem a API
+diretamente sem o proxy, libere também `3000`.
+
 ## Pré-requisitos
 
 - Node.js 22 ou mais recente;

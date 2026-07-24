@@ -21,6 +21,21 @@ export type DefaultEmailTemplate = {
   text: string;
 };
 
+export type UserInviteEmailJob = {
+  inviteTokenId: string;
+  inviteUrl: string;
+  expiresInHours: number;
+};
+
+export type UserInviteEmailInput = {
+  recipientName: string;
+  inviterName: string;
+  organizationName: string;
+  roleName: string;
+  inviteUrl: string;
+  expiresInHours: number;
+};
+
 const SGA_URL = 'https://www.bzs.com.br/solucoes/controle-agua-e-gas/17';
 
 export function escapeEmailHtml(value: string) {
@@ -118,6 +133,55 @@ export function renderBzsEmailLayout(input: BrandedEmailLayoutInput) {
     </table>
   </body>
 </html>`;
+}
+
+export function renderUserInviteEmail(input: UserInviteEmailInput) {
+  const subject = 'Você foi convidado para acessar o BZS One';
+  const expiration = `${input.expiresInHours} horas`;
+  const html = renderBzsEmailLayout({
+    preheader: `${input.inviterName} convidou você para fazer parte do BZS One.`,
+    eyebrow: 'ACESSO SEGURO',
+    brandLabel: 'BZS ONE',
+    title: 'Seu acesso está pronto',
+    bodyHtml: `
+      <p style="margin:0 0 18px">Olá, <strong style="color:#182a33">${escapeEmailHtml(input.recipientName)}</strong>.</p>
+      <p style="margin:0 0 22px">
+        <strong style="color:#182a33">${escapeEmailHtml(input.inviterName)}</strong> convidou você para acessar o
+        <strong style="color:#182a33">BZS One</strong>, o ambiente interno da ${escapeEmailHtml(input.organizationName)}.
+      </p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:0 0 22px;border-collapse:separate;border-spacing:0;background:#f5f8f9;border:1px solid #dfe8ec;border-radius:10px">
+        <tr>
+          <td style="padding:14px 16px;border-bottom:1px solid #dfe8ec;color:#66727d">Organização</td>
+          <td align="right" style="padding:14px 16px;border-bottom:1px solid #dfe8ec;font-weight:700;color:#20262c">${escapeEmailHtml(input.organizationName)}</td>
+        </tr>
+        <tr>
+          <td style="padding:14px 16px;color:#66727d">Perfil de acesso</td>
+          <td align="right" style="padding:14px 16px;font-weight:700;color:#20262c">${escapeEmailHtml(input.roleName)}</td>
+        </tr>
+      </table>
+      <p style="margin:0 0 10px">Use o botão abaixo para criar sua senha e ativar a conta. O convite é pessoal e expira em <strong style="color:#182a33">${escapeEmailHtml(expiration)}</strong>.</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:24px 0 0;border-collapse:collapse">
+        <tr>
+          <td style="padding:14px 16px;border-left:4px solid #2fa9dd;border-radius:0 8px 8px 0;background:#f0f8fb;color:#52646e;font-size:13px;line-height:20px">
+            Por segurança, não encaminhe este e-mail. Se você não esperava o convite, ignore a mensagem; nenhuma conta será ativada.
+          </td>
+        </tr>
+      </table>`,
+    callToAction: { label: 'Aceitar convite', href: input.inviteUrl },
+    footerText: 'Mensagem transacional de acesso ao BZS One. Este e-mail não é uma campanha comercial.',
+  });
+  const text = [
+    `Olá, ${input.recipientName}.`,
+    '',
+    `${input.inviterName} convidou você para acessar o BZS One, o ambiente interno da ${input.organizationName}.`,
+    `Perfil de acesso: ${input.roleName}.`,
+    '',
+    `Crie sua senha e ative a conta: ${input.inviteUrl}`,
+    '',
+    `Este convite é pessoal e expira em ${expiration}.`,
+    'Se você não esperava o convite, ignore esta mensagem; nenhuma conta será ativada.',
+  ].join('\n');
+  return { subject, html, text };
 }
 
 function paragraph(content: string, style = '') {

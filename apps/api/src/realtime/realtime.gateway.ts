@@ -5,12 +5,13 @@ import type { Redis } from 'ioredis';
 import { Server, Socket } from 'socket.io';
 import { SESSION_COOKIE } from '../auth/auth-cookies.js';
 import { SessionTokenService } from '../auth/session-token.service.js';
+import { configuredCorsOrigins } from '../config/cors-origins.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { QUEUE_CONNECTION } from '../queue/queue.module.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 
-@WebSocketGateway({ cors: { origin: (process.env.APP_URL || 'http://localhost:5173').split(','), credentials: true }, namespace: '/realtime' })
+@WebSocketGateway({ cors: { origin: configuredCorsOrigins(), credentials: true }, namespace: '/realtime' })
 export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnModuleDestroy {
   @WebSocketServer() server!: Server;
   private subscriber?: Redis;

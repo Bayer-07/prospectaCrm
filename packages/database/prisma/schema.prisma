@@ -49,6 +49,12 @@ enum TaskDigestStatus {
   FAILED
 }
 
+enum InviteEmailStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
 enum ChannelType {
   WHATSAPP
   EMAIL
@@ -257,15 +263,22 @@ model Session {
 }
 
 model InviteToken {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @db.Uuid
-  createdById String    @db.Uuid
-  tokenHash   String    @unique
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdAt   DateTime  @default(now())
-  user        User      @relation("InvitedUser", fields: [userId], references: [id], onDelete: Cascade)
-  createdBy   User      @relation("InviteCreator", fields: [createdById], references: [id])
+  id                String            @id @default(uuid()) @db.Uuid
+  userId            String            @db.Uuid
+  createdById       String            @db.Uuid
+  tokenHash         String            @unique
+  expiresAt         DateTime
+  usedAt            DateTime?
+  emailStatus       InviteEmailStatus @default(PENDING)
+  emailAttempts     Int               @default(0)
+  emailSentAt       DateTime?
+  providerMessageId String?
+  emailError        String?
+  createdAt         DateTime          @default(now())
+  user              User              @relation("InvitedUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy         User              @relation("InviteCreator", fields: [createdById], references: [id])
+
+  @@index([emailStatus, expiresAt])
 }
 
 model PasswordResetToken {

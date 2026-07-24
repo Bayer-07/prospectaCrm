@@ -9,6 +9,7 @@ import { InboundProcessor } from './inbound.processor.js';
 import { runMaintenance } from './maintenance.processor.js';
 import { OutboundProcessor } from './outbound.processor.js';
 import { TaskDigestProcessor } from './task-digest.processor.js';
+import { UserInviteProcessor } from './user-invite.processor.js';
 import { WorkflowProcessor } from './workflow.processor.js';
 
 const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', { maxRetriesPerRequest: null });
@@ -20,6 +21,7 @@ const outboundQueue = new Queue('outbound-messages', queueOptions);
 const chatbotQueue = new Queue('chatbots', queueOptions);
 const inboundQueue = new Queue('inbound-webhooks', queueOptions);
 const taskDigestQueue = new Queue('task-digests', queueOptions);
+const transactionalEmailQueue = new Queue('transactional-emails', queueOptions);
 
 const inbound = new InboundProcessor(prisma, chatbotQueue, evolution, inboundQueue);
 const outbound = new OutboundProcessor(prisma, evolution);
@@ -27,6 +29,7 @@ const campaigns = new CampaignProcessor(prisma, campaignQueue, evolution);
 const workflows = new WorkflowProcessor(prisma, automationQueue, outboundQueue);
 const chatbots = new ChatbotProcessor(prisma, outboundQueue);
 const taskDigests = new TaskDigestProcessor(prisma);
+const userInvites = new UserInviteProcessor(prisma);
 
 const workers = [
   new Worker('inbound-webhooks', async (job) => {
@@ -45,6 +48,7 @@ const workers = [
   }, { connection, concurrency: 5 }),
   new Worker('external-webhooks', (job) => processExternalWebhook(prisma, job), { connection, concurrency: 5 }),
   new Worker('task-digests', () => taskDigests.process(), { connection, concurrency: 1 }),
+  new Worker('transactional-emails', (job) => userInvites.process(job), { connection, concurrency: 3 }),
 ];
 
 for (const worker of workers) {
@@ -115,11 +119,11 @@ const shutdown = async () => {
   clearInterval(maintenanceTimer);
   clearInterval(recentSyncTimer);
   await Promise.all(workers.map((worker) => worker.close()));
-  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close()]);
+  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close()]);
   await prisma.$disconnect();
   await connection.quit();
 };
 process.on('SIGTERM', () => void shutdown().then(() => process.exit(0)));
 process.on('SIGINT', () => void shutdown().then(() => process.exit(0)));
 
-console.log('BZS One worker ativo: mensagens, campanhas, automações e manutenção.');
+console.log('BZS One worker ativo: mensagens, e-mails, campanhas, automações e manutenção.');

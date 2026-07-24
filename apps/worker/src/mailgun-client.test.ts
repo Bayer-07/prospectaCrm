@@ -107,4 +107,36 @@ describe('MailgunClient', () => {
       'v:task-digest-user-id': 'user-1',
     }));
   });
+
+  it('envia convite transacional sem rastrear o link de ativação', async () => {
+    const create = vi.fn().mockResolvedValue({
+      id: '<invite@mg.example.com>',
+      message: 'Queued',
+      status: 200,
+    });
+    const client = new MailgunClient({
+      apiKey: 'secret',
+      domain: 'mg.example.com',
+      fromEmail: 'contato@example.com',
+      fromName: 'BZS',
+      region: 'US',
+      baseUrl: 'https://api.mailgun.net',
+    }, { create });
+
+    await client.sendUserInvite({
+      to: 'novo.usuario@example.com',
+      subject: 'Convite',
+      html: '<p>Convite</p>',
+      text: 'Convite',
+      inviteTokenId: 'invite-1',
+      userId: 'user-1',
+    });
+
+    expect(create).toHaveBeenCalledWith('mg.example.com', expect.objectContaining({
+      'o:tag': 'bzs-user-invite',
+      'o:tracking-clicks': 'no',
+      'v:invite-token-id': 'invite-1',
+      'v:user-id': 'user-1',
+    }));
+  });
 });

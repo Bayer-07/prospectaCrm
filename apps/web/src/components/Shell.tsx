@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell, Blocks, Bot, Building2, CheckCheck, CheckSquare, ChevronDown, ContactRound, Gauge,
-  Inbox, KanbanSquare, LogOut, Mail, Menu, MessageSquareText, Moon, Plus, Search,
+  Inbox, KanbanSquare, LogOut, Mail, Menu, MessageSquareText, Moon, Plus,
   Settings, Sun, UserRound, Users, X,
 } from 'lucide-react';
 import { api, dateTime, initials, type Envelope } from '../lib/api';
@@ -18,6 +18,7 @@ import {
   shouldPlayIncomingMessageSound,
   type InboxRealtimePayload,
 } from '../lib/incoming-notification';
+import { GlobalSearch } from './GlobalSearch';
 
 type NotificationItem = {
   id: string;
@@ -233,7 +234,7 @@ export function Shell() {
     <main className={`main-column ${isInbox ? 'inbox-shell' : ''}`}>
       <header className="topbar">
         <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
-        <div className="global-search"><Search size={16} /><input placeholder="Buscar empresas, contatos ou oportunidades…" /><kbd>⌘ K</kbd></div>
+        <GlobalSearch />
         <div className="topbar-actions">
           <button className="quick-add" onClick={() => navigate('/contatos')}><Plus size={16} /><span>Novo</span></button>
           <button className="icon-button theme-toggle" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'} title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>

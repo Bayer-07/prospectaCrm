@@ -31,6 +31,15 @@ export type MailgunTaskDigestInput = {
   digestDate: string;
 };
 
+export type MailgunUserInviteInput = {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  inviteTokenId: string;
+  userId: string;
+};
+
 export class MailgunRequestError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -113,12 +122,28 @@ export class MailgunClient {
     });
   }
 
+  async sendUserInvite(input: MailgunUserInviteInput) {
+    return this.sendMessage({
+      to: input.to,
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+      tag: 'bzs-user-invite',
+      trackingClicks: false,
+      variables: {
+        'invite-token-id': input.inviteTokenId,
+        'user-id': input.userId,
+      },
+    });
+  }
+
   private async sendMessage(input: {
     to: string;
     subject: string;
     html: string;
     text: string;
     tag: string;
+    trackingClicks?: boolean;
     variables: Record<string, string>;
   }) {
     if (!this.config) {
@@ -137,7 +162,7 @@ export class MailgunClient {
         text: input.text,
         'o:tracking': 'yes',
         'o:tracking-opens': 'yes',
-        'o:tracking-clicks': 'yes',
+        'o:tracking-clicks': input.trackingClicks === false ? 'no' : 'yes',
         'o:tag': input.tag,
         ...Object.fromEntries(
           Object.entries(input.variables).map(([key, value]) => [`v:${key}`, value]),

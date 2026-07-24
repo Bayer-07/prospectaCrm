@@ -41,6 +41,7 @@ services:
     environment:
       NODE_ENV: production
       PORT: 3000
+      HOST: 0.0.0.0
       APP_URL: ${APP_ADDRESS:-http://localhost}
       API_INTERNAL_URL: http://api:3000
       DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:-prospecta}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
@@ -67,6 +68,7 @@ services:
     env_file: .env
     environment:
       NODE_ENV: production
+      APP_URL: ${APP_ADDRESS:-http://localhost}
       DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:-prospecta}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
       REDIS_URL: redis://redis:6379
       EVOLUTION_API_URL: http://evolution:8080
@@ -113,6 +115,8 @@ services:
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-prospecta}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-prospecta-secret}
+    ports:
+      - "${S3_BIND_ADDRESS:-0.0.0.0}:9000:9000"
     volumes:
       - minio_data:/data
     healthcheck:

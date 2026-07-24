@@ -3,12 +3,15 @@ import { z } from 'zod';
 export {
   escapeEmailHtml,
   renderBzsEmailLayout,
+  renderUserInviteEmail,
   sgaProspectingEmailTemplates,
 } from './email-templates.js';
 export type {
   BrandedEmailCallToAction,
   BrandedEmailLayoutInput,
   DefaultEmailTemplate,
+  UserInviteEmailInput,
+  UserInviteEmailJob,
 } from './email-templates.js';
 
 export const dataScopes = ['all', 'team', 'own'] as const;
