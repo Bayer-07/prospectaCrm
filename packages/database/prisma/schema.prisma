@@ -43,6 +43,12 @@ enum TaskPriority {
   HIGH
 }
 
+enum TaskDigestStatus {
+  PENDING
+  SENT
+  FAILED
+}
+
 enum ChannelType {
   WHATSAPP
   EMAIL
@@ -130,6 +136,7 @@ model Organization {
   pipelines              Pipeline[]
   opportunities          Opportunity[]
   tasks                  Task[]
+  taskDigestDeliveries   TaskDigestDelivery[]
   tags                   Tag[]
   customFields           CustomFieldDefinition[]
   segments               Segment[]
@@ -194,40 +201,41 @@ model RolePermission {
 }
 
 model User {
-  id                    String               @id @default(uuid()) @db.Uuid
-  organizationId        String               @db.Uuid
-  teamId                String?              @db.Uuid
-  roleId                String               @db.Uuid
-  name                  String
-  email                 String
-  passwordHash          String?
-  status                UserStatus           @default(INVITED)
-  messageSignatureEnabled Boolean             @default(false)
-  lastLoginAt           DateTime?
-  createdAt             DateTime             @default(now())
-  updatedAt             DateTime             @updatedAt
-  organization          Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  team                  Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  role                  Role                 @relation(fields: [roleId], references: [id])
-  sessions              Session[]
-  inviteTokens          InviteToken[]        @relation("InvitedUser")
-  invitesCreated        InviteToken[]        @relation("InviteCreator")
-  resetTokens           PasswordResetToken[] @relation("ResetUser")
-  resetTokensCreated    PasswordResetToken[] @relation("ResetCreator")
-  ownedCompanies        Company[]            @relation("CompanyOwner")
-  ownedContacts         Contact[]            @relation("ContactOwner")
-  ownedOpportunities    Opportunity[]        @relation("OpportunityOwner")
-  assignedTasks         Task[]               @relation("TaskAssignee")
-  createdTasks          Task[]               @relation("TaskCreator")
-  notes                 Note[]
-  activities            Activity[]
-  assignedConversations Conversation[]       @relation("ConversationAssignee")
-  conversationEvents    ConversationEvent[]  @relation("ConversationEventActor")
-  createdCampaigns      Campaign[]
-  createdWorkflows      Workflow[]
-  createdChatbots       Chatbot[]
-  auditLogs             AuditLog[]
-  notifications         Notification[]
+  id                      String               @id @default(uuid()) @db.Uuid
+  organizationId          String               @db.Uuid
+  teamId                  String?              @db.Uuid
+  roleId                  String               @db.Uuid
+  name                    String
+  email                   String
+  passwordHash            String?
+  status                  UserStatus           @default(INVITED)
+  messageSignatureEnabled Boolean              @default(false)
+  lastLoginAt             DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  organization            Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team                    Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  role                    Role                 @relation(fields: [roleId], references: [id])
+  sessions                Session[]
+  inviteTokens            InviteToken[]        @relation("InvitedUser")
+  invitesCreated          InviteToken[]        @relation("InviteCreator")
+  resetTokens             PasswordResetToken[] @relation("ResetUser")
+  resetTokensCreated      PasswordResetToken[] @relation("ResetCreator")
+  ownedCompanies          Company[]            @relation("CompanyOwner")
+  ownedContacts           Contact[]            @relation("ContactOwner")
+  ownedOpportunities      Opportunity[]        @relation("OpportunityOwner")
+  assignedTasks           Task[]               @relation("TaskAssignee")
+  createdTasks            Task[]               @relation("TaskCreator")
+  taskDigestDeliveries    TaskDigestDelivery[]
+  notes                   Note[]
+  activities              Activity[]
+  assignedConversations   Conversation[]       @relation("ConversationAssignee")
+  conversationEvents      ConversationEvent[]  @relation("ConversationEventActor")
+  createdCampaigns        Campaign[]
+  createdWorkflows        Workflow[]
+  createdChatbots         Chatbot[]
+  auditLogs               AuditLog[]
+  notifications           Notification[]
 
   @@unique([organizationId, email])
   @@index([organizationId, teamId])
@@ -304,8 +312,9 @@ model Company {
   @@index([organizationId, name])
   @@index([organizationId, cnpj])
   @@index([organizationId, domain])
-  @@index([organizationId, teamId, ownerId])
-  @@index([organizationId, archivedAt, updatedAt])
+  @@index([organizationId, teamId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Company_team_scope_list_idx")
+  @@index([organizationId, ownerId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Company_owner_scope_list_idx")
+  @@index([organizationId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Company_active_updated_id_idx")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Company_name_trgm_idx")
   @@index([domain(ops: raw("gin_trgm_ops"))], type: Gin, map: "Company_domain_trgm_idx")
   @@index([cnpj(ops: raw("gin_trgm_ops"))], type: Gin, map: "Company_cnpj_trgm_idx")
@@ -322,6 +331,7 @@ model Contact {
   jobTitle            String?
   email               String?
   phone               String?
+  phoneKey            String?
   source              String?
   consentStatus       ConsentStatus        @default(UNKNOWN)
   consentSource       String?
@@ -349,11 +359,13 @@ model Contact {
   workflowEnrollments WorkflowEnrollment[]
 
   @@unique([organizationId, externalId])
+  @@unique([organizationId, phoneKey])
   @@index([organizationId, phone])
   @@index([organizationId, email])
-  @@index([organizationId, teamId, ownerId])
+  @@index([organizationId, teamId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Contact_team_scope_list_idx")
+  @@index([organizationId, ownerId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Contact_owner_scope_list_idx")
   @@index([primaryCompanyId])
-  @@index([organizationId, archivedAt, updatedAt])
+  @@index([organizationId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Contact_active_updated_id_idx")
   @@index([name(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contact_name_trgm_idx")
   @@index([email(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contact_email_trgm_idx")
   @@index([phone(ops: raw("gin_trgm_ops"))], type: Gin, map: "Contact_phone_trgm_idx")
@@ -436,13 +448,15 @@ model Opportunity {
   tags            OpportunityTag[]
 
   @@unique([organizationId, externalId])
-  @@index([organizationId, pipelineId, stageId])
-  @@index([organizationId, teamId, ownerId])
-  @@index([organizationId, createdAt, status])
-  @@index([organizationId, archivedAt, updatedAt])
+  @@index([organizationId, pipelineId, status, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Opportunity_kanban_idx")
+  @@index([organizationId, teamId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Opportunity_team_scope_list_idx")
+  @@index([organizationId, ownerId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Opportunity_owner_scope_list_idx")
+  @@index([organizationId, createdAt], map: "Opportunity_org_created_idx")
+  @@index([organizationId, updatedAt(sort: Desc), id(sort: Desc), archivedAt], map: "Opportunity_active_updated_id_idx")
   @@index([organizationId, status, archivedAt])
   @@index([organizationId, status, wonAt])
   @@index([organizationId, status, lostAt])
+  @@index([stageId])
   @@index([companyId])
   @@index([title(ops: raw("gin_trgm_ops"))], type: Gin, map: "Opportunity_title_trgm_idx")
 }
@@ -484,11 +498,35 @@ model Task {
   opportunity    Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, assigneeId, status, dueAt])
+  @@index([organizationId, teamId, status, dueAt], map: "Task_team_status_due_idx")
   @@index([organizationId, createdAt, status])
   @@index([organizationId, status, dueAt])
+  @@index([organizationId, dueAt], map: "Task_org_due_idx")
+  @@index([organizationId, assigneeId, dueAt], map: "Task_assignee_due_idx")
+  @@index([organizationId, teamId, dueAt], map: "Task_team_due_idx")
   @@index([companyId])
   @@index([contactId])
   @@index([opportunityId])
+}
+
+model TaskDigestDelivery {
+  id                String           @id @default(uuid()) @db.Uuid
+  organizationId    String           @db.Uuid
+  userId            String           @db.Uuid
+  digestDate        DateTime         @db.Date
+  status            TaskDigestStatus @default(PENDING)
+  taskCount         Int
+  attempts          Int              @default(0)
+  providerMessageId String?
+  lastError         String?
+  sentAt            DateTime?
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user              User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, digestDate])
+  @@index([organizationId, digestDate, status])
 }
 
 model Note {
@@ -551,6 +589,7 @@ model CompanyTag {
   tag       Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([companyId, tagId])
+  @@index([tagId])
 }
 
 model ContactTag {
@@ -570,6 +609,7 @@ model OpportunityTag {
   tag           Tag         @relation(fields: [tagId], references: [id], onDelete: Cascade)
 
   @@id([opportunityId, tagId])
+  @@index([tagId])
 }
 
 model CustomFieldDefinition {
@@ -601,6 +641,7 @@ model Segment {
   campaigns      Campaign[]
 
   @@unique([organizationId, name])
+  @@index([organizationId, updatedAt(sort: Desc), id(sort: Desc)], map: "Segment_org_updated_idx")
 }
 
 model SegmentMember {
@@ -610,6 +651,7 @@ model SegmentMember {
   contact   Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
 
   @@id([segmentId, contactId])
+  @@index([contactId])
 }
 
 model WhatsappInstance {
@@ -645,6 +687,7 @@ model WhatsappInstanceTeam {
   team       Team             @relation(fields: [teamId], references: [id], onDelete: Cascade)
 
   @@id([instanceId, teamId])
+  @@index([teamId])
 }
 
 model WarmupProfile {
@@ -671,24 +714,24 @@ model WarmupProfile {
 }
 
 model Conversation {
-  id              String             @id @default(uuid()) @db.Uuid
-  organizationId  String             @db.Uuid
-  instanceId      String             @db.Uuid
-  contactId       String             @db.Uuid
-  assigneeId      String?            @db.Uuid
+  id              String              @id @default(uuid()) @db.Uuid
+  organizationId  String              @db.Uuid
+  instanceId      String              @db.Uuid
+  contactId       String              @db.Uuid
+  assigneeId      String?             @db.Uuid
   remoteJid       String
   phoneJid        String?
-  status          ConversationStatus @default(WAITING)
-  unreadCount     Int                @default(0)
+  status          ConversationStatus  @default(WAITING)
+  unreadCount     Int                 @default(0)
   lastMessageAt   DateTime?
   firstResponseAt DateTime?
   closedAt        DateTime?
-  createdAt       DateTime           @default(now())
-  updatedAt       DateTime           @updatedAt
-  organization    Organization       @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance        WhatsappInstance   @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  contact         Contact            @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  assignee        User?              @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdAt       DateTime            @default(now())
+  updatedAt       DateTime            @updatedAt
+  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance        WhatsappInstance    @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  contact         Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignee        User?               @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   messages        Message[]
   events          ConversationEvent[]
   chatbotSession  ChatbotSession?
@@ -696,10 +739,11 @@ model Conversation {
   @@unique([instanceId, remoteJid])
   @@unique([instanceId, phoneJid])
   @@index([instanceId, contactId])
-  @@index([organizationId, status, lastMessageAt])
+  @@index([organizationId, status, lastMessageAt(sort: Desc), id(sort: Desc)], map: "Conversation_org_status_recent_idx")
   @@index([organizationId, createdAt, status])
   @@index([organizationId, closedAt])
-  @@index([assigneeId, status])
+  @@index([assigneeId, status, lastMessageAt(sort: Desc), id(sort: Desc)], map: "Conversation_assignee_status_recent_idx")
+  @@index([contactId], map: "Conversation_contact_idx")
 }
 
 model ConversationEvent {
@@ -715,7 +759,7 @@ model ConversationEvent {
   conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   actor          User?        @relation("ConversationEventActor", fields: [actorId], references: [id], onDelete: SetNull)
 
-  @@index([conversationId, createdAt])
+  @@index([conversationId, createdAt, id], map: "ConversationEvent_page_idx")
   @@index([organizationId, createdAt])
 }
 
@@ -739,7 +783,8 @@ model Message {
   media             MediaAsset[]
 
   @@unique([instanceId, providerMessageId])
-  @@index([conversationId, createdAt])
+  @@index([conversationId, createdAt(sort: Desc), id(sort: Desc)], map: "Message_page_idx")
+  @@index([createdAt, id], map: "Message_retention_idx")
 }
 
 model MediaAsset {
@@ -787,6 +832,7 @@ model Campaign {
   createdById            String              @db.Uuid
   name                   String
   channel                ChannelType         @default(WHATSAPP)
+  emailSubject           String?
   status                 CampaignStatus      @default(DRAFT)
   scheduledAt            DateTime?
   startedAt              DateTime?
@@ -803,6 +849,7 @@ model Campaign {
   sendingDays            Json                @default("[1,2,3,4,5]")
   sentRecipientCount     Int                 @default(0)
   stats                  Json                @default("{}")
+  archivedAt             DateTime?
   createdAt              DateTime            @default(now())
   updatedAt              DateTime            @updatedAt
   organization           Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
@@ -813,7 +860,8 @@ model Campaign {
   recipients             CampaignRecipient[]
 
   @@index([organizationId, status, scheduledAt])
-  @@index([organizationId, createdAt])
+  @@index([organizationId, createdAt(sort: Desc), id(sort: Desc), archivedAt], map: "Campaign_active_created_idx")
+  @@index([createdById, createdAt(sort: Desc), id(sort: Desc), archivedAt], map: "Campaign_owner_created_idx")
 }
 
 model CampaignBubble {
@@ -829,23 +877,46 @@ model CampaignBubble {
 }
 
 model CampaignRecipient {
-  id                 String        @id @default(uuid()) @db.Uuid
-  campaignId         String        @db.Uuid
-  contactId          String        @db.Uuid
-  status             MessageStatus @default(PENDING)
+  id                 String               @id @default(uuid()) @db.Uuid
+  campaignId         String               @db.Uuid
+  contactId          String               @db.Uuid
+  status             MessageStatus        @default(PENDING)
   exclusionReason    String?
-  lastBubblePosition Int           @default(-1)
+  messages           Json                 @default("[]")
+  whatsappVerifiedAt DateTime?
+  lastBubblePosition Int                  @default(-1)
   scheduledAt        DateTime?
   sentAt             DateTime?
+  providerMessageId  String?              @unique
+  deliveredAt        DateTime?
+  openedAt           DateTime?
+  clickedAt          DateTime?
+  failedAt           DateTime?
   repliedAt          DateTime?
-  createdAt          DateTime      @default(now())
-  updatedAt          DateTime      @updatedAt
-  campaign           Campaign      @relation(fields: [campaignId], references: [id], onDelete: Cascade)
-  contact            Contact       @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  createdAt          DateTime             @default(now())
+  updatedAt          DateTime             @updatedAt
+  campaign           Campaign             @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  contact            Contact              @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  emailEvents        EmailDeliveryEvent[]
 
   @@unique([campaignId, contactId])
-  @@index([campaignId, status, scheduledAt])
+  @@index([campaignId, status, createdAt, id], map: "CampaignRecipient_dispatch_idx")
   @@index([contactId, status])
+}
+
+model EmailDeliveryEvent {
+  id              String            @id @default(uuid()) @db.Uuid
+  recipientId     String            @db.Uuid
+  providerEventId String            @unique
+  eventType       String
+  severity        String?
+  recipientEmail  String?
+  payload         Json
+  occurredAt      DateTime
+  createdAt       DateTime          @default(now())
+  recipient       CampaignRecipient @relation(fields: [recipientId], references: [id], onDelete: Cascade)
+
+  @@index([recipientId, occurredAt])
 }
 
 model Workflow {
@@ -864,6 +935,9 @@ model Workflow {
   createdBy            User                 @relation(fields: [createdById], references: [id])
   versions             WorkflowVersion[]
   enrollments          WorkflowEnrollment[]
+
+  @@index([organizationId, updatedAt(sort: Desc), id(sort: Desc)], map: "Workflow_org_updated_idx")
+  @@index([createdById, updatedAt(sort: Desc), id(sort: Desc)], map: "Workflow_owner_updated_idx")
 }
 
 model WorkflowVersion {
@@ -917,26 +991,28 @@ model WorkflowStepExecution {
 }
 
 model Chatbot {
-  id                String           @id @default(uuid()) @db.Uuid
-  organizationId    String           @db.Uuid
-  instanceId        String           @db.Uuid
-  createdById       String           @db.Uuid
-  name              String
-  description       String?
-  status            WorkflowStatus   @default(DRAFT)
-  responseProvider  String           @default("RULES")
-  providerConfig    Json             @default("{}")
-  publishedVersion  Int?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  organization      Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance          WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  createdBy         User             @relation(fields: [createdById], references: [id])
-  versions          ChatbotVersion[]
-  sessions          ChatbotSession[]
+  id               String           @id @default(uuid()) @db.Uuid
+  organizationId   String           @db.Uuid
+  instanceId       String           @db.Uuid
+  createdById      String           @db.Uuid
+  name             String
+  description      String?
+  status           WorkflowStatus   @default(DRAFT)
+  responseProvider String           @default("RULES")
+  providerConfig   Json             @default("{}")
+  publishedVersion Int?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance         WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  createdBy        User             @relation(fields: [createdById], references: [id])
+  versions         ChatbotVersion[]
+  sessions         ChatbotSession[]
 
   @@index([organizationId, status, updatedAt])
   @@index([instanceId, status])
+  @@index([organizationId, updatedAt(sort: Desc), id(sort: Desc)], map: "Chatbot_org_updated_idx")
+  @@index([createdById, updatedAt(sort: Desc), id(sort: Desc)], map: "Chatbot_owner_updated_idx")
 }
 
 model ChatbotVersion {
@@ -953,21 +1029,21 @@ model ChatbotVersion {
 }
 
 model ChatbotSession {
-  id                   String               @id @default(uuid()) @db.Uuid
-  chatbotId            String               @db.Uuid
-  versionId            String               @db.Uuid
-  conversationId       String               @unique @db.Uuid
-  status               ChatbotSessionStatus @default(ACTIVE)
+  id                   String                 @id @default(uuid()) @db.Uuid
+  chatbotId            String                 @db.Uuid
+  versionId            String                 @db.Uuid
+  conversationId       String                 @unique @db.Uuid
+  status               ChatbotSessionStatus   @default(ACTIVE)
   currentNodeId        String?
-  lastInboundMessageId String?               @db.Uuid
-  context              Json                 @default("{}")
+  lastInboundMessageId String?                @db.Uuid
+  context              Json                   @default("{}")
   stopReason           String?
-  startedAt            DateTime             @default(now())
-  updatedAt            DateTime             @updatedAt
+  startedAt            DateTime               @default(now())
+  updatedAt            DateTime               @updatedAt
   completedAt          DateTime?
-  chatbot              Chatbot              @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
-  version              ChatbotVersion       @relation(fields: [versionId], references: [id])
-  conversation         Conversation         @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  chatbot              Chatbot                @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  version              ChatbotVersion         @relation(fields: [versionId], references: [id])
+  conversation         Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   executions           ChatbotStepExecution[]
 
   @@index([chatbotId, status])
@@ -1004,7 +1080,8 @@ model Notification {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([userId, readAt, createdAt])
+  @@index([userId, createdAt(sort: Desc), id(sort: Desc), readAt], map: "Notification_recent_idx")
+  @@index([userId, readAt], map: "Notification_read_idx")
 }
 
 model EmailTemplate {
@@ -1019,6 +1096,7 @@ model EmailTemplate {
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
   @@unique([organizationId, name])
+  @@index([organizationId, updatedAt(sort: Desc), id(sort: Desc)], map: "EmailTemplate_org_updated_idx")
 }
 
 model ApiKey {

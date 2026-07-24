@@ -1,10 +1,11 @@
 import { FormEvent, useState } from 'react';
 import { ArrowRight, Eye, EyeOff, Moon, Sun } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { Navigate, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, type Envelope } from '../lib/api';
-import { Button, Field } from '../components/ui';
+import { Button, Field, PageLoading } from '../components/ui';
 import { useAuth } from '../App';
 import { useTheme } from '../lib/theme';
+import { publishAuthEvent } from '../lib/auth-session';
 
 export function LoginPage() {
   const [email, setEmail] = useState('');
@@ -13,17 +14,20 @@ export function LoginPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
   const navigate = useNavigate();
-  const { refresh } = useAuth();
+  const [params] = useSearchParams();
+  const { user, loading: authLoading, refresh } = useAuth();
   const { theme, toggleTheme } = useTheme();
   const submit = async (event: FormEvent) => {
     event.preventDefault(); setLoading(true); setError('');
     try {
-      const response = await api<Envelope<{ csrfToken: string }>>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
-      sessionStorage.setItem('prospecta_csrf', response.data.csrfToken);
+      await api<Envelope<{ tokenType: 'Bearer'; expiresAt: string }>>('/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) });
+      publishAuthEvent('login');
       await refresh(); navigate('/');
     } catch (err) { setError(err instanceof Error ? err.message : 'Não foi possível entrar'); } finally { setLoading(false); }
   };
-  return <main className="auth-page auth-page-simple"><button className="auth-theme-toggle icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button><section className="auth-panel auth-panel-simple"><img className="auth-logo" src="/brand-logo.png" alt="Logo da empresa" /><div className="auth-copy"><span className="eyebrow">Sistema interno</span><h1>Acesse o CRM</h1><p>Use seu e-mail corporativo e senha.</p></div><form onSubmit={submit} className="auth-form"><Field label="E-mail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" autoFocus /><label className="field"><span>Senha</span><div className="password-field"><input type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" /><button type="button" onClick={() => setShow(!show)} aria-label="Mostrar senha">{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>{error && <div className="form-error">{error}</div>}<Button type="submit" loading={loading}>Entrar <ArrowRight size={17} /></Button></form><p className="auth-internal-note">Uso exclusivo da equipe.</p></section></main>;
+  if (authLoading) return <PageLoading />;
+  if (user) return <Navigate to="/" replace />;
+  return <main className="auth-page auth-page-simple"><button className="auth-theme-toggle icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button><section className="auth-panel auth-panel-simple"><img className="auth-logo" src="/brand-logo.png" alt="Logo BZS One" /><div className="auth-copy"><span className="eyebrow">BZS One</span><h1>Acesse sua conta</h1><p>Use seu e-mail corporativo e senha.</p></div>{params.get('reason') === 'expired' && <div className="form-message">Sua sessão expirou. Entre novamente para continuar.</div>}<form onSubmit={submit} className="auth-form"><Field label="E-mail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" autoFocus /><label className="field"><span>Senha</span><div className="password-field"><input type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" /><button type="button" onClick={() => setShow(!show)} aria-label="Mostrar senha">{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label>{error && <div className="form-error">{error}</div>}<Button type="submit" loading={loading}>Entrar <ArrowRight size={17} /></Button></form><p className="auth-internal-note">Uso exclusivo da equipe.</p></section></main>;
 }
 
 function TokenPage({ mode }: { mode: 'invite' | 'reset' }) {

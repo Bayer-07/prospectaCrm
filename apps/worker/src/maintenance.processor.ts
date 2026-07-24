@@ -43,7 +43,7 @@ export async function runMaintenance(db: PrismaClient) {
     for (let batch = 0; batch < MAX_RETENTION_BATCHES_PER_RUN; batch += 1) {
       const expired = await db.message.findMany({
         where: { conversation: { organizationId: organization.id }, createdAt: { lt: cutoff } },
-        orderBy: { createdAt: 'asc' },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
         take: RETENTION_DELETE_BATCH_SIZE,
         select: { id: true, media: { select: { key: true } } },
       });

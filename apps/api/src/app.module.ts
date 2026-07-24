@@ -15,11 +15,12 @@ import { WorkflowsModule } from './workflows/workflows.module.js';
 import { QueueModule } from './queue/queue.module.js';
 import { IdempotencyInterceptor } from './common/idempotency.interceptor.js';
 import { MediaModule } from './media/media.module.js';
+import { EmailModule } from './email/email.module.js';
 
 @Module({
   imports: [
     PrismaModule, QueueModule, AuthModule, UsersModule, CrmModule, IntegrationsModule,
-    CampaignsModule, ChatbotsModule, WorkflowsModule, ReportsModule, RealtimeModule, MediaModule,
+    CampaignsModule, ChatbotsModule, WorkflowsModule, ReportsModule, RealtimeModule, MediaModule, EmailModule,
   ],
   controllers: [HealthController],
   providers: [

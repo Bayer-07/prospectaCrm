@@ -2,6 +2,7 @@ import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
+import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
@@ -12,6 +13,7 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { cors: false });
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(compression({ threshold: 1_024 }));
   app.use(cookieParser());
   app.enableCors({
     origin: (process.env.APP_URL || 'http://localhost:5173').split(','),
@@ -19,11 +21,11 @@ async function bootstrap() {
     methods: ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
     allowedHeaders: ['Content-Type', 'Authorization', 'X-CSRF-Token', 'Idempotency-Key'],
   });
-  app.setGlobalPrefix('api/v1', { exclude: ['health', 'webhooks/evolution'] });
+  app.setGlobalPrefix('api/v1', { exclude: ['health', 'webhooks/evolution', 'webhooks/mailgun'] });
   app.useGlobalPipes(new ValidationPipe({ transform: true, whitelist: true }));
 
   const config = new DocumentBuilder()
-    .setTitle('Prospecta CRM · API de Integração')
+    .setTitle('BZS One · API de Integração')
     .setDescription('Endpoints destinados a integrações externas. Gere uma chave em Configurações → API e webhooks e informe-a no botão Authorize.')
     .setVersion('1.0')
     .addServer('/', 'Servidor atual')
@@ -38,7 +40,7 @@ async function bootstrap() {
   const publicApiDocument = filterPublicApiDocument(SwaggerModule.createDocument(app, config));
   SwaggerModule.setup('docs', app, publicApiDocument, {
     customCss: SWAGGER_DARK_THEME,
-    customSiteTitle: 'Swagger · Prospecta CRM',
+    customSiteTitle: 'Swagger · BZS One',
     swaggerOptions: {
       displayRequestDuration: true,
       filter: true,
@@ -49,8 +51,9 @@ async function bootstrap() {
   });
 
   const port = Number(process.env.PORT || 3000);
-  await app.listen(port, '0.0.0.0');
-  console.log(`Prospecta API disponível em http://localhost:${port}`);
+  const host = process.env.HOST || (process.env.NODE_ENV === 'production' ? '0.0.0.0' : '::');
+  await app.listen(port, host);
+  console.log(`BZS One API disponível em http://localhost:${port}`);
 }
 
 void bootstrap();

@@ -10,6 +10,7 @@ export type AuthContext = {
   roleKey?: string;
   name: string;
   email?: string;
+  sessionExpiresAt?: string;
   messageSignatureEnabled?: boolean;
   permissions: Permission[];
   apiScopes?: string[];

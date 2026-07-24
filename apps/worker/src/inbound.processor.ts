@@ -1,6 +1,6 @@
 import type { Job, Queue } from 'bullmq';
 import { Prisma, PrismaClient, type MessageStatus } from '@prisma/client';
-import { isOptOutMessage } from '@prospecta/contracts';
+import { isOptOutMessage, normalizePhoneKey } from '@prospecta/contracts';
 import { EvolutionClient } from './evolution-client.js';
 import { storeInboundMedia } from './storage.js';
 
@@ -452,19 +452,34 @@ export class InboundProcessor {
       },
       orderBy: { updatedAt: 'desc' },
     });
-    const phoneContact = !knownConversation && phone
+    const phoneKey = normalizePhoneKey(phone);
+    const phoneContact = !knownConversation && phoneKey
       ? await this.db.contact.findFirst({
-        where: { organizationId: instance.organizationId, phone, archivedAt: null },
+        where: { organizationId: instance.organizationId, phoneKey, archivedAt: null },
         select: { id: true, name: true },
       })
       : null;
     // A LID is a provider address, not a telephone number. When it is received
     // from a message sent on the linked phone, preserve the CRM contact already
     // associated with the conversation instead of creating a fake LID contact.
-    const ensuredContact = phoneContact || knownConversation?.contact || await this.db.contact.create({
-      data: { organizationId: instance.organizationId, name: pushName, phone, source: 'WhatsApp recebido', teamId },
-      select: { id: true, name: true },
-    });
+    let ensuredContact = phoneContact || knownConversation?.contact;
+    if (!ensuredContact) {
+      try {
+        ensuredContact = await this.db.contact.create({
+          data: { organizationId: instance.organizationId, name: pushName, phone, phoneKey, source: 'WhatsApp recebido', teamId },
+          select: { id: true, name: true },
+        });
+      } catch (error) {
+        const uniqueRace = phoneKey && error && typeof error === 'object' && 'code' in error && error.code === 'P2002';
+        if (!uniqueRace) throw error;
+        const racedContact = await this.db.contact.findFirst({
+          where: { organizationId: instance.organizationId, phoneKey, archivedAt: null },
+          select: { id: true, name: true },
+        });
+        if (!racedContact) throw error;
+        ensuredContact = racedContact;
+      }
+    }
     // Evolution can expose the same person as a phone JID on message upserts and
     // as a LID on delivery updates. Keep a single conversation for that contact
     // instead of creating one conversation for each provider address.

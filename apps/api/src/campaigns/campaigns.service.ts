@@ -1,11 +1,15 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Queue } from 'bullmq';
+import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { campaignCadenceSchema, canSendWhatsapp } from '@prospecta/contracts';
+import { campaignCadenceSchema, normalizePhoneKey } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
-import { permissionScope } from '../auth/data-scope.js';
+import { permissionScope, scopedWhere } from '../auth/data-scope.js';
+import { EvolutionService } from '../integrations/evolution.service.js';
+import { mailgunConfigurationStatus } from '../email/mailgun-config.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CAMPAIGN_QUEUE } from '../queue/queue.module.js';
+import { parseCampaignCsv, type CampaignCsvRow } from './campaign-csv.js';
 
 const RECIPIENT_INSERT_BATCH_SIZE = 1_000;
 
@@ -15,7 +19,15 @@ export type CreateCampaignInput = {
   instanceId?: string;
   segmentId?: string;
   filters?: Record<string, unknown>;
-  bubbles: Array<{ type?: string; content: string; mediaKey?: string }>;
+  bubbles?: Array<{ type?: string; content: string; mediaKey?: string }>;
+  emailSubject?: string;
+  audience?: {
+    source: 'contacts' | 'csv';
+    contactIds?: string[];
+    contactSearches?: string[];
+    excludedContactIds?: string[];
+    csv?: string;
+  };
   cadence?: Record<string, unknown>;
   sendingWindowStart?: string;
   sendingWindowEnd?: string;
@@ -24,103 +36,302 @@ export type CreateCampaignInput = {
 
 @Injectable()
 export class CampaignsService {
-  constructor(private readonly db: PrismaService, @Inject(CAMPAIGN_QUEUE) private readonly queue: Queue) {}
+  constructor(
+    private readonly db: PrismaService,
+    @Inject(CAMPAIGN_QUEUE) private readonly queue: Queue,
+    private readonly evolution: EvolutionService,
+  ) {}
 
   list(auth: AuthContext) {
     return this.db.campaign.findMany({
-      where: { organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { organizationId: auth.organizationId, archivedAt: null, ...this.scope(auth) },
       include: {
         instance: { select: { id: true, name: true, status: true, phone: true } }, segment: true,
         bubbles: { orderBy: { position: 'asc' } },
         _count: { select: { recipients: true } },
-      }, orderBy: { createdAt: 'desc' }, take: 100,
+      }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100,
     });
   }
 
   async get(auth: AuthContext, id: string) {
     const campaign = await this.db.campaign.findFirst({
-      where: { id, organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...this.scope(auth) },
       include: {
         instance: { include: { warmupProfile: true } }, segment: true,
         bubbles: { orderBy: { position: 'asc' } },
-        recipients: { include: { contact: true }, orderBy: { createdAt: 'asc' }, take: 500 },
+        recipients: { include: { contact: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 500 },
       },
     });
     if (!campaign) throw new NotFoundException('Campanha não encontrada');
     return campaign;
   }
 
+  async archive(auth: AuthContext, id: string) {
+    const campaign = await this.db.campaign.findFirst({
+      where: {
+        id,
+        organizationId: auth.organizationId,
+        archivedAt: null,
+        ...this.scope(auth),
+      },
+      select: { id: true, name: true, channel: true, status: true },
+    });
+    if (!campaign) throw new NotFoundException('Campanha não encontrada');
+
+    const archivedAt = new Date();
+    const activeStatuses = ['DRAFT', 'SCHEDULED', 'RUNNING', 'PAUSED'];
+    await this.db.$transaction([
+      this.db.campaign.update({
+        where: { id },
+        data: {
+          archivedAt,
+          ...(activeStatuses.includes(campaign.status) ? { status: 'CANCELLED' } : {}),
+        },
+      }),
+      this.db.campaignRecipient.updateMany({
+        where: { campaignId: id, status: { in: ['PENDING', 'QUEUED'] } },
+        data: { status: 'SKIPPED', exclusionReason: 'Campanha excluída' },
+      }),
+    ]);
+    await this.audit(auth, 'campaign.archived', id, {
+      name: campaign.name,
+      channel: campaign.channel,
+      previousStatus: campaign.status,
+      archivedAt,
+    });
+    return { id, archivedAt };
+  }
+
   async create(auth: AuthContext, input: CreateCampaignInput) {
-    if (!auth.userId) throw new BadRequestException('Campanha exige usuário');
-    if (!input.name?.trim() || !input.bubbles?.length) throw new BadRequestException('Nome e ao menos uma mensagem são obrigatórios');
+    const userId = auth.userId;
+    if (!userId) throw new BadRequestException('Campanha exige usuário');
+    if (!input.name?.trim()) throw new BadRequestException('O título da campanha é obrigatório');
     const cadence = campaignCadenceSchema.parse(input.cadence || {});
     const channel = (input.channel || 'whatsapp').toUpperCase() as 'WHATSAPP' | 'EMAIL';
     if (channel === 'WHATSAPP' && !input.instanceId) throw new BadRequestException('Selecione um número de WhatsApp');
-    const mediaKeys = input.bubbles.map((bubble) => bubble.mediaKey).filter((key): key is string => Boolean(key));
+    if (channel === 'EMAIL' && !input.emailSubject?.trim()) throw new BadRequestException('Informe o assunto do e-mail');
+    const bubbles = (input.bubbles || [])
+      .map((bubble) => ({ ...bubble, content: bubble.content?.trim() }))
+      .filter((bubble) => Boolean(bubble.content));
+    if (input.audience?.source !== 'csv' && !bubbles.length) throw new BadRequestException('Informe ao menos uma mensagem');
+    if (
+      input.audience?.source === 'contacts'
+      && !input.audience.contactIds?.length
+      && !input.audience.contactSearches?.length
+    ) throw new BadRequestException('Selecione ao menos um contato');
+    if (input.audience?.source === 'csv' && !input.audience.csv) throw new BadRequestException('Selecione um arquivo CSV');
+
+    if (channel === 'WHATSAPP') {
+      const instance = await this.db.whatsappInstance.findFirst({
+        where: { id: input.instanceId, organizationId: auth.organizationId, archivedAt: null, status: 'CONNECTED' },
+        select: { id: true },
+      });
+      if (!instance) throw new BadRequestException('Selecione um número de WhatsApp conectado');
+    }
+
+    const mediaKeys = bubbles.map((bubble) => bubble.mediaKey).filter((key): key is string => Boolean(key));
     if (mediaKeys.length) {
       const media = await this.db.mediaAsset.findMany({ where: { key: { in: mediaKeys } }, select: { key: true } });
       if (media.length !== new Set(mediaKeys).size || media.some((item) => !item.key.startsWith(`${auth.organizationId}/`))) throw new BadRequestException('Uma ou mais mídias são inválidas');
     }
-    const campaign = await this.db.campaign.create({ data: {
-      organizationId: auth.organizationId, createdById: auth.userId, name: input.name.trim(),
-      channel, instanceId: input.instanceId, segmentId: input.segmentId,
-      bubbleDelayMinSeconds: cadence.bubbleDelayMinSeconds, bubbleDelayMaxSeconds: cadence.bubbleDelayMaxSeconds,
-      contactDelayMinSeconds: cadence.contactDelayMinSeconds, contactDelayMaxSeconds: cadence.contactDelayMaxSeconds,
-      batchSize: cadence.batchSize, batchPauseMinSeconds: cadence.batchPauseMinSeconds, batchPauseMaxSeconds: cadence.batchPauseMaxSeconds,
-      sendingWindowStart: input.sendingWindowStart || '09:00', sendingWindowEnd: input.sendingWindowEnd || '18:00',
-      sendingDays: (input.sendingDays || [1, 2, 3, 4, 5]) as Prisma.InputJsonValue,
-      stats: { filters: input.filters || {} } as Prisma.InputJsonValue,
-      bubbles: { create: input.bubbles.map((bubble, position) => ({ position, type: bubble.type || 'text', content: bubble.content, mediaKey: bubble.mediaKey })) },
-    }, include: { bubbles: true } });
+
+    const audience = await this.prepareAudience(auth, input);
+    const campaign = await this.db.$transaction(async (tx) => {
+      if (audience.newContacts.length) await tx.contact.createMany({ data: audience.newContacts });
+
+      const created = await tx.campaign.create({ data: {
+        organizationId: auth.organizationId, createdById: userId, name: input.name.trim(),
+        channel, instanceId: input.instanceId, segmentId: input.segmentId,
+        emailSubject: channel === 'EMAIL' ? input.emailSubject!.trim() : undefined,
+        bubbleDelayMinSeconds: cadence.bubbleDelayMinSeconds, bubbleDelayMaxSeconds: cadence.bubbleDelayMaxSeconds,
+        contactDelayMinSeconds: cadence.contactDelayMinSeconds, contactDelayMaxSeconds: cadence.contactDelayMaxSeconds,
+        batchSize: cadence.batchSize, batchPauseMinSeconds: cadence.batchPauseMinSeconds, batchPauseMaxSeconds: cadence.batchPauseMaxSeconds,
+        sendingWindowStart: input.sendingWindowStart || '09:00', sendingWindowEnd: input.sendingWindowEnd || '18:00',
+        sendingDays: (input.sendingDays || [1, 2, 3, 4, 5]) as Prisma.InputJsonValue,
+        stats: {
+          filters: input.filters || {},
+          audienceSource: input.audience?.source || 'filters',
+          ...(input.audience?.contactSearches?.length
+            ? { audienceSearches: input.audience.contactSearches }
+            : {}),
+          audience: audience.recipients.length,
+          ...(audience.csvPreview ? { csvInvalidRows: audience.csvPreview.invalid } : {}),
+        } as Prisma.InputJsonValue,
+        bubbles: { create: bubbles.map((bubble, position) => ({ position, type: bubble.type || 'text', content: bubble.content, mediaKey: bubble.mediaKey })) },
+      }, include: { bubbles: true } });
+
+      for (let index = 0; index < audience.recipients.length; index += RECIPIENT_INSERT_BATCH_SIZE) {
+        const batch = audience.recipients.slice(index, index + RECIPIENT_INSERT_BATCH_SIZE);
+        await tx.campaignRecipient.createMany({
+          data: batch.map((recipient) => ({
+            campaignId: created.id,
+            contactId: recipient.contactId,
+            messages: recipient.messages as Prisma.InputJsonValue,
+          })),
+        });
+      }
+      return created;
+    }, { timeout: 60_000 });
     await this.audit(auth, 'campaign.created', campaign.id, { name: campaign.name, channel });
     return campaign;
+  }
+
+  async previewCsv(auth: AuthContext, instanceId: string, csv: string) {
+    try {
+      const parsed = parseCampaignCsv(csv);
+      const instance = await this.db.whatsappInstance.findFirst({
+        where: { id: instanceId, organizationId: auth.organizationId, archivedAt: null, status: 'CONNECTED' },
+        select: { instanceKey: true },
+      });
+      if (!instance) throw new BadRequestException('Selecione um número de WhatsApp conectado');
+      const checked = await this.evolution.checkWhatsappNumbers(instance.instanceKey, parsed.rows.map((row) => row.phone));
+      const existsByPhone = new Map(checked.map((item) => [item.number, item.exists]));
+      const rows = parsed.rows.map((row) => ({
+        ...row,
+        hasWhatsapp: existsByPhone.get(row.phone.replace(/\D/g, '')) === true,
+      }));
+      const whatsappErrors = rows
+        .filter((row) => !row.hasWhatsapp)
+        .map((row) => ({ row: row.row, error: 'Número não possui WhatsApp' }));
+      return {
+        ...parsed,
+        rows,
+        valid: rows.filter((row) => row.hasWhatsapp).length,
+        invalid: parsed.errors.length + whatsappErrors.length,
+        errors: [...parsed.errors, ...whatsappErrors],
+      };
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException(error instanceof Error ? error.message : 'CSV inválido');
+    }
   }
 
   async preflight(auth: AuthContext, id: string) {
     const campaign = await this.getForAction(auth, id);
     if (!['DRAFT', 'PAUSED'].includes(campaign.status)) throw new BadRequestException('Campanha não pode ser revalidada neste estado');
     const filters = ((campaign.stats as Record<string, unknown>)?.filters || {}) as Record<string, unknown>;
-    const contacts = await this.resolveAudience(auth.organizationId, campaign.segmentId, filters);
+    const existingRecipientCount = await this.db.campaignRecipient.count({ where: { campaignId: id } });
+    const storedRecipients = existingRecipientCount ? await this.db.campaignRecipient.findMany({
+      where: { campaignId: id, status: { in: ['PENDING', 'SKIPPED'] } },
+      select: {
+        id: true,
+        contact: {
+          select: {
+            id: true,
+            phone: true,
+            email: true,
+            consentStatus: true,
+            suppressions: { select: { channel: true } },
+          },
+        },
+      },
+      orderBy: { createdAt: 'asc' },
+    }) : [];
+    const legacyContacts = existingRecipientCount ? [] : await this.resolveAudience(auth.organizationId, campaign.segmentId, filters);
+    const recipients = existingRecipientCount
+      ? storedRecipients.map((recipient) => ({ recipientId: recipient.id, contact: recipient.contact }))
+      : legacyContacts.map((contact) => ({ recipientId: undefined as string | undefined, contact }));
     const seen = new Set<string>();
-    const results: Array<{ contactId: string; status: 'PENDING' | 'SKIPPED'; reason?: string }> = [];
+    const results: Array<{ recipientId?: string; contactId: string; phone?: string | null; status: 'PENDING' | 'SKIPPED'; reason?: string }> = [];
     const reasons: Record<string, number> = {};
-    let eligible = 0;
-    let skipped = 0;
-    for (const contact of contacts) {
+    for (const { recipientId, contact } of recipients) {
       let reason: string | undefined;
       if (campaign.channel === 'WHATSAPP') {
-        const eligibility = canSendWhatsapp({ phone: contact.phone, consentStatus: contact.consentStatus, suppressed: contact.suppressions.some((item) => item.channel === 'WHATSAPP') });
-        if (!eligibility.allowed) reason = eligibility.reason;
+        if (!contact.phone) reason = 'Telefone ausente';
+        else if (contact.suppressions.some((item) => item.channel === 'WHATSAPP')) reason = 'Contato bloqueado ou descadastrado';
         else if (seen.has(contact.phone!)) reason = 'Telefone duplicado';
         if (contact.phone) seen.add(contact.phone);
-      } else if (!contact.email) reason = 'E-mail ausente';
-      results.push({ contactId: contact.id, status: reason ? 'SKIPPED' : 'PENDING', reason });
-      if (reason) {
-        skipped += 1;
-        reasons[reason] = (reasons[reason] || 0) + 1;
+      } else if (!contact.email) {
+        reason = 'E-mail ausente';
+      } else if (contact.suppressions.some((item) => item.channel === 'EMAIL')) {
+        reason = 'Contato descadastrado do e-mail';
       } else {
-        eligible += 1;
+        const emailKey = contact.email.toLowerCase();
+        if (seen.has(emailKey)) reason = 'E-mail duplicado';
+        seen.add(emailKey);
+      }
+      results.push({ recipientId, contactId: contact.id, phone: contact.phone, status: reason ? 'SKIPPED' : 'PENDING', reason });
+    }
+
+    const whatsappCandidates = results.filter((result) => result.status === 'PENDING' && result.phone);
+    if (campaign.channel === 'WHATSAPP' && whatsappCandidates.length) {
+      if (!campaign.instance || campaign.instance.status !== 'CONNECTED') throw new BadRequestException('O número de envio não está conectado');
+      const checked = await this.evolution.checkWhatsappNumbers(campaign.instance.instanceKey, whatsappCandidates.map((result) => result.phone!));
+      const existsByPhone = new Map(checked.map((result) => [result.number, result.exists]));
+      for (const result of whatsappCandidates) {
+        if (existsByPhone.get(result.phone!.replace(/\D/g, '')) !== true) {
+          result.status = 'SKIPPED';
+          result.reason = 'Número não possui WhatsApp';
+        }
       }
     }
+
+    const eligible = results.filter((result) => result.status === 'PENDING').length;
+    const skipped = results.length - eligible;
+    for (const result of results) {
+      if (result.reason) reasons[result.reason] = (reasons[result.reason] || 0) + 1;
+    }
+    const verifiedAt = new Date();
+
     await this.db.$transaction(async (tx) => {
-      await tx.campaignRecipient.deleteMany({ where: { campaignId: id, status: { in: ['PENDING', 'SKIPPED'] } } });
-      for (let index = 0; index < results.length; index += RECIPIENT_INSERT_BATCH_SIZE) {
-        const batch = results.slice(index, index + RECIPIENT_INSERT_BATCH_SIZE);
-        await tx.campaignRecipient.createMany({ data: batch.map((result) => ({ campaignId: id, contactId: result.contactId, status: result.status, exclusionReason: result.reason })) });
+      if (!existingRecipientCount) {
+        for (let index = 0; index < results.length; index += RECIPIENT_INSERT_BATCH_SIZE) {
+          const batch = results.slice(index, index + RECIPIENT_INSERT_BATCH_SIZE);
+          await tx.campaignRecipient.createMany({ data: batch.map((result) => ({
+            campaignId: id,
+            contactId: result.contactId,
+            status: result.status,
+            exclusionReason: result.reason,
+            whatsappVerifiedAt: campaign.channel === 'WHATSAPP' && result.status === 'PENDING' ? verifiedAt : undefined,
+          })) });
+        }
+      } else {
+        const eligibleIds = results.filter((result) => result.status === 'PENDING').map((result) => result.recipientId!);
+        if (eligibleIds.length) await tx.campaignRecipient.updateMany({
+          where: { id: { in: eligibleIds } },
+          data: { status: 'PENDING', exclusionReason: null, whatsappVerifiedAt: campaign.channel === 'WHATSAPP' ? verifiedAt : null },
+        });
+        const skippedByReason = new Map<string, string[]>();
+        for (const result of results.filter((item) => item.status === 'SKIPPED')) {
+          const reason = result.reason || 'Destinatário inválido';
+          skippedByReason.set(reason, [...(skippedByReason.get(reason) || []), result.recipientId!]);
+        }
+        for (const [reason, recipientIds] of skippedByReason) {
+          await tx.campaignRecipient.updateMany({
+            where: { id: { in: recipientIds } },
+            data: { status: 'SKIPPED', exclusionReason: reason, whatsappVerifiedAt: null },
+          });
+        }
       }
       await tx.campaign.update({ where: { id }, data: { stats: {
-        filters, audience: contacts.length, eligible, skipped,
+        ...(campaign.stats as Record<string, unknown>),
+        filters,
+        audience: existingRecipientCount || recipients.length,
+        eligible,
+        skipped,
+        reasons,
+        preflightAt: verifiedAt.toISOString(),
       } as Prisma.InputJsonValue } });
     }, { timeout: 60_000 });
-    return { audience: contacts.length, eligible, skipped, reasons };
+    return { audience: existingRecipientCount || recipients.length, eligible, skipped, reasons };
   }
 
   async schedule(auth: AuthContext, id: string, scheduledAt?: string) {
     const campaign = await this.getForAction(auth, id);
-    if (campaign.channel === 'EMAIL') throw new BadRequestException('Envio de e-mail está preparado, mas desativado até configurar um provedor');
+    if (campaign.channel === 'EMAIL') {
+      const provider = mailgunConfigurationStatus();
+      if (!provider.configured) {
+        throw new BadRequestException(`Mailgun não configurado. Preencha: ${provider.missing.join(', ')}`);
+      }
+    }
     if (!['DRAFT', 'PAUSED'].includes(campaign.status)) throw new BadRequestException('Estado inválido para iniciar campanha');
-    const eligible = await this.db.campaignRecipient.count({ where: { campaignId: id, status: 'PENDING' } });
-    if (!eligible) throw new BadRequestException('Execute a pré-validação e confirme que há destinatários elegíveis');
+    const validation = await this.preflight(auth, id);
+    const eligible = validation.eligible;
+    if (!eligible) throw new BadRequestException(
+      campaign.channel === 'EMAIL'
+        ? 'Nenhum contato válido com e-mail foi encontrado para iniciar a campanha'
+        : 'Nenhum contato válido com WhatsApp foi encontrado para iniciar a campanha',
+    );
     const date = scheduledAt ? new Date(scheduledAt) : new Date();
     const status = date > new Date(Date.now() + 30_000) ? 'SCHEDULED' : 'RUNNING';
     await this.db.campaign.update({ where: { id }, data: { status, scheduledAt: date, startedAt: status === 'RUNNING' ? new Date() : undefined } });
@@ -132,12 +343,133 @@ export class CampaignsService {
   async setStatus(auth: AuthContext, id: string, action: 'pause' | 'resume' | 'cancel') {
     const campaign = await this.getForAction(auth, id);
     const map = { pause: 'PAUSED', resume: 'RUNNING', cancel: 'CANCELLED' } as const;
-    if (action === 'resume' && campaign.channel === 'EMAIL') throw new BadRequestException('Envio de e-mail desativado');
+    if (action === 'resume' && campaign.channel === 'EMAIL' && !mailgunConfigurationStatus().configured) {
+      throw new BadRequestException('Mailgun não configurado');
+    }
     const updated = await this.db.campaign.update({ where: { id }, data: { status: map[action] } });
     if (action === 'resume') await this.queue.add('dispatch-campaign', { campaignId: id }, { jobId: `campaign-${id}-resume-${Date.now()}`, removeOnComplete: 1000 });
     if (action === 'cancel') await this.db.campaignRecipient.updateMany({ where: { campaignId: id, status: { in: ['PENDING', 'QUEUED'] } }, data: { status: 'SKIPPED', exclusionReason: 'Campanha cancelada' } });
     await this.audit(auth, `campaign.${action}`, id, { previousStatus: campaign.status });
     return updated;
+  }
+
+  private async prepareAudience(auth: AuthContext, input: CreateCampaignInput) {
+    const empty = {
+      recipients: [] as Array<{ contactId: string; messages: Array<{ type: string; content: string }> }>,
+      newContacts: [] as Prisma.ContactCreateManyInput[],
+      csvPreview: undefined as ReturnType<typeof parseCampaignCsv> | undefined,
+    };
+    if (!input.audience) return empty;
+
+    if (input.audience.source === 'contacts') {
+      const contactIds = [...new Set(input.audience.contactIds || [])];
+      const contactSearches = [...new Set(
+        (input.audience.contactSearches || [])
+          .filter((search): search is string => typeof search === 'string')
+          .map((search) => search.trim())
+          .slice(0, 20),
+      )];
+      const excludedContactIds = [...new Set(input.audience.excludedContactIds || [])];
+      const explicitlySelected = contactIds.length
+        ? await this.db.contact.findMany({
+          where: {
+            id: { in: contactIds },
+            organizationId: auth.organizationId,
+            archivedAt: null,
+            ...scopedWhere(auth, 'contacts'),
+          },
+          select: { id: true },
+        })
+        : [];
+      if (explicitlySelected.length !== contactIds.length) {
+        throw new BadRequestException('Um ou mais contatos selecionados não estão disponíveis');
+      }
+
+      const selectsAllContacts = contactSearches.includes('');
+      const selectionConditions: Prisma.ContactWhereInput[] = [
+        ...(contactIds.length ? [{ id: { in: contactIds } }] : []),
+        ...contactSearches
+          .filter(Boolean)
+          .map((search): Prisma.ContactWhereInput => ({
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { email: { contains: search, mode: 'insensitive' } },
+              { phone: { contains: search } },
+            ],
+          })),
+      ];
+      const contacts = await this.db.contact.findMany({
+        where: {
+          organizationId: auth.organizationId,
+          archivedAt: null,
+          ...scopedWhere(auth, 'contacts'),
+          ...(excludedContactIds.length ? { id: { notIn: excludedContactIds } } : {}),
+          ...(String(input.channel || 'whatsapp').toUpperCase() === 'EMAIL' ? { email: { not: null } } : {}),
+          ...(!selectsAllContacts ? { OR: selectionConditions } : {}),
+        },
+        select: { id: true },
+      });
+      if (!contacts.length) throw new BadRequestException('A seleção não possui contatos disponíveis');
+      return {
+        ...empty,
+        recipients: contacts.map(({ id: contactId }) => ({ contactId, messages: [] })),
+      };
+    }
+
+    let csvPreview: ReturnType<typeof parseCampaignCsv>;
+    try {
+      csvPreview = parseCampaignCsv(input.audience.csv || '');
+    } catch (error) {
+      throw new BadRequestException(error instanceof Error ? error.message : 'CSV inválido');
+    }
+    if (!csvPreview.rows.length) throw new BadRequestException('O CSV não possui nenhuma linha válida');
+
+    const phoneKeys = csvPreview.rows.map((row) => normalizePhoneKey(row.phone)!);
+    const scope = permissionScope(auth, 'contacts');
+    const allExisting = await this.db.contact.findMany({
+      where: { organizationId: auth.organizationId, archivedAt: null, phoneKey: { in: phoneKeys } },
+      select: { id: true, phoneKey: true, ownerId: true, teamId: true },
+    });
+    const accessibleExisting = allExisting.filter((contact) =>
+      scope === 'ALL'
+      || (scope === 'TEAM' && Boolean(auth.teamId) && contact.teamId === auth.teamId)
+      || (scope === 'OWN' && Boolean(auth.userId) && contact.ownerId === auth.userId));
+    const accessibleIds = new Set(accessibleExisting.map((contact) => contact.id));
+    const inaccessible = allExisting.filter((contact) => !accessibleIds.has(contact.id));
+    if (inaccessible.length) {
+      throw new BadRequestException(`${inaccessible.length} contato(s) do CSV pertencem a outra carteira ou equipe`);
+    }
+
+    const existingByPhone = new Map(accessibleExisting.map((contact) => [contact.phoneKey, contact]));
+    const rowByContactId = new Map<string, CampaignCsvRow>();
+    for (const row of csvPreview.rows) {
+      const phoneKey = normalizePhoneKey(row.phone)!;
+      const existing = existingByPhone.get(phoneKey);
+      const contactId = existing?.id || randomUUID();
+      rowByContactId.set(contactId, row);
+      if (!existing) {
+        empty.newContacts.push({
+          id: contactId,
+          organizationId: auth.organizationId,
+          ownerId: auth.userId,
+          teamId: auth.teamId,
+          name: row.name,
+          phone: row.phone,
+          phoneKey,
+          email: row.email,
+          source: 'Campanha via CSV',
+        });
+      }
+    }
+
+    return {
+      ...empty,
+      csvPreview,
+      recipients: [...rowByContactId.entries()].map(([contactId, row]) => ({
+        contactId,
+        messages: row.messages.map((content) => ({ type: 'text', content })),
+      })),
+    };
   }
 
   private async resolveAudience(organizationId: string, segmentId: string | null, filters: Record<string, unknown>) {
@@ -163,8 +495,15 @@ export class CampaignsService {
 
   private async getForAction(auth: AuthContext, id: string) {
     const campaign = await this.db.campaign.findFirst({
-      where: { id, organizationId: auth.organizationId, ...this.scope(auth) },
-      select: { id: true, channel: true, status: true, segmentId: true, stats: true },
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...this.scope(auth) },
+      select: {
+        id: true,
+        channel: true,
+        status: true,
+        segmentId: true,
+        stats: true,
+        instance: { select: { instanceKey: true, status: true } },
+      },
     });
     if (!campaign) throw new NotFoundException('Campanha não encontrada');
     return campaign;

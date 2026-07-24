@@ -3,6 +3,8 @@ import { OnGatewayConnection, WebSocketGateway, WebSocketServer } from '@nestjs/
 import { createHash } from 'node:crypto';
 import type { Redis } from 'ioredis';
 import { Server, Socket } from 'socket.io';
+import { SESSION_COOKIE } from '../auth/auth-cookies.js';
+import { SessionTokenService } from '../auth/session-token.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { QUEUE_CONNECTION } from '../queue/queue.module.js';
 
@@ -13,7 +15,11 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
   @WebSocketServer() server!: Server;
   private subscriber?: Redis;
 
-  constructor(private readonly db: PrismaService, @Inject(QUEUE_CONNECTION) private readonly redis: Redis) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly sessionTokens: SessionTokenService,
+    @Inject(QUEUE_CONNECTION) private readonly redis: Redis,
+  ) {}
 
   async onModuleInit() {
     this.subscriber = this.redis.duplicate();
@@ -31,10 +37,19 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
 
   async handleConnection(socket: Socket) {
     const cookie = socket.handshake.headers.cookie || '';
-    const token = cookie.split(';').map((value) => value.trim()).find((value) => value.startsWith('prospecta_session='))?.split('=').slice(1).join('=');
+    const token = cookie.split(';').map((value) => value.trim()).find((value) => value.startsWith(`${SESSION_COOKIE}=`))?.split('=').slice(1).join('=');
     if (!token) return socket.disconnect(true);
-    const session = await this.db.session.findUnique({ where: { tokenHash: hash(decodeURIComponent(token)) }, include: { user: true } });
-    if (!session || session.expiresAt <= new Date() || session.user.status !== 'ACTIVE') return socket.disconnect(true);
+    const decodedToken = decodeURIComponent(token);
+    const claims = await this.sessionTokens.verify(decodedToken);
+    if (!claims) return socket.disconnect(true);
+    const session = await this.db.session.findUnique({ where: { tokenHash: hash(decodedToken) }, include: { user: true } });
+    if (
+      !session
+      || session.id !== claims.sessionId
+      || session.userId !== claims.userId
+      || session.expiresAt <= new Date()
+      || session.user.status !== 'ACTIVE'
+    ) return socket.disconnect(true);
     await socket.join([`organization:${session.user.organizationId}`, `user:${session.userId}`]);
   }
 

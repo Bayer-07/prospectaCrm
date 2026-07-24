@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { campaignCadenceSchema, canSendWhatsapp, companyInputSchema, contactInputSchema, contactsAreDuplicates, isOptOutMessage, nextWarmupCap, opportunityStatusForStage, phoneSchema } from './index.js';
+import { campaignCadenceSchema, canSendWhatsapp, companyInputSchema, contactInputSchema, contactsAreDuplicates, isOptOutMessage, nextWarmupCap, normalizePhoneKey, opportunityStatusForStage, phoneSchema } from './index.js';
 
 describe('contratos', () => {
   it('normaliza e valida empresa', () => {
@@ -24,6 +24,19 @@ describe('contratos', () => {
   it('detecta duplicidade por telefone ou e-mail sem diferenciar maiúsculas', () => {
     expect(contactsAreDuplicates({ email: 'Pessoa@Empresa.com' }, { email: 'pessoa@empresa.com' })).toBe(true);
     expect(contactsAreDuplicates({ phone: '+5511999999999' }, { phone: '+5511999999999' })).toBe(true);
+  });
+
+  it('considera o nono dígito adicional ao comparar celulares brasileiros', () => {
+    expect(normalizePhoneKey('554599225389')).toBe('+5545999225389');
+    expect(normalizePhoneKey('+55 (45) 99922-5389')).toBe('+5545999225389');
+    expect(contactsAreDuplicates(
+      { phone: '+5545999225389' },
+      { phone: '+554599225389' },
+    )).toBe(true);
+  });
+
+  it('não adiciona o nono dígito a telefones fixos brasileiros', () => {
+    expect(normalizePhoneKey('+554532221234')).toBe('+554532221234');
   });
 
   it('bloqueia WhatsApp sem consentimento e por supressão', () => {

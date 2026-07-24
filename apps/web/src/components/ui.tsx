@@ -16,7 +16,7 @@ export function SelectField({ label, children, ...props }: React.SelectHTMLAttri
 export function Modal({ title, children, onClose, width = 560 }: { title: string; children: ReactNode; onClose(): void; width?: number }) {
   return <div className="modal-backdrop" role="presentation" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
     <section className="modal" style={{ maxWidth: width }} role="dialog" aria-modal="true" aria-label={title}>
-      <header><div><span className="eyebrow">Sistema interno</span><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></header>
+      <header><div><span className="eyebrow">BZS One</span><h2>{title}</h2></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></header>
       {children}
     </section>
   </div>;

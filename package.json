@@ -11,6 +11,7 @@
     "db:generate": "pnpm --filter @prospecta/database db:generate",
     "db:migrate": "pnpm --filter @prospecta/database db:migrate",
     "db:seed": "pnpm --filter @prospecta/database db:seed",
+    "mailgun:verify": "pnpm --filter @prospecta/worker verify:mailgun",
     "bootstrap:admin": "pnpm --filter @prospecta/api bootstrap:admin"
   }
 }

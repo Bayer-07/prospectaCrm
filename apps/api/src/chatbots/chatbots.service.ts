@@ -21,7 +21,7 @@ export class ChatbotsService {
         versions: { orderBy: { version: 'desc' }, take: 1, select: { id: true, version: true, publishedAt: true } },
         _count: { select: { sessions: true } },
       },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
   }
 

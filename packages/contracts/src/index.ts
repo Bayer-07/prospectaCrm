@@ -1,5 +1,16 @@
 import { z } from 'zod';
 
+export {
+  escapeEmailHtml,
+  renderBzsEmailLayout,
+  sgaProspectingEmailTemplates,
+} from './email-templates.js';
+export type {
+  BrandedEmailCallToAction,
+  BrandedEmailLayoutInput,
+  DefaultEmailTemplate,
+} from './email-templates.js';
+
 export const dataScopes = ['all', 'team', 'own'] as const;
 export type DataScope = (typeof dataScopes)[number];
 
@@ -135,8 +146,30 @@ export const DEFAULT_OPT_OUT_WORDS = ['SAIR', 'PARAR', 'CANCELAR', 'REMOVER'] as
 
 export const normalizeCnpj = (value: string) => value.replace(/\D/g, '');
 
+/**
+ * Produces the stable key used to compare telephone numbers.
+ *
+ * Brazilian mobile numbers written in the legacy eight-digit format are
+ * equivalent to the current format with the ninth digit. The original phone
+ * remains untouched for display, while this key is used for lookups and
+ * uniqueness.
+ */
+export function normalizePhoneKey(value?: string | null) {
+  const digits = value?.replace(/\D/g, '') || '';
+  if (!digits) return null;
+
+  const brazilianLegacyMobile = /^55[1-9]\d[6-9]\d{7}$/;
+  const canonicalDigits = brazilianLegacyMobile.test(digits)
+    ? `${digits.slice(0, 4)}9${digits.slice(4)}`
+    : digits;
+
+  return `+${canonicalDigits}`;
+}
+
 export function contactsAreDuplicates(a: { phone?: string | null; email?: string | null }, b: { phone?: string | null; email?: string | null }) {
-  return Boolean((a.phone && b.phone && a.phone === b.phone) || (a.email && b.email && a.email.toLowerCase() === b.email.toLowerCase()));
+  const aPhoneKey = normalizePhoneKey(a.phone);
+  const bPhoneKey = normalizePhoneKey(b.phone);
+  return Boolean((aPhoneKey && bPhoneKey && aPhoneKey === bPhoneKey) || (a.email && b.email && a.email.toLowerCase() === b.email.toLowerCase()));
 }
 
 export function isOptOutMessage(text?: string | null) {

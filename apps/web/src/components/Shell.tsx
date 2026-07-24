@@ -50,11 +50,11 @@ const pageInfo: Record<string, { title: string; description: string }> = {
   '/contatos': { title: 'Contatos', description: 'Pessoas, consentimentos e carteiras.' },
   '/tarefas': { title: 'Tarefas', description: 'Próximas ações da equipe.' },
   '/inbox': { title: 'Inbox', description: 'Conversas compartilhadas do WhatsApp.' },
-  '/campanhas': { title: 'Campanhas', description: 'Disparos com cadência e proteção de consentimento.' },
+  '/campanhas': { title: 'Campanhas', description: 'Disparos com cadência e validação de números no WhatsApp.' },
   '/chatbots': { title: 'Chatbots', description: 'Atendimento automático por regras em um mapa visual.' },
   '/automacoes': { title: 'Automações', description: 'Jornadas visuais de WhatsApp e CRM.' },
   '/relatorios': { title: 'Relatórios', description: 'Indicadores comerciais e operacionais.' },
-  '/email': { title: 'E-mail', description: 'Modelos e campanhas preparados para ativação futura.' },
+  '/email': { title: 'E-mail', description: 'Modelos, campanhas e acompanhamento de envios pelo Mailgun.' },
   '/configuracoes': { title: 'Configurações', description: 'Equipe, números e segurança.' },
 };
 
@@ -93,7 +93,6 @@ export function Shell() {
   });
   const signOut = useMutation({
     mutationFn: logout,
-    onSuccess: () => window.location.replace('/login'),
   });
   const rootPath = `/${location.pathname.split('/')[1]}`.replace(/^\/$/, '/');
   const info = pageInfo[rootPath] || pageInfo['/'];
@@ -126,6 +125,16 @@ export function Shell() {
   useEffect(() => {
     const socketBaseUrl = String(import.meta.env.VITE_SOCKET_URL || '').replace(/\/+$/, '');
     const socket = io(`${socketBaseUrl}/realtime`, { withCredentials: true });
+    const invalidationTimers = new Map<string, number>();
+    const scheduleInvalidation = (queryKey: readonly unknown[], delayMs = 100) => {
+      const cacheKey = JSON.stringify(queryKey);
+      if (invalidationTimers.has(cacheKey)) return;
+      const timer = window.setTimeout(() => {
+        invalidationTimers.delete(cacheKey);
+        void queryClient.invalidateQueries({ queryKey });
+      }, delayMs);
+      invalidationTimers.set(cacheKey, timer);
+    };
     const refreshLatestHistory = async (conversationId: string) => {
       const queryKey = ['conversation-messages', conversationId] as const;
       const query = queryClient.getQueryCache().find({ queryKey, exact: true });
@@ -169,11 +178,11 @@ export function Shell() {
           void playIncomingMessageSound(context).catch(() => undefined);
         }
       }
-      void queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      void queryClient.invalidateQueries({ queryKey: ['conversation-counts'] });
-      void queryClient.invalidateQueries({ queryKey: payload?.conversationId ? ['conversation', payload.conversationId] : ['conversation'] });
+      scheduleInvalidation(['conversations']);
+      scheduleInvalidation(['conversation-counts']);
+      scheduleInvalidation(payload?.conversationId ? ['conversation', payload.conversationId] : ['conversation']);
       if (fullHistory) {
-        void queryClient.invalidateQueries({ queryKey: ['conversation-messages'] });
+        scheduleInvalidation(['conversation-messages']);
       } else if (payload?.conversationId) {
         void refreshLatestHistory(payload.conversationId);
       } else {
@@ -183,12 +192,12 @@ export function Shell() {
           .filter(Boolean);
         for (const conversationId of activeHistories) void refreshLatestHistory(conversationId);
       }
-      void queryClient.invalidateQueries({ queryKey: ['notifications'] });
+      scheduleInvalidation(['notifications']);
     };
     const refreshWhatsapp = () => {
-      void queryClient.invalidateQueries({ queryKey: ['instances'] });
-      void queryClient.invalidateQueries({ queryKey: ['conversations'] });
-      void queryClient.invalidateQueries({ queryKey: ['conversation'] });
+      scheduleInvalidation(['instances']);
+      scheduleInvalidation(['conversations']);
+      scheduleInvalidation(['conversation']);
     };
     const refreshAll = () => {
       refreshInbox(undefined, true);
@@ -204,14 +213,19 @@ export function Shell() {
     socket.on('connect_error', () => setRealtimeConnected(false));
     socket.on('inbox.updated', refreshInbox);
     socket.on('whatsapp.updated', refreshWhatsapp);
-    socket.on('notification.created', () => { void queryClient.invalidateQueries({ queryKey: ['notifications'] }); });
-    return () => { socket.removeAllListeners(); socket.disconnect(); };
+    socket.on('notification.created', () => scheduleInvalidation(['notifications']));
+    return () => {
+      for (const timer of invalidationTimers.values()) window.clearTimeout(timer);
+      invalidationTimers.clear();
+      socket.removeAllListeners();
+      socket.disconnect();
+    };
   }, [queryClient]);
 
   const sidebar = <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
-    <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo" /><div><strong>CRM Interno</strong><span>Comercial</span></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
+    <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo BZS One" /><div><strong>BZS One</strong><span>Plataforma interna</span></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
     <nav>{nav.map((group) => <div className="nav-group" key={group.section}><span className="nav-section">{group.section}</span>{group.items.filter((item) => canRead(item.resource)).map((item) => <NavLink end={item.to === '/'} key={item.to} to={item.to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><item.icon size={17} strokeWidth={1.9} /><span>{item.label}</span></NavLink>)}</div>)}</nav>
-    <div className="sidebar-footer"><img className="workspace-avatar" src="/brand-logo.png" alt="Logo BZS" /><div><strong>BZS Tecnologia</strong><span>Workspace interno</span></div><ChevronDown size={15} /></div>
+    <div className="sidebar-footer"><img className="workspace-avatar" src="/brand-logo.png" alt="Logo BZS" /><div><strong>BZS Tecnologia</strong><span>Ambiente corporativo</span></div><ChevronDown size={15} /></div>
   </aside>;
 
   return <div className="app-shell">

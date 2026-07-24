@@ -161,7 +161,7 @@ services:
       S3_USE_SSL: "false"
       WEBSOCKET_ENABLED: "false"
       WEBHOOK_GLOBAL_ENABLED: "false"
-      CONFIG_SESSION_PHONE_CLIENT: Prospecta CRM
+      CONFIG_SESSION_PHONE_CLIENT: BZS One
       CONFIG_SESSION_PHONE_NAME: Chrome
       QRCODE_LIMIT: 30
       # Evita serialização e escrita de logs por mensagem em produção.

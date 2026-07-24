@@ -1,8 +1,9 @@
 import { BadRequestException, HttpException, HttpStatus, Injectable, UnauthorizedException } from '@nestjs/common';
 import argon2 from 'argon2';
-import { createHash, randomBytes } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuthCacheService } from './auth-cache.service.js';
+import { SessionTokenService } from './session-token.service.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const MAX_LOGIN_ATTEMPT_ENTRIES = 10_000;
@@ -10,7 +11,11 @@ const MAX_LOGIN_ATTEMPT_ENTRIES = 10_000;
 @Injectable()
 export class AuthService {
   private readonly loginAttempts = new Map<string, { count: number; resetAt: number }>();
-  constructor(private readonly db: PrismaService, private readonly authCache?: AuthCacheService) {}
+  constructor(
+    private readonly db: PrismaService,
+    private readonly authCache: AuthCacheService,
+    private readonly sessionTokens: SessionTokenService,
+  ) {}
 
   async login(email: string, password: string, metadata: { ip?: string; userAgent?: string }) {
     const normalizedEmail = email.trim().toLowerCase();
@@ -35,12 +40,21 @@ export class AuthService {
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
     this.loginAttempts.delete(attemptKey);
-    const token = randomBytes(32).toString('base64url');
     const csrfToken = randomBytes(24).toString('base64url');
     const expiresAt = new Date(Date.now() + 7 * 86400_000);
+    const sessionId = randomUUID();
+    const token = await this.sessionTokens.issue({ sessionId, userId: user.id, expiresAt });
     await this.db.$transaction([
       this.db.session.create({
-        data: { userId: user.id, tokenHash: hash(token), csrfHash: hash(csrfToken), expiresAt, ipAddress: metadata.ip, userAgent: metadata.userAgent },
+        data: {
+          id: sessionId,
+          userId: user.id,
+          tokenHash: hash(token),
+          csrfHash: hash(csrfToken),
+          expiresAt,
+          ipAddress: metadata.ip,
+          userAgent: metadata.userAgent,
+        },
       }),
       this.db.user.update({ where: { id: user.id }, data: { lastLoginAt: new Date() } }),
     ]);
@@ -51,7 +65,7 @@ export class AuthService {
     if (!token) return;
     const tokenHash = hash(token);
     await this.db.session.deleteMany({ where: { tokenHash } });
-    this.authCache?.invalidateSession(tokenHash);
+    this.authCache.invalidateSession(tokenHash);
   }
 
   async acceptInvite(token: string, password: string, name?: string) {
@@ -65,7 +79,7 @@ export class AuthService {
       }),
       this.db.inviteToken.update({ where: { id: invite.id }, data: { usedAt: new Date() } }),
     ]);
-    this.authCache?.invalidateUser(invite.userId);
+    this.authCache.invalidateUser(invite.userId);
   }
 
   async resetPassword(token: string, password: string) {
@@ -77,6 +91,6 @@ export class AuthService {
       this.db.passwordResetToken.update({ where: { id: reset.id }, data: { usedAt: new Date() } }),
       this.db.session.deleteMany({ where: { userId: reset.userId } }),
     ]);
-    this.authCache?.invalidateUser(reset.userId);
+    this.authCache.invalidateUser(reset.userId);
   }
 }

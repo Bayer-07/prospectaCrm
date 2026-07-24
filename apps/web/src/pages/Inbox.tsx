@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Check, CheckCheck, ChevronDown, Copy, Clock, Download, Eye, FileText, Filter, History, Inbox, Mail, MessageCircle, Mic, MoreHorizontal, Pause, Pencil, Phone, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
-import { api, apiErrorMessage, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
+import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
@@ -612,7 +612,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   });
   const exportPdf = useMutation({
     mutationFn: async () => {
-      const response = await fetch(apiUrl(`/conversations/${conversation.id}/export/pdf`), { credentials: 'include' });
+      const response = await apiFetch(`/conversations/${conversation.id}/export/pdf`);
       if (!response.ok) {
         const body = await response.json().catch(() => null) as { message?: string } | null;
         throw new Error(body?.message || 'Não foi possível exportar a conversa');

@@ -5,7 +5,7 @@ import type { Company, Contact } from '../lib/types';
 import { Button, Field, Modal, SelectField } from './ui';
 
 export function ContactModal({ contact, onClose, onSaved }: { contact?: Contact; onClose(): void; onSaved(): void }) {
-  const companies = useQuery({ queryKey: ['contact-company-options'], queryFn: () => api<Envelope<Company[]>>('/companies?limit=100') });
+  const companies = useQuery({ queryKey: ['contact-company-options'], queryFn: () => api<Envelope<Company[]>>('/companies?limit=100'), staleTime: 5 * 60_000 });
   const [form, setForm] = useState({
     name: contact?.name || '',
     email: contact?.email || '',

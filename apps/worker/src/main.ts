@@ -8,6 +8,7 @@ import { processExternalWebhook } from './external-webhook.processor.js';
 import { InboundProcessor } from './inbound.processor.js';
 import { runMaintenance } from './maintenance.processor.js';
 import { OutboundProcessor } from './outbound.processor.js';
+import { TaskDigestProcessor } from './task-digest.processor.js';
 import { WorkflowProcessor } from './workflow.processor.js';
 
 const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', { maxRetriesPerRequest: null });
@@ -18,12 +19,14 @@ const automationQueue = new Queue('automations', queueOptions);
 const outboundQueue = new Queue('outbound-messages', queueOptions);
 const chatbotQueue = new Queue('chatbots', queueOptions);
 const inboundQueue = new Queue('inbound-webhooks', queueOptions);
+const taskDigestQueue = new Queue('task-digests', queueOptions);
 
 const inbound = new InboundProcessor(prisma, chatbotQueue, evolution, inboundQueue);
 const outbound = new OutboundProcessor(prisma, evolution);
 const campaigns = new CampaignProcessor(prisma, campaignQueue, evolution);
 const workflows = new WorkflowProcessor(prisma, automationQueue, outboundQueue);
 const chatbots = new ChatbotProcessor(prisma, outboundQueue);
+const taskDigests = new TaskDigestProcessor(prisma);
 
 const workers = [
   new Worker('inbound-webhooks', async (job) => {
@@ -41,10 +44,40 @@ const workers = [
     if (event) await connection.publish('prospecta:realtime', JSON.stringify(event));
   }, { connection, concurrency: 5 }),
   new Worker('external-webhooks', (job) => processExternalWebhook(prisma, job), { connection, concurrency: 5 }),
+  new Worker('task-digests', () => taskDigests.process(), { connection, concurrency: 1 }),
 ];
 
 for (const worker of workers) {
   worker.on('failed', (job, error) => console.error(`[${worker.name}] Job ${job?.id} falhou:`, error.message));
+}
+
+await taskDigestQueue.upsertJobScheduler(
+  'daily-task-digest-08h',
+  { pattern: '0 8 * * *', tz: 'America/Sao_Paulo' },
+  {
+    name: 'daily-task-digest',
+    data: {},
+    opts: { attempts: 6, backoff: { type: 'exponential', delay: 5 * 60_000 } },
+  },
+);
+const saoPauloNow = new Intl.DateTimeFormat('en-CA', {
+  timeZone: 'America/Sao_Paulo',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  hourCycle: 'h23',
+}).formatToParts(new Date()).reduce<Record<string, string>>((parts, part) => {
+  if (part.type !== 'literal') parts[part.type] = part.value;
+  return parts;
+}, {});
+if (Number(saoPauloNow.hour) >= 8) {
+  const dateKey = `${saoPauloNow.year}-${saoPauloNow.month}-${saoPauloNow.day}`;
+  await taskDigestQueue.add('daily-task-digest', {}, {
+    jobId: `task-digest-catchup-${dateKey}`,
+    attempts: 6,
+    backoff: { type: 'exponential', delay: 5 * 60_000 },
+  });
 }
 
 await runMaintenance(prisma);
@@ -82,11 +115,11 @@ const shutdown = async () => {
   clearInterval(maintenanceTimer);
   clearInterval(recentSyncTimer);
   await Promise.all(workers.map((worker) => worker.close()));
-  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close()]);
+  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close()]);
   await prisma.$disconnect();
   await connection.quit();
 };
 process.on('SIGTERM', () => void shutdown().then(() => process.exit(0)));
 process.on('SIGINT', () => void shutdown().then(() => process.exit(0)));
 
-console.log('Prospecta worker ativo: mensagens, campanhas, automações e manutenção.');
+console.log('BZS One worker ativo: mensagens, campanhas, automações e manutenção.');

@@ -20,6 +20,7 @@ export class EvolutionService {
   private readonly baseUrl = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
   private readonly apiKey = process.env.EVOLUTION_API_KEY || '';
   private readonly profilePictureCache = new Map<string, ProfilePictureCacheEntry>();
+  private readonly pendingProfilePictures = new Map<string, Promise<ProfilePictureCacheEntry['picture']>>();
   private profilePictureCacheBytes = 0;
 
   constructor(
@@ -36,6 +37,44 @@ export class EvolutionService {
       include: { teams: { include: { team: true } }, warmupProfile: true, _count: { select: { conversations: true } } },
       orderBy: { createdAt: 'asc' },
     });
+  }
+
+  async checkWhatsappNumbers(instanceKey: string, numbers: string[]) {
+    const normalized = [...new Set(numbers.map((number) => number.replace(/\D/g, '')).filter(Boolean))];
+    const checked: Array<{ number: string; exists: boolean; jid?: string }> = [];
+    const batches: string[][] = [];
+    for (let index = 0; index < normalized.length; index += 100) {
+      batches.push(normalized.slice(index, index + 100));
+    }
+    for (let index = 0; index < batches.length; index += 3) {
+      const groupResults = await Promise.all(batches.slice(index, index + 3).map(async (batch) => {
+        const response = await this.request(`/chat/whatsappNumbers/${encodeURIComponent(instanceKey)}`, {
+          method: 'POST',
+          body: JSON.stringify({ numbers: batch }),
+        });
+        const responseNumbers = Array.isArray(response)
+          ? response
+          : Array.isArray(response.numbers)
+            ? response.numbers
+            : Array.isArray(response.data)
+              ? response.data
+              : [];
+        const byNumber = new Map(responseNumbers.map((item: Record<string, unknown>) => {
+          const number = String(item.number || item.jid || '').split('@')[0].replace(/\D/g, '');
+          return [number, item];
+        }));
+        return batch.map((number) => {
+          const item = byNumber.get(number);
+          return {
+            number,
+            exists: item?.exists === true,
+            ...(typeof item?.jid === 'string' ? { jid: item.jid } : {}),
+          };
+        });
+      }));
+      checked.push(...groupResults.flat());
+    }
+    return checked;
   }
 
   async createInstance(auth: AuthContext, input: { name: string; instanceKey: string; teamIds: string[] }) {
@@ -116,11 +155,18 @@ export class EvolutionService {
         ...(status ? { status: status as never } : {}),
         ...(query.assignee === 'me' ? { assigneeId: auth.userId } : {}),
       },
-      include: {
-        contact: { include: { companies: { where: { isPrimary: true }, include: { company: true } } } },
-        assignee: { select: { id: true, name: true } }, instance: { select: { id: true, name: true, phone: true, status: true } },
-        messages: { where: { type: { not: 'reaction' } }, orderBy: { createdAt: 'desc' }, take: 1 },
-      }, orderBy: { lastMessageAt: 'desc' }, take: 100,
+      select: {
+        id: true, unreadCount: true, status: true, lastMessageAt: true,
+        contact: { select: { id: true, name: true } },
+        assignee: { select: { id: true, name: true } },
+        instance: { select: { id: true, name: true, phone: true, status: true } },
+        messages: {
+          where: { type: { not: 'reaction' } },
+          select: { id: true, text: true, type: true, createdAt: true },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          take: 1,
+        },
+      }, orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }], take: 100,
     });
   }
 
@@ -373,19 +419,30 @@ export class EvolutionService {
     }
     if (cached) this.removeProfilePictureCacheEntry(cacheKey);
 
-    let picture: ProfilePictureCacheEntry['picture'] = null;
+    const pending = this.pendingProfilePictures.get(cacheKey);
+    if (pending) return pending;
+
+    const request = (async () => {
+      let picture: ProfilePictureCacheEntry['picture'] = null;
+      try {
+        const metadata = await this.request(`/chat/fetchProfilePictureUrl/${encodeURIComponent(conversation.instance.instanceKey)}`, {
+          method: 'POST',
+          body: JSON.stringify({ number }),
+        });
+        const rawUrl = String(metadata.profilePictureUrl || metadata.picture || metadata.url || '');
+        if (rawUrl) picture = await this.downloadProfilePicture(rawUrl);
+      } catch {
+        picture = null;
+      }
+      this.cacheProfilePicture(cacheKey, picture);
+      return picture;
+    })();
+    this.pendingProfilePictures.set(cacheKey, request);
     try {
-      const metadata = await this.request(`/chat/fetchProfilePictureUrl/${encodeURIComponent(conversation.instance.instanceKey)}`, {
-        method: 'POST',
-        body: JSON.stringify({ number }),
-      });
-      const rawUrl = String(metadata.profilePictureUrl || metadata.picture || metadata.url || '');
-      if (rawUrl) picture = await this.downloadProfilePicture(rawUrl);
-    } catch {
-      picture = null;
+      return await request;
+    } finally {
+      this.pendingProfilePictures.delete(cacheKey);
     }
-    this.cacheProfilePicture(cacheKey, picture);
-    return picture;
   }
 
   async assign(auth: AuthContext, id: string, assigneeId: string | null) {

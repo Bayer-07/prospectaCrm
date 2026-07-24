@@ -36,6 +36,26 @@ describe('paginated conversation history', () => {
   });
 });
 
+describe('verificação de números no WhatsApp', () => {
+  it('consulta a Evolution e marca respostas ausentes como inexistentes', async () => {
+    const service = new EvolutionService({} as never, {} as never, {} as never, {} as never);
+    service.request = vi.fn().mockResolvedValue({
+      numbers: [{ number: '5511999999999', exists: true, jid: '5511999999999@s.whatsapp.net' }],
+    });
+
+    const result = await service.checkWhatsappNumbers('comercial', ['+55 (11) 99999-9999', '+55 11 98888-8888']);
+
+    expect(service.request).toHaveBeenCalledWith('/chat/whatsappNumbers/comercial', {
+      method: 'POST',
+      body: JSON.stringify({ numbers: ['5511999999999', '5511988888888'] }),
+    });
+    expect(result).toEqual([
+      { number: '5511999999999', exists: true, jid: '5511999999999@s.whatsapp.net' },
+      { number: '5511988888888', exists: false },
+    ]);
+  });
+});
+
 describe('assinatura do operador', () => {
   it('adiciona o nome autenticado antes da mensagem quando a preferência está ativa', async () => {
     const create = vi.fn().mockResolvedValue({ id: 'message-1' });

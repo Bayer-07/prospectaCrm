@@ -35,7 +35,7 @@ export class CrmController {
 
   @RequirePermission('contacts', 'read')
   @Get('contacts')
-  listContacts(@CurrentUser() auth: AuthContext, @Query() query: { cursor?: string; limit?: number; search?: string; consent?: string }) { return this.crm.listContacts(auth, query); }
+  listContacts(@CurrentUser() auth: AuthContext, @Query() query: { cursor?: string; limit?: number; search?: string; consent?: string; emailOnly?: string }) { return this.crm.listContacts(auth, query); }
 
   @RequirePermission('contacts', 'read')
   @Get('contacts/:id')
@@ -88,7 +88,10 @@ export class CrmController {
 
   @RequirePermission('tasks', 'read')
   @Get('tasks')
-  async tasks(@CurrentUser() auth: AuthContext) { return { data: await this.crm.tasks(auth) }; }
+  async tasks(
+    @CurrentUser() auth: AuthContext,
+    @Query() query: { from?: string; to?: string; status?: string },
+  ) { return { data: await this.crm.tasks(auth, query) }; }
 
   @RequirePermission('tasks', 'write')
   @Post('tasks')

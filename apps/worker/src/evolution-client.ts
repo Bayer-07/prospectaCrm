@@ -72,6 +72,33 @@ export class EvolutionClient {
     return Array.isArray(records) ? records as Array<Record<string, any>> : [];
   }
 
+  async checkWhatsappNumbers(instance: string, numbers: string[]) {
+    if (!this.apiKey) throw new Error('EVOLUTION_API_KEY não configurada');
+    const normalized = [...new Set(numbers.map((number) => number.replace(/\D/g, '')).filter(Boolean))];
+    const response = await fetch(`${this.baseUrl}/chat/whatsappNumbers/${encodeURIComponent(instance)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: this.apiKey },
+      body: JSON.stringify({ numbers: normalized }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const raw = await response.text();
+    let result: Record<string, any> | Array<Record<string, any>> = {};
+    try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
+    if (!response.ok) throw new Error(`Evolution ${response.status}: ${raw.slice(0, 500)}`);
+    const items = Array.isArray(result)
+      ? result
+      : Array.isArray(result.numbers)
+        ? result.numbers
+        : Array.isArray(result.data)
+          ? result.data
+          : [];
+    const byNumber = new Map(items.map((item) => [
+      String(item.number || item.jid || '').split('@')[0].replace(/\D/g, ''),
+      item.exists === true,
+    ]));
+    return normalized.map((number) => ({ number, exists: byNumber.get(number) === true }));
+  }
+
   private normalizeTarget(value: string) {
     const [local, suffix] = value.trim().split('@', 2);
     const digits = local.replace(/\D/g, '');

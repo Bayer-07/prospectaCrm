@@ -24,6 +24,7 @@ export function ContactsPage() {
   const query = useQuery({
     queryKey: ['contacts', debouncedSearch],
     queryFn: () => api<Envelope<Contact[]>>(`/contacts?limit=100&search=${encodeURIComponent(debouncedSearch)}`),
+    placeholderData: (previous) => previous,
   });
   const refresh = () => void client.invalidateQueries({ queryKey: ['contacts'] });
 

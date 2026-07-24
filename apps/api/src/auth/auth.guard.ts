@@ -1,10 +1,13 @@
 import { CanActivate, ExecutionContext, ForbiddenException, Injectable, UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { createHash, timingSafeEqual } from 'node:crypto';
+import type { Response } from 'express';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AuthCacheService, type CachedApiKeyAuth, type CachedSessionAuth } from './auth-cache.service.js';
+import { clearAuthCookies, SESSION_COOKIE } from './auth-cookies.js';
 import { IS_PUBLIC_KEY } from './public.decorator.js';
 import { PERMISSION_KEY } from './permission.decorator.js';
+import { SessionTokenService } from './session-token.service.js';
 import type { AuthenticatedRequest, Permission } from './types.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
@@ -15,6 +18,7 @@ export class AuthGuard implements CanActivate {
     private readonly reflector: Reflector,
     private readonly db: PrismaService,
     private readonly authCache: AuthCacheService,
+    private readonly sessionTokens: SessionTokenService,
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
@@ -24,8 +28,16 @@ export class AuthGuard implements CanActivate {
 
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const bearer = request.headers.authorization?.replace(/^Bearer\s+/i, '');
-    if (bearer?.startsWith('pk_')) await this.authenticateApiKey(request, bearer);
-    else await this.authenticateSession(request);
+    const apiKeyToken = bearer?.startsWith('pk_') ? bearer : undefined;
+    try {
+      if (apiKeyToken) await this.authenticateApiKey(request, apiKeyToken);
+      else await this.authenticateSession(request, bearer);
+    } catch (error) {
+      if (!apiKeyToken && error instanceof UnauthorizedException) {
+        clearAuthCookies(context.switchToHttp().getResponse<Response>());
+      }
+      throw error;
+    }
 
     if (request.auth.type === 'apiKey' && !/^\/api\/v1\/(companies|contacts|opportunities|tasks|tags|custom-fields|segments)(\/|\?|$)/.test(request.originalUrl)) {
       throw new ForbiddenException('Este endpoint não faz parte da API pública');
@@ -38,12 +50,18 @@ export class AuthGuard implements CanActivate {
     return true;
   }
 
-  private async authenticateSession(request: AuthenticatedRequest) {
-    const token = request.cookies?.prospecta_session as string | undefined;
+  private async authenticateSession(request: AuthenticatedRequest, bearerToken?: string) {
+    const token = bearerToken || request.cookies?.[SESSION_COOKIE] as string | undefined;
     if (!token) throw new UnauthorizedException('Sessão necessária');
+    const claims = await this.sessionTokens.verify(token);
+    if (!claims) throw new UnauthorizedException('Sessão expirada ou inválida');
     const tokenHash = hash(token);
     const now = new Date();
     let session = this.authCache.getSession(tokenHash, now.getTime());
+    if (session && (session.sessionId !== claims.sessionId || session.userId !== claims.userId)) {
+      this.authCache.invalidateSession(tokenHash);
+      session = undefined;
+    }
     if (!session) {
       const record = await this.db.session.findUnique({
         where: { tokenHash },
@@ -72,7 +90,13 @@ export class AuthGuard implements CanActivate {
           },
         },
       });
-      if (!record || record.expiresAt <= now || record.user.status !== 'ACTIVE') {
+      if (
+        !record
+        || record.id !== claims.sessionId
+        || record.userId !== claims.userId
+        || record.expiresAt <= now
+        || record.user.status !== 'ACTIVE'
+      ) {
         throw new UnauthorizedException('Sessão expirada');
       }
       session = {
@@ -90,13 +114,14 @@ export class AuthGuard implements CanActivate {
           roleKey: record.user.role.key,
           name: record.user.name,
           email: record.user.email,
+          sessionExpiresAt: record.expiresAt.toISOString(),
           messageSignatureEnabled: record.user.messageSignatureEnabled,
           permissions: record.user.role.permissions as Permission[],
         },
       } satisfies CachedSessionAuth;
       this.authCache.setSession(tokenHash, session, now.getTime());
     }
-    if (!['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
+    if (!bearerToken && !['GET', 'HEAD', 'OPTIONS'].includes(request.method)) {
       const csrf = request.headers['x-csrf-token'];
       if (typeof csrf !== 'string' || !this.safeHashEquals(csrf, session.csrfHash)) {
         throw new ForbiddenException('Token CSRF inválido');

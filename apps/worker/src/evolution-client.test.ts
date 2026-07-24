@@ -22,6 +22,8 @@ beforeAll(async () => {
           ? { mediaType: 'stickerMessage', mimetype: 'image/webp', fileName: 'figurinha.webp', base64: 'UklGRg==' }
           : request.url?.includes('findMessages')
             ? { messages: { total: 1, records: [{ key: { id: 'document-caption-1' }, message: { documentMessage: { caption: 'Legenda recuperada' } } }] } }
+            : request.url?.includes('whatsappNumbers')
+              ? { numbers: [{ number: '5511999999999', exists: true }] }
             : { key: { id: `simulated-${requests.length}` } },
       ));
     });
@@ -149,5 +151,19 @@ describe('contrato de envio Evolution', () => {
         delay: 0,
       },
     });
+  });
+
+  it('verifica quais destinatários realmente possuem WhatsApp', async () => {
+    const result = await new EvolutionClient().checkWhatsappNumbers('comercial', ['+55 11 99999-9999', '+55 11 98888-8888']);
+
+    expect(requests[9]).toMatchObject({
+      url: '/chat/whatsappNumbers/comercial',
+      apiKey: 'test-key',
+      body: { numbers: ['5511999999999', '5511988888888'] },
+    });
+    expect(result).toEqual([
+      { number: '5511999999999', exists: true },
+      { number: '5511988888888', exists: false },
+    ]);
   });
 });

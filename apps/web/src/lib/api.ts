@@ -1,3 +1,5 @@
+import { csrfToken, handleUnauthorizedResponse } from './auth-session';
+
 const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
 export const apiUrl = (path: string) => `${API_URL}${path}`;
@@ -23,8 +25,14 @@ export function apiErrorMessage(error: unknown, fallback = 'Não foi possível c
   return `${error.message}: ${detail}`;
 }
 
-export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
-  const csrf = sessionStorage.getItem('prospecta_csrf');
+const publicAuthenticationRequests = new Set([
+  '/auth/login',
+  '/auth/accept-invite',
+  '/auth/reset-password',
+]);
+
+export async function apiFetch(path: string, init: RequestInit = {}) {
+  const csrf = csrfToken();
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     credentials: 'include',
@@ -34,6 +42,14 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
       ...(init.headers || {}),
     },
   });
+  if (response.status === 401 && !publicAuthenticationRequests.has(path)) {
+    handleUnauthorizedResponse();
+  }
+  return response;
+}
+
+export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
+  const response = await apiFetch(path, init);
   const text = await response.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }

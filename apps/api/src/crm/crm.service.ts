@@ -1,8 +1,8 @@
 import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Queue } from 'bullmq';
-import { Prisma } from '@prisma/client';
+import { Prisma, type Contact } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
-import { companyInputSchema, contactInputSchema, normalizeCnpj, opportunityInputSchema, opportunityStatusForStage, taskInputSchema } from '@prospecta/contracts';
+import { companyInputSchema, contactInputSchema, normalizeCnpj, normalizePhoneKey, opportunityInputSchema, opportunityStatusForStage, taskInputSchema } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
 import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -64,8 +64,12 @@ export class CrmService {
         organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'companies'),
         ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { domain: { contains: query.search, mode: 'insensitive' } }, { cnpj: { contains: query.search } }] } : {}),
       },
-      include: { owner: { select: { id: true, name: true } }, team: true, _count: { select: { contacts: true, opportunities: true } } },
-      orderBy: { updatedAt: 'desc' }, take: limit + 1, ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      include: {
+        owner: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, color: true } },
+        _count: { select: { contacts: true, opportunities: true } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: limit + 1, ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     }).then((rows) => this.page(rows, limit));
   }
 
@@ -132,16 +136,25 @@ export class CrmService {
     await this.audit(auth, 'company.archived', 'Company', id, before, company); return company;
   }
 
-  listContacts(auth: AuthContext, query: { cursor?: string; limit?: number; search?: string; consent?: string }) {
+  listContacts(auth: AuthContext, query: { cursor?: string; limit?: number; search?: string; consent?: string; emailOnly?: string }) {
     const limit = Math.min(query.limit || 25, 100);
     return this.db.contact.findMany({
       where: {
         organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts'),
         ...(query.consent ? { consentStatus: query.consent.toUpperCase() as never } : {}),
+        ...(query.emailOnly === 'true' ? { email: { not: null } } : {}),
         ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { email: { contains: query.search, mode: 'insensitive' } }, { phone: { contains: query.search } }] } : {}),
       },
-      include: { owner: { select: { id: true, name: true } }, team: true, companies: { where: { isPrimary: true }, include: { company: true } }, tags: { include: { tag: true } } },
-      orderBy: { updatedAt: 'desc' }, take: limit + 1, ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
+      include: {
+        owner: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, color: true } },
+        companies: {
+          where: { isPrimary: true },
+          select: { isPrimary: true, company: { select: { id: true, name: true } } },
+        },
+        tags: { select: { tag: { select: { id: true, name: true, color: true } } } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: limit + 1, ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     }).then((rows) => this.page(rows, limit));
   }
 
@@ -159,66 +172,96 @@ export class CrmService {
 
   async createContact(auth: AuthContext, raw: unknown) {
     const input = this.parse(contactInputSchema, raw);
+    const phoneKey = normalizePhoneKey(input.phone);
     if (auth.type === 'apiKey' && input.externalId) {
       const existing = await this.db.contact.findUnique({ where: { organizationId_externalId: { organizationId: auth.organizationId, externalId: input.externalId } }, select: { id: true } });
       if (existing) return this.updateContact(auth, existing.id, input);
     }
-    const duplicate = input.phone || input.email ? await this.db.contact.findFirst({ where: {
+    const phoneDuplicate = phoneKey ? await this.db.contact.findFirst({ where: {
+      organizationId: auth.organizationId, archivedAt: null, phoneKey,
+    }, select: { id: true } }) : null;
+    if (phoneDuplicate) throw new BadRequestException({ message: 'Já existe um contato com este número', duplicateId: phoneDuplicate.id });
+    const duplicate = input.email ? await this.db.contact.findFirst({ where: {
       organizationId: auth.organizationId, archivedAt: null,
-      OR: [...(input.phone ? [{ phone: input.phone }] : []), ...(input.email ? [{ email: input.email.toLowerCase() }] : [])],
+      email: input.email.toLowerCase(),
     }, select: { id: true } }) : null;
     if (duplicate) throw new BadRequestException({ message: 'Possível contato duplicado', duplicateId: duplicate.id });
-    const contact = await this.db.$transaction(async (tx) => {
-      const created = await tx.contact.create({ data: {
-        organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId: input.teamId || auth.teamId,
-        primaryCompanyId: input.companyId, externalId: input.externalId, name: input.name,
-        jobTitle: input.jobTitle, email: input.email?.toLowerCase(), phone: input.phone, source: input.source,
-        consentStatus: input.consentStatus.toUpperCase() as never, consentSource: input.consentSource,
-        consentEvidence: input.consentEvidence,
-        consentGrantedAt: input.consentStatus === 'granted' ? new Date() : undefined,
-        consentRevokedAt: input.consentStatus === 'revoked' ? new Date() : undefined,
-        customFields: input.customFields as Prisma.InputJsonValue,
-      } });
-      if (input.companyId) await tx.contactCompany.create({ data: { contactId: created.id, companyId: input.companyId, isPrimary: true } });
-      if (input.consentStatus !== 'unknown') await tx.consentEvent.create({ data: {
-        contactId: created.id, status: input.consentStatus.toUpperCase() as never,
-        source: input.consentSource || 'Cadastro manual', evidence: input.consentEvidence,
-      } });
-      return created;
-    });
+    let contact: Contact;
+    try {
+      contact = await this.db.$transaction(async (tx) => {
+        const created = await tx.contact.create({ data: {
+          organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId: input.teamId || auth.teamId,
+          primaryCompanyId: input.companyId, externalId: input.externalId, name: input.name,
+          jobTitle: input.jobTitle, email: input.email?.toLowerCase(), phone: input.phone, phoneKey, source: input.source,
+          consentStatus: input.consentStatus.toUpperCase() as never, consentSource: input.consentSource,
+          consentEvidence: input.consentEvidence,
+          consentGrantedAt: input.consentStatus === 'granted' ? new Date() : undefined,
+          consentRevokedAt: input.consentStatus === 'revoked' ? new Date() : undefined,
+          customFields: input.customFields as Prisma.InputJsonValue,
+        } });
+        if (input.companyId) await tx.contactCompany.create({ data: { contactId: created.id, companyId: input.companyId, isPrimary: true } });
+        if (input.consentStatus !== 'unknown') await tx.consentEvent.create({ data: {
+          contactId: created.id, status: input.consentStatus.toUpperCase() as never,
+          source: input.consentSource || 'Cadastro manual', evidence: input.consentEvidence,
+        } });
+        return created;
+      });
+    } catch (error) {
+      if (input.phone && this.isUniqueConstraint(error, 'phoneKey')) {
+        throw new BadRequestException('Já existe um contato com este número');
+      }
+      throw error;
+    }
     await this.audit(auth, 'contact.created', 'Contact', contact.id, null, contact);
     return contact;
   }
 
   async updateContact(auth: AuthContext, id: string, raw: unknown) {
     const input = this.parse(contactInputSchema.partial(), raw);
+    const phoneKey = normalizePhoneKey(input.phone);
     const before = await this.db.contact.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts', 'write') } });
     if (!before) throw new NotFoundException('Contato não encontrado');
+    if (phoneKey) {
+      const duplicate = await this.db.contact.findFirst({
+        where: { organizationId: auth.organizationId, archivedAt: null, phoneKey, id: { not: id } },
+        select: { id: true },
+      });
+      if (duplicate) throw new BadRequestException({ message: 'Já existe um contato com este número', duplicateId: duplicate.id });
+    }
     const consentChanged = input.consentStatus && input.consentStatus.toUpperCase() !== before.consentStatus;
-    const contact = await this.db.$transaction(async (tx) => {
-      const { companyId, customFields, consentStatus, ...fields } = input;
-      const updated = await tx.contact.update({ where: { id }, data: {
-        ...fields, email: input.email?.toLowerCase(),
-        ...(companyId !== undefined ? { primaryCompanyId: companyId } : {}),
-        ...(consentStatus ? { consentStatus: consentStatus.toUpperCase() as never } : {}),
-        ...(consentStatus === 'granted' ? { consentGrantedAt: new Date(), consentRevokedAt: null } : {}),
-        ...(consentStatus === 'revoked' ? { consentRevokedAt: new Date() } : {}),
-        ...(customFields ? { customFields: customFields as Prisma.InputJsonValue } : {}),
-      } as Prisma.ContactUncheckedUpdateInput });
-      if (companyId !== undefined) {
-        await tx.contactCompany.updateMany({ where: { contactId: id, isPrimary: true }, data: { isPrimary: false } });
-        if (companyId) await tx.contactCompany.upsert({
-          where: { contactId_companyId: { contactId: id, companyId } },
-          update: { isPrimary: true }, create: { contactId: id, companyId, isPrimary: true },
-        });
+    let contact: Contact;
+    try {
+      contact = await this.db.$transaction(async (tx) => {
+        const { companyId, customFields, consentStatus, ...fields } = input;
+        const updated = await tx.contact.update({ where: { id }, data: {
+          ...fields, email: input.email?.toLowerCase(),
+          ...(input.phone ? { phoneKey } : {}),
+          ...(companyId !== undefined ? { primaryCompanyId: companyId } : {}),
+          ...(consentStatus ? { consentStatus: consentStatus.toUpperCase() as never } : {}),
+          ...(consentStatus === 'granted' ? { consentGrantedAt: new Date(), consentRevokedAt: null } : {}),
+          ...(consentStatus === 'revoked' ? { consentRevokedAt: new Date() } : {}),
+          ...(customFields ? { customFields: customFields as Prisma.InputJsonValue } : {}),
+        } as Prisma.ContactUncheckedUpdateInput });
+        if (companyId !== undefined) {
+          await tx.contactCompany.updateMany({ where: { contactId: id, isPrimary: true }, data: { isPrimary: false } });
+          if (companyId) await tx.contactCompany.upsert({
+            where: { contactId_companyId: { contactId: id, companyId } },
+            update: { isPrimary: true }, create: { contactId: id, companyId, isPrimary: true },
+          });
+        }
+        if (consentChanged) {
+          await tx.consentEvent.create({ data: { contactId: id, status: input.consentStatus!.toUpperCase() as never, source: input.consentSource || 'Atualização manual', evidence: input.consentEvidence } });
+          if (input.consentStatus === 'revoked') await tx.suppression.upsert({ where: { contactId_channel: { contactId: id, channel: 'WHATSAPP' } }, update: { reason: 'Consentimento revogado' }, create: { contactId: id, channel: 'WHATSAPP', reason: 'Consentimento revogado' } });
+          if (input.consentStatus === 'granted') await tx.suppression.deleteMany({ where: { contactId: id, channel: 'WHATSAPP', reason: 'Consentimento revogado' } });
+        }
+        return updated;
+      });
+    } catch (error) {
+      if (input.phone && this.isUniqueConstraint(error, 'phoneKey')) {
+        throw new BadRequestException('Já existe um contato com este número');
       }
-      if (consentChanged) {
-        await tx.consentEvent.create({ data: { contactId: id, status: input.consentStatus!.toUpperCase() as never, source: input.consentSource || 'Atualização manual', evidence: input.consentEvidence } });
-        if (input.consentStatus === 'revoked') await tx.suppression.upsert({ where: { contactId_channel: { contactId: id, channel: 'WHATSAPP' } }, update: { reason: 'Consentimento revogado' }, create: { contactId: id, channel: 'WHATSAPP', reason: 'Consentimento revogado' } });
-        if (input.consentStatus === 'granted') await tx.suppression.deleteMany({ where: { contactId: id, channel: 'WHATSAPP', reason: 'Consentimento revogado' } });
-      }
-      return updated;
-    });
+      throw error;
+    }
     await this.audit(auth, 'contact.updated', 'Contact', id, before, contact);
     return contact;
   }
@@ -226,7 +269,7 @@ export class CrmService {
   async archiveContact(auth: AuthContext, id: string) {
     const before = await this.db.contact.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts', 'write') } });
     if (!before) throw new NotFoundException('Contato não encontrado');
-    const contact = await this.db.contact.update({ where: { id }, data: { archivedAt: new Date() } });
+    const contact = await this.db.contact.update({ where: { id }, data: { archivedAt: new Date(), phoneKey: null } });
     await this.audit(auth, 'contact.archived', 'Contact', id, before, contact); return contact;
   }
 
@@ -253,8 +296,12 @@ export class CrmService {
     if (!pipeline) throw new NotFoundException('Funil não encontrado');
     const opportunities = await this.db.opportunity.findMany({
       where: { organizationId: auth.organizationId, pipelineId, archivedAt: null, status: 'OPEN', ...scopedWhere(auth, 'opportunities') },
-      include: { company: true, owner: { select: { id: true, name: true } } },
-      orderBy: { updatedAt: 'desc' },
+      select: {
+        id: true, title: true, valueCents: true, probability: true, stageId: true, updatedAt: true,
+        company: { select: { id: true, name: true } },
+        owner: { select: { id: true, name: true } },
+      },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
     });
     const opportunitiesByStage = new Map<string, typeof opportunities>();
     for (const opportunity of opportunities) {
@@ -286,7 +333,7 @@ export class CrmService {
 
   listOpportunities(auth: AuthContext, query: { cursor?: string; limit?: number; search?: string }) {
     const limit = Math.min(query.limit || 25, 100);
-    return this.db.opportunity.findMany({ where: { organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities'), ...(query.search ? { title: { contains: query.search, mode: 'insensitive' as const } } : {}) }, include: { company: true, stage: true, pipeline: true, owner: { select: { id: true, name: true } }, contacts: { include: { contact: true } } }, orderBy: { updatedAt: 'desc' }, take: limit + 1, ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}) }).then((rows) => this.page(rows, limit));
+    return this.db.opportunity.findMany({ where: { organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities'), ...(query.search ? { title: { contains: query.search, mode: 'insensitive' as const } } : {}) }, include: { company: true, stage: true, pipeline: true, owner: { select: { id: true, name: true } }, contacts: { include: { contact: true } } }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: limit + 1, ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}) }).then((rows) => this.page(rows, limit));
   }
 
   async getOpportunity(auth: AuthContext, id: string) {
@@ -333,11 +380,25 @@ export class CrmService {
     return updated;
   }
 
-  async tasks(auth: AuthContext) {
+  async tasks(auth: AuthContext, query: { from?: string; to?: string; status?: string } = {}) {
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
+    if (from && Number.isNaN(from.getTime())) throw new BadRequestException('Data inicial inválida');
+    if (to && Number.isNaN(to.getTime())) throw new BadRequestException('Data final inválida');
+    if (from && to && from >= to) throw new BadRequestException('O período da agenda é inválido');
+    const normalizedStatus = query.status?.trim().toUpperCase();
+    if (normalizedStatus && !['OPEN', 'COMPLETED', 'CANCELLED', 'ALL'].includes(normalizedStatus)) {
+      throw new BadRequestException('Status de tarefa inválido');
+    }
     return this.db.task.findMany({
-      where: { organizationId: auth.organizationId, ...this.taskScope(auth) },
+      where: {
+        organizationId: auth.organizationId,
+        ...this.taskScope(auth),
+        ...(from || to ? { dueAt: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } } : {}),
+        ...(normalizedStatus && normalizedStatus !== 'ALL' ? { status: normalizedStatus as never } : {}),
+      },
       include: { assignee: { select: { id: true, name: true } }, company: { select: { id: true, name: true } }, contact: { select: { id: true, name: true } }, opportunity: { select: { id: true, title: true } } },
-      orderBy: [{ status: 'asc' }, { dueAt: 'asc' }], take: 200,
+      orderBy: [{ dueAt: 'asc' }, { status: 'asc' }], take: 2_000,
     });
   }
 
@@ -419,7 +480,7 @@ export class CrmService {
     await this.db.customFieldDefinition.delete({ where: { id } }); return { deleted: true };
   }
 
-  segments(auth: AuthContext) { return this.db.segment.findMany({ where: { organizationId: auth.organizationId }, include: { _count: { select: { members: true, campaigns: true } } }, orderBy: { updatedAt: 'desc' } }); }
+  segments(auth: AuthContext) { return this.db.segment.findMany({ where: { organizationId: auth.organizationId }, include: { _count: { select: { members: true, campaigns: true } } }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }] }); }
 
   createSegment(auth: AuthContext, input: { name: string; description?: string; filters?: Record<string, unknown>; contactIds?: string[] }) {
     if (!input.name?.trim()) throw new BadRequestException('Nome do segmento é obrigatório');
@@ -525,5 +586,13 @@ export class CrmService {
       });
     }
     return audit;
+  }
+
+  private isUniqueConstraint(error: unknown, field: string) {
+    if (!error || typeof error !== 'object' || !('code' in error) || error.code !== 'P2002') return false;
+    const target = 'meta' in error && error.meta && typeof error.meta === 'object' && 'target' in error.meta
+      ? error.meta.target
+      : undefined;
+    return Array.isArray(target) ? target.includes(field) : String(target || '').includes(field);
   }
 }

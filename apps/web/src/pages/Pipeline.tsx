@@ -1,11 +1,11 @@
-import { memo, type FormEvent, type KeyboardEvent, useCallback, useDeferredValue, useMemo, useState } from 'react';
+import { memo, type FormEvent, type KeyboardEvent, useCallback, useDeferredValue, useMemo, useRef, useState } from 'react';
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, TouchSensor,
   useDraggable, useDroppable, useSensor, useSensors,
 } from '@dnd-kit/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  Building2, CalendarDays, ChevronDown, CircleDollarSign, Clock3, Filter, GripVertical,
+  Building2, CalendarDays, ChevronDown, CircleDollarSign, Clock3, Filter,
   LayoutGrid, Mail, Phone, Plus, Search, Tag, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { api, dateTime, initials, money, type Envelope } from '../lib/api';
@@ -30,22 +30,42 @@ type OpportunityDetails = Opportunity & {
 
 const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, overlay = false }: { opportunity: Opportunity; onOpen?: () => void; overlay?: boolean }) {
   const drag = useDraggable({ id: opportunity.id, data: { stageId: opportunity.stageId }, disabled: overlay });
+  const pointerStart = useRef<{ x: number; y: number } | null>(null);
+  const pointerMoved = useRef(false);
   const openFromKeyboard = (event: KeyboardEvent<HTMLElement>) => {
     if ((event.key === 'Enter' || event.key === ' ') && event.target === event.currentTarget) {
       event.preventDefault();
       onOpen?.();
     }
   };
+  const openFromClick = () => {
+    if (pointerMoved.current) {
+      pointerMoved.current = false;
+      return;
+    }
+    onOpen?.();
+  };
   return <article
     ref={drag.setNodeRef}
+    {...(!overlay ? drag.listeners : {})}
+    {...(!overlay ? drag.attributes : {})}
     className={`opportunity-card ${drag.isDragging ? 'dragging' : ''} ${overlay ? 'drag-overlay-card' : ''}`}
     style={{ transform: drag.transform ? `translate3d(${drag.transform.x}px, ${drag.transform.y}px, 0)` : undefined }}
-    onClick={onOpen}
+    onPointerDownCapture={(event) => {
+      pointerStart.current = { x: event.clientX, y: event.clientY };
+      pointerMoved.current = false;
+    }}
+    onPointerMoveCapture={(event) => {
+      if (!pointerStart.current) return;
+      const distance = Math.hypot(event.clientX - pointerStart.current.x, event.clientY - pointerStart.current.y);
+      if (distance >= 4) pointerMoved.current = true;
+    }}
+    onClick={openFromClick}
     onKeyDown={openFromKeyboard}
     role={onOpen ? 'button' : undefined}
     tabIndex={onOpen ? 0 : undefined}
   >
-    <div className="opportunity-top"><span className="company-mini"><Building2 size={15} />{opportunity.company?.name || 'Sem empresa'}</span>{!overlay && <button className="drag-handle" {...drag.listeners} {...drag.attributes} onClick={(event) => event.stopPropagation()} aria-label="Arrastar oportunidade"><GripVertical size={17} /></button>}</div>
+    <div className="opportunity-top"><span className="company-mini"><Building2 size={15} />{opportunity.company?.name || 'Sem empresa'}</span></div>
     <h3>{opportunity.title}</h3>
     <strong>{money(opportunity.valueCents)}</strong>
     <div className="opportunity-meta"><span><CalendarDays size={14} />{dateTime(opportunity.updatedAt).split(' ')[0]}</span><span className="avatar xs">{initials(opportunity.owner?.name || 'NA')}</span></div>
@@ -66,7 +86,7 @@ export function PipelinePage() {
   const deferredSearch = useDeferredValue(search);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
-  const pipelines = useQuery({ queryKey: ['pipelines'], queryFn: () => api<Envelope<Array<Omit<Pipeline, 'stages'> & { stages: Stage[] }>>>('/pipelines') });
+  const pipelines = useQuery({ queryKey: ['pipelines'], queryFn: () => api<Envelope<Array<Omit<Pipeline, 'stages'> & { stages: Stage[] }>>>('/pipelines'), staleTime: 5 * 60_000 });
   const selectedPipelineId = pipelineId || pipelines.data?.data[0]?.id || '';
   const kanbanKey = ['kanban', selectedPipelineId] as const;
   const kanban = useQuery({ queryKey: kanbanKey, queryFn: () => api<Envelope<Pipeline>>(`/pipelines/${selectedPipelineId}/kanban`), enabled: Boolean(selectedPipelineId) });

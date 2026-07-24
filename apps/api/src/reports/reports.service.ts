@@ -1,20 +1,24 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
+import { sgaProspectingEmailTemplates } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
 import { scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { encryptSecret } from '../common/encryption.js';
+import { mailgunConfigurationStatus } from '../email/mailgun-config.js';
 
 @Injectable()
 export class ReportsService {
+  private readonly initializedEmailTemplateOrganizations = new Set<string>();
+
   constructor(private readonly db: PrismaService) {}
 
   async summary(auth: AuthContext, query: { from?: string; to?: string }) {
     const from = query.from ? new Date(query.from) : new Date(Date.now() - 30 * 86400_000);
     const to = query.to ? new Date(query.to) : new Date();
     const opportunityWhere = { organizationId: auth.organizationId, createdAt: { lte: to }, ...scopedWhere(auth, 'opportunities') };
-    const campaignWhere = { organizationId: auth.organizationId, createdAt: { gte: from, lte: to } };
+    const campaignWhere = { organizationId: auth.organizationId, archivedAt: null, createdAt: { gte: from, lte: to } };
     const conversationWhere = { organizationId: auth.organizationId, createdAt: { gte: from, lte: to } };
     const [stageGroups, stages, openStats, wonStats, lostCount, campaignTotal, recipientStatusGroups, conversationStatusGroups, responseTime, activities, tasks] = await Promise.all([
       this.db.opportunity.groupBy({ by: ['stageId'], where: opportunityWhere, _count: { _all: true }, _sum: { valueCents: true } }),
@@ -76,7 +80,11 @@ export class ReportsService {
 
   notifications(auth: AuthContext) {
     if (!auth.userId) return [];
-    return this.db.notification.findMany({ where: { userId: auth.userId }, orderBy: { createdAt: 'desc' }, take: 100 });
+    return this.db.notification.findMany({
+      where: { userId: auth.userId, readAt: null },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      take: 100,
+    });
   }
 
   async readNotification(auth: AuthContext, id: string) {
@@ -91,13 +99,80 @@ export class ReportsService {
     return this.db.notification.updateMany({ where: { userId: auth.userId, readAt: null }, data: { readAt: new Date() } });
   }
 
-  emailTemplates(auth: AuthContext) {
-    return this.db.emailTemplate.findMany({ where: { organizationId: auth.organizationId }, orderBy: { updatedAt: 'desc' } });
+  async emailTemplates(auth: AuthContext) {
+    await this.ensureSgaEmailTemplates(auth);
+    return this.db.emailTemplate.findMany({ where: { organizationId: auth.organizationId }, orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }] });
+  }
+
+  emailProvider() {
+    return mailgunConfigurationStatus();
   }
 
   createEmailTemplate(auth: AuthContext, input: { name: string; subject: string; html: string; text?: string }) {
     if (!input.name || !input.subject || !input.html) throw new BadRequestException('Nome, assunto e conteúdo são obrigatórios');
     return this.db.emailTemplate.create({ data: { organizationId: auth.organizationId, ...input } });
+  }
+
+  async deleteEmailTemplate(auth: AuthContext, id: string) {
+    const template = await this.db.emailTemplate.findFirst({
+      where: { id, organizationId: auth.organizationId },
+      select: { id: true, name: true, subject: true },
+    });
+    if (!template) throw new NotFoundException('Modelo de e-mail não encontrado');
+    const deletedAt = new Date().toISOString();
+    await this.db.$transaction([
+      this.db.emailTemplate.delete({ where: { id } }),
+      this.db.auditLog.create({
+        data: {
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          action: 'email_template.deleted',
+          entityType: 'EmailTemplate',
+          entityId: id,
+          before: template,
+          after: { deletedAt },
+        },
+      }),
+    ]);
+    return { id, deletedAt };
+  }
+
+  private async ensureSgaEmailTemplates(auth: AuthContext) {
+    if (this.initializedEmailTemplateOrganizations.has(auth.organizationId)) return;
+    const marker = await this.db.auditLog.findFirst({
+      where: {
+        organizationId: auth.organizationId,
+        action: 'email_templates.sga_initialized',
+        entityType: 'EmailTemplatePreset',
+      },
+      select: { id: true },
+    });
+    if (!marker) {
+      const created = await this.db.emailTemplate.createMany({
+        data: sgaProspectingEmailTemplates.map((template) => ({
+          organizationId: auth.organizationId,
+          name: template.name,
+          subject: template.subject,
+          html: template.html,
+          text: template.text,
+        })),
+        skipDuplicates: true,
+      });
+      await this.db.auditLog.create({
+        data: {
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          action: 'email_templates.sga_initialized',
+          entityType: 'EmailTemplatePreset',
+          entityId: 'sga-v1',
+          after: {
+            created: created.count,
+            templates: sgaProspectingEmailTemplates.map((template) => template.name),
+          },
+        },
+      });
+    }
+    this.initializedEmailTemplateOrganizations.add(auth.organizationId);
   }
 
   async outboundWebhooks(auth: AuthContext) {

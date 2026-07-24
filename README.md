@@ -1,6 +1,6 @@
-# Prospecta CRM
+# BZS One
 
-Plataforma interna de prospecção, CRM, atendimento, automações e campanhas de WhatsApp.
+Plataforma interna integrada da BZS Tecnologia. A estrutura atual reúne CRM, atendimento, automações e campanhas de WhatsApp, com base preparada para novos módulos de gestão.
 
 ## Endereços no desenvolvimento
 
@@ -111,6 +111,72 @@ Invoke-RestMethod http://localhost:3000/health
 A resposta esperada contém `"status": "ok"`. No terminal do `pnpm dev`, também devem aparecer as mensagens de que a API iniciou e de que o worker está ativo.
 
 Se o WhatsApp não conectar, confirme primeiro se `prospecta-evolution-1`, `prospecta-evolution-postgres-1`, `prospecta-evolution-redis-1` e `prospecta-evolution-minio-1` aparecem como ativos no comando `docker compose ... ps`.
+
+## CSV de campanhas
+
+Na criação de uma campanha, o CSV deve ter as colunas `telefone` e `mensagem`. Para enviar várias mensagens ao mesmo contato, adicione `mensagem_2`, `mensagem_3` e assim por diante. As colunas `nome` e `email` são opcionais.
+
+Exemplo:
+
+```csv
+nome;telefone;mensagem;mensagem_2
+Maria;(45) 99922-5389;Olá Maria, tudo bem?;Posso te apresentar nossa solução?
+```
+
+Ao carregar o arquivo, o sistema consulta a Evolution API e mostra separadamente os números com e sem WhatsApp. Antes do envio, a pré-validação repete essa consulta e ignora números sem WhatsApp, contatos duplicados, bloqueados ou descadastrados.
+
+## Configurar campanhas de e-mail com Mailgun
+
+O provedor é configurado no arquivo `.env` da raiz do projeto. No painel do Mailgun, valide primeiro um domínio de envio e crie preferencialmente uma **Domain Sending Key**, que fica limitada ao envio daquele domínio.
+
+Preencha estas variáveis:
+
+```dotenv
+MAILGUN_API_KEY=cole-a-domain-sending-key-aqui
+MAILGUN_DOMAIN=mg.seudominio.com.br
+MAILGUN_FROM_EMAIL=contato@mg.seudominio.com.br
+MAILGUN_FROM_NAME=BZS Tecnologia
+MAILGUN_REGION=US
+MAILGUN_WEBHOOK_SIGNING_KEY=xxxxxxxxxxxxxxxx
+MAILGUN_WEBHOOK_TOLERANCE_SECONDS=3600
+```
+
+- `MAILGUN_REGION`: use `US` para domínios hospedados nos Estados Unidos ou `EU` para domínios europeus;
+- `MAILGUN_API_KEY`: use a chave privada de envio; não use a Public Validation Key;
+- `MAILGUN_WEBHOOK_SIGNING_KEY`: fica em **Settings → API Security → Webhook signing key** no painel do Mailgun;
+- depois de alterar o `.env`, reinicie a API e o worker.
+
+Valide credencial, domínio e região sem entregar um e-mail real:
+
+```powershell
+corepack pnpm mailgun:verify
+```
+
+O comando usa o modo de teste do Mailgun. O retorno deve conter `"ok":true`. Um retorno `401` indica chave inválida ou ausente; `403` indica que a chave existe, mas não tem permissão sobre o domínio informado.
+
+No Mailgun, cadastre o webhook público:
+
+```text
+https://SEU_DOMINIO/webhooks/mailgun
+```
+
+Habilite os eventos `accepted`, `delivered`, `opened`, `clicked`, `temporary_fail`, `permanent_fail`, `unsubscribed` e `complained`. Em desenvolvimento, `localhost` não é acessível pelo Mailgun; para testar webhooks, exponha temporariamente a API com um túnel HTTPS e use a URL pública terminada em `/webhooks/mailgun`.
+
+Depois da configuração, abra **E-mail** no menu do BZS One. O aviso superior mostrará “Envio por Mailgun ativado”. Crie um modelo, abra a aba **Campanhas**, selecione os contatos com e-mail e inicie o envio.
+
+Referências oficiais: [envio pela HTTP API](https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-http), [autenticação](https://documentation.mailgun.com/docs/mailgun/api-reference/mg-auth), [webhooks](https://documentation.mailgun.com/docs/mailgun/user-manual/webhooks/webhooks) e [assinatura dos webhooks](https://documentation.mailgun.com/docs/mailgun/user-manual/webhooks/securing-webhooks).
+
+### Resumo diário de tarefas
+
+O mesmo provedor Mailgun envia, todos os dias às **08:00**, um resumo individual para o e-mail de cada usuário responsável por tarefas abertas naquele dia. O horário usa o fuso `America/Sao_Paulo`.
+
+- tarefas sem responsável não geram e-mail;
+- cada responsável recebe um único e-mail com todas as tarefas do dia, ordenadas por horário;
+- o worker registra o envio por usuário e data para não duplicar resumos após reinícios;
+- se o Mailgun falhar temporariamente, a fila faz novas tentativas sem reenviar os resumos já confirmados;
+- mantenha `APP_URL` com o endereço público do BZS One, pois ele é usado no botão **Abrir minha agenda** do e-mail.
+
+Na interface, abra **Tarefas** para alternar entre as visualizações de mês e semana. Clique em qualquer dia ou horário vazio para criar uma tarefa já com aquela data selecionada.
 
 ## Comandos úteis
 

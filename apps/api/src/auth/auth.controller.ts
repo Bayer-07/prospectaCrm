@@ -5,6 +5,12 @@ import { CurrentUser } from './current-user.decorator.js';
 import { Public } from './public.decorator.js';
 import { AuthService } from './auth.service.js';
 import type { AuthContext } from './types.js';
+import {
+  authCookieOptions,
+  clearAuthCookies,
+  CSRF_COOKIE,
+  SESSION_COOKIE,
+} from './auth-cookies.js';
 
 @ApiTags('Autenticação')
 @Controller('auth')
@@ -15,16 +21,16 @@ export class AuthController {
   @Post('login')
   async login(@Body() body: { email: string; password: string }, @Req() req: Request, @Res({ passthrough: true }) res: Response) {
     const session = await this.auth.login(body.email, body.password, { ip: req.ip, userAgent: req.headers['user-agent'] });
-    res.cookie('prospecta_session', session.token, {
-      httpOnly: true, secure: process.env.COOKIE_SECURE ? process.env.COOKIE_SECURE === 'true' : process.env.NODE_ENV === 'production', sameSite: 'lax', expires: session.expiresAt, path: '/',
-    });
-    return { data: { csrfToken: session.csrfToken, expiresAt: session.expiresAt } };
+    const cookieOptions = authCookieOptions(session.expiresAt);
+    res.cookie(SESSION_COOKIE, session.token, { ...cookieOptions, httpOnly: true });
+    res.cookie(CSRF_COOKIE, session.csrfToken, { ...cookieOptions, httpOnly: false });
+    return { data: { tokenType: 'Bearer', expiresAt: session.expiresAt } };
   }
 
   @Post('logout')
   async logout(@Req() req: Request, @Res({ passthrough: true }) res: Response) {
-    await this.auth.logout(req.cookies?.prospecta_session);
-    res.clearCookie('prospecta_session', { path: '/' });
+    await this.auth.logout(req.cookies?.[SESSION_COOKIE]);
+    clearAuthCookies(res);
     return { data: { success: true } };
   }
 

@@ -1,5 +1,6 @@
 import { PrismaClient, UserStatus } from '@prisma/client';
 import argon2 from 'argon2';
+import { sgaProspectingEmailTemplates } from '../../contracts/src/email-templates.js';
 
 const db = new PrismaClient();
 
@@ -88,6 +89,17 @@ async function main() {
       { organizationId: organization.id, name: 'Inbound', color: '#635bff' },
       { organizationId: organization.id, name: 'Enterprise', color: '#0f9f6e' },
     ], skipDuplicates: true,
+  });
+
+  await db.emailTemplate.createMany({
+    data: sgaProspectingEmailTemplates.map((template) => ({
+      organizationId: organization.id,
+      name: template.name,
+      subject: template.subject,
+      html: template.html,
+      text: template.text,
+    })),
+    skipDuplicates: true,
   });
 
   console.log(`Seed concluído. Login: admin@empresa.local / ${adminPassword}`);

@@ -1,5 +1,6 @@
 export type UserContext = {
   userId?: string; organizationId: string; teamId?: string; name: string; email?: string;
+  sessionExpiresAt?: string;
   messageSignatureEnabled?: boolean;
   roleKey?: string; permissions: Array<{ resource: string; action: string; scope: string }>;
 };

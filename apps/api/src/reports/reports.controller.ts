@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Header, Param, Patch, Post, Query } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { RequirePermission } from '../auth/permission.decorator.js';
@@ -29,11 +29,21 @@ export class ReportsController {
   @Patch('notifications/:id/read')
   async readNotification(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.reports.readNotification(auth, id) }; }
 
+  @RequirePermission('campaigns', 'read')
   @Get('email/templates')
   async emailTemplates(@CurrentUser() auth: AuthContext) { return { data: await this.reports.emailTemplates(auth) }; }
 
+  @RequirePermission('campaigns', 'read')
+  @Get('email/provider')
+  emailProvider() { return { data: this.reports.emailProvider() }; }
+
+  @RequirePermission('campaigns', 'write')
   @Post('email/templates')
   async createEmailTemplate(@CurrentUser() auth: AuthContext, @Body() body: { name: string; subject: string; html: string; text?: string }) { return { data: await this.reports.createEmailTemplate(auth, body) }; }
+
+  @RequirePermission('campaigns', 'write')
+  @Delete('email/templates/:id')
+  async deleteEmailTemplate(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.reports.deleteEmailTemplate(auth, id) }; }
 
   @RequirePermission('api_keys', 'write')
   @Get('outbound-webhooks')
