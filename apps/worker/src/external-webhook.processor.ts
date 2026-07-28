@@ -29,11 +29,30 @@ export async function processExternalWebhook(db: PrismaClient, job: Job<{ delive
   if (!delivery || delivery.status === 'delivered' || !delivery.webhook.enabled) return;
   const secret = decryptSecret(delivery.webhook.secretEncrypted);
   const timestamp = Math.floor(Date.now() / 1000).toString();
-  const body = JSON.stringify({ id: delivery.eventId, type: delivery.eventType, createdAt: delivery.createdAt, data: delivery.payload });
-  const signature = createHmac('sha256', secret).update(`${timestamp}.${body}`).digest('hex');
+  const payload = delivery.payload && typeof delivery.payload === 'object' && !Array.isArray(delivery.payload)
+    ? delivery.payload as Record<string, unknown>
+    : {};
+  const entityType = typeof payload.entityType === 'string' ? payload.entityType : '';
+  const entityId = typeof payload.entityId === 'string' ? payload.entityId : '';
   try {
-    const response = await fetch(delivery.webhook.url, {
-      method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Prospecta-Event': delivery.eventId, 'X-Prospecta-Timestamp': timestamp, 'X-Prospecta-Signature': `sha256=${signature}` }, body,
+    const target = new URL(delivery.webhook.url);
+    target.searchParams.set('event', delivery.eventType);
+    target.searchParams.set('event_id', delivery.eventId);
+    target.searchParams.set('created_at', delivery.createdAt.toISOString());
+    if (entityType) target.searchParams.set('entity_type', entityType);
+    if (entityId) target.searchParams.set('entity_id', entityId);
+    const signature = createHmac('sha256', secret)
+      .update(`${timestamp}.${delivery.eventId}.${delivery.eventType}.${entityType}.${entityId}`)
+      .digest('hex');
+    const response = await fetch(target, {
+      method: 'GET',
+      headers: {
+        Accept: 'application/json',
+        'X-BZS-One-Event': delivery.eventType,
+        'X-BZS-One-Event-Id': delivery.eventId,
+        'X-BZS-One-Timestamp': timestamp,
+        'X-BZS-One-Signature': `sha256=${signature}`,
+      },
       signal: AbortSignal.timeout(15_000),
     });
     if (!response.ok) throw new Error(`HTTP ${response.status}`);

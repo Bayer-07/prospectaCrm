@@ -12,6 +12,98 @@ import { CAMPAIGN_QUEUE } from '../queue/queue.module.js';
 import { parseCampaignCsv, type CampaignCsvRow } from './campaign-csv.js';
 
 const RECIPIENT_INSERT_BATCH_SIZE = 1_000;
+const SENT_RECIPIENT_STATUSES = new Set(['SENT', 'DELIVERED', 'READ', 'REPLIED']);
+const INVALID_WHATSAPP_REASON = 'Número não possui WhatsApp';
+
+type CampaignStatusCount = {
+  campaignId: string;
+  status: string;
+  _count: { _all: number };
+};
+
+export type CampaignProgress = {
+  audience: number;
+  sent: number;
+  replied: number;
+  remaining: number;
+  failed: number;
+  skipped: number;
+};
+
+export function campaignProgressFromStatusCounts(campaignId: string, rows: CampaignStatusCount[]): CampaignProgress {
+  const counts = new Map(
+    rows
+      .filter((row) => row.campaignId === campaignId)
+      .map((row) => [row.status, row._count._all]),
+  );
+  const count = (status: string) => counts.get(status) || 0;
+  return {
+    audience: [...counts.values()].reduce((total, current) => total + current, 0),
+    sent: [...SENT_RECIPIENT_STATUSES].reduce((total, status) => total + count(status), 0),
+    replied: count('REPLIED'),
+    remaining: count('PENDING') + count('QUEUED'),
+    failed: count('FAILED'),
+    skipped: count('SKIPPED') + count('OPTED_OUT'),
+  };
+}
+
+function jsonRecord(value: Prisma.JsonValue): Record<string, unknown> {
+  return value && typeof value === 'object' && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : {};
+}
+
+type CampaignMessageTemplate = { type: string; content: string; mediaKey?: string | null };
+
+function recipientMessageTemplates(value: Prisma.JsonValue, fallback: CampaignMessageTemplate[]) {
+  const custom = Array.isArray(value)
+    ? value
+      .filter((message): message is Prisma.JsonObject => Boolean(message && typeof message === 'object' && !Array.isArray(message)))
+      .map((message) => ({
+        type: typeof message.type === 'string' ? message.type : 'text',
+        content: typeof message.content === 'string' ? message.content : '',
+        mediaKey: typeof message.mediaKey === 'string' ? message.mediaKey : null,
+      }))
+      .filter((message) => Boolean(message.content))
+    : [];
+  return custom.length ? custom : fallback;
+}
+
+export function renderCampaignContent(content: string, variables: Record<string, unknown>) {
+  return content.replace(/{{\s*([\w.]+)\s*}}/g, (_match, key: string) => String(variables[key] ?? ''));
+}
+
+export function campaignSendingSchedule(input: Pick<CreateCampaignInput, 'sendingWindowStart' | 'sendingWindowEnd' | 'sendingDays'>) {
+  return {
+    start: input.sendingWindowStart || '00:00',
+    end: input.sendingWindowEnd || '23:59',
+    days: input.sendingDays?.length ? input.sendingDays : [0, 1, 2, 3, 4, 5, 6],
+  };
+}
+
+function csvCell(value: string) {
+  return /[;"\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+}
+
+export function invalidWhatsappRecipientsCsv(
+  recipients: Array<{ contact: { name: string; phone: string | null } }>,
+) {
+  const rows = recipients.map(({ contact }) => [
+    csvCell(contact.name),
+    csvCell(contact.phone || ''),
+  ].join(';'));
+  return `\uFEFFnome;número\r\n${rows.length ? `${rows.join('\r\n')}\r\n` : ''}`;
+}
+
+function campaignFilenamePart(value: string) {
+  return value
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '')
+    .slice(0, 80);
+}
 
 export type CreateCampaignInput = {
   name: string;
@@ -42,8 +134,8 @@ export class CampaignsService {
     private readonly evolution: EvolutionService,
   ) {}
 
-  list(auth: AuthContext) {
-    return this.db.campaign.findMany({
+  async list(auth: AuthContext) {
+    const campaigns = await this.db.campaign.findMany({
       where: { organizationId: auth.organizationId, archivedAt: null, ...this.scope(auth) },
       include: {
         instance: { select: { id: true, name: true, status: true, phone: true } }, segment: true,
@@ -51,6 +143,14 @@ export class CampaignsService {
         _count: { select: { recipients: true } },
       }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100,
     });
+    const statusCounts = campaigns.length
+      ? await this.db.campaignRecipient.groupBy({
+        by: ['campaignId', 'status'],
+        where: { campaignId: { in: campaigns.map((campaign) => campaign.id) } },
+        _count: { _all: true },
+      })
+      : [];
+    return campaigns.map((campaign) => this.withProgress(campaign, statusCounts));
   }
 
   async get(auth: AuthContext, id: string) {
@@ -59,11 +159,91 @@ export class CampaignsService {
       include: {
         instance: { include: { warmupProfile: true } }, segment: true,
         bubbles: { orderBy: { position: 'asc' } },
-        recipients: { include: { contact: true }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], take: 500 },
+        recipients: {
+          include: {
+            contact: {
+              include: {
+                companies: {
+                  where: { isPrimary: true },
+                  include: { company: { select: { name: true } } },
+                  take: 1,
+                },
+              },
+            },
+          },
+          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+          take: 500,
+        },
+        _count: { select: { recipients: true } },
       },
     });
     if (!campaign) throw new NotFoundException('Campanha não encontrada');
-    return campaign;
+    const statusCounts = await this.db.campaignRecipient.groupBy({
+      by: ['campaignId', 'status'],
+      where: { campaignId: id },
+      _count: { _all: true },
+    });
+    const fallbackMessages = campaign.bubbles.map((bubble) => ({
+      type: bubble.type,
+      content: bubble.content,
+      mediaKey: bubble.mediaKey,
+    }));
+    const recipients = campaign.recipients.map((recipient) => {
+      const companyName = recipient.contact.companies[0]?.company.name || '';
+      const variables = {
+        ...recipient.contact,
+        nome: recipient.contact.name,
+        telefone: recipient.contact.phone || '',
+        email: recipient.contact.email || '',
+        empresa: companyName,
+        cargo: recipient.contact.jobTitle || '',
+      };
+      return {
+        ...recipient,
+        renderedMessages: recipientMessageTemplates(recipient.messages, fallbackMessages).map((message) => ({
+          ...message,
+          content: renderCampaignContent(message.content, variables),
+        })),
+      };
+    });
+    return {
+      ...this.withProgress(campaign, statusCounts),
+      recipients,
+      recipientsTruncated: campaign._count.recipients > recipients.length,
+    };
+  }
+
+  async invalidWhatsappNumbersCsv(auth: AuthContext, id: string) {
+    const campaign = await this.db.campaign.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...this.scope(auth) },
+      select: { id: true, name: true },
+    });
+    if (!campaign) throw new NotFoundException('Campanha não encontrada');
+
+    const recipients = await this.db.campaignRecipient.findMany({
+      where: {
+        campaignId: campaign.id,
+        status: 'SKIPPED',
+        exclusionReason: INVALID_WHATSAPP_REASON,
+      },
+      select: {
+        contact: {
+          select: {
+            name: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 50_000,
+    });
+
+    const slug = campaignFilenamePart(campaign.name) || campaign.id;
+    return {
+      filename: `numeros-invalidos-${slug}.csv`,
+      content: invalidWhatsappRecipientsCsv(recipients),
+      count: recipients.length,
+    };
   }
 
   async archive(auth: AuthContext, id: string) {
@@ -136,6 +316,7 @@ export class CampaignsService {
     }
 
     const audience = await this.prepareAudience(auth, input);
+    const sendingSchedule = campaignSendingSchedule(input);
     const campaign = await this.db.$transaction(async (tx) => {
       if (audience.newContacts.length) await tx.contact.createMany({ data: audience.newContacts });
 
@@ -146,8 +327,8 @@ export class CampaignsService {
         bubbleDelayMinSeconds: cadence.bubbleDelayMinSeconds, bubbleDelayMaxSeconds: cadence.bubbleDelayMaxSeconds,
         contactDelayMinSeconds: cadence.contactDelayMinSeconds, contactDelayMaxSeconds: cadence.contactDelayMaxSeconds,
         batchSize: cadence.batchSize, batchPauseMinSeconds: cadence.batchPauseMinSeconds, batchPauseMaxSeconds: cadence.batchPauseMaxSeconds,
-        sendingWindowStart: input.sendingWindowStart || '09:00', sendingWindowEnd: input.sendingWindowEnd || '18:00',
-        sendingDays: (input.sendingDays || [1, 2, 3, 4, 5]) as Prisma.InputJsonValue,
+        sendingWindowStart: sendingSchedule.start, sendingWindowEnd: sendingSchedule.end,
+        sendingDays: sendingSchedule.days as Prisma.InputJsonValue,
         stats: {
           filters: input.filters || {},
           audienceSource: input.audience?.source || 'filters',
@@ -518,5 +699,22 @@ export class CampaignsService {
     if (scope === 'ALL') return {};
     if (scope === 'TEAM') return auth.teamId ? { createdBy: { teamId: auth.teamId } } : { id: '__none__' };
     return auth.userId ? { createdById: auth.userId } : { id: '__none__' };
+  }
+
+  private withProgress<T extends { id: string; stats: Prisma.JsonValue }>(campaign: T, rows: CampaignStatusCount[]) {
+    const progress = campaignProgressFromStatusCounts(campaign.id, rows);
+    return {
+      ...campaign,
+      progress,
+      stats: {
+        ...jsonRecord(campaign.stats),
+        audience: progress.audience,
+        sent: progress.sent,
+        replied: progress.replied,
+        pending: progress.remaining,
+        failed: progress.failed,
+        skipped: progress.skipped,
+      },
+    };
   }
 }

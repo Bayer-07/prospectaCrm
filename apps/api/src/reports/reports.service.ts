@@ -7,6 +7,18 @@ import { scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { encryptSecret } from '../common/encryption.js';
 import { mailgunConfigurationStatus } from '../email/mailgun-config.js';
+import { buildReportPdf } from './report-pdf.js';
+import { isOutboundWebhookAction, OUTBOUND_WEBHOOK_ACTIONS, type OutboundWebhookAction } from './webhook-actions.js';
+
+type OutboundWebhookInput = {
+  name: string;
+  endpoint: string;
+  action: string;
+};
+
+type OutboundWebhookUpdate = Partial<OutboundWebhookInput> & {
+  enabled?: boolean;
+};
 
 @Injectable()
 export class ReportsService {
@@ -76,6 +88,15 @@ export class ReportsService {
       ['id', 'empresa', 'cnpj', 'dominio', 'setor', 'responsavel', 'equipe', 'criado_em'].join(','),
       ...companies.map((company) => [company.id, company.name, company.cnpj, company.domain, company.sector, company.owner?.name, company.team?.name, company.createdAt.toISOString()].map(escape).join(',')),
     ].join('\n');
+  }
+
+  async exportPdf(auth: AuthContext, query: { from?: string; to?: string }) {
+    const summary = await this.summary(auth, query);
+    return buildReportPdf({
+      summary,
+      generatedAt: new Date(),
+      generatedBy: auth.name,
+    });
   }
 
   notifications(auth: AuthContext) {
@@ -176,16 +197,127 @@ export class ReportsService {
   }
 
   async outboundWebhooks(auth: AuthContext) {
-    return this.db.outboundWebhook.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, url: true, events: true, enabled: true, createdAt: true, updatedAt: true } });
+    const webhooks = await this.db.outboundWebhook.findMany({
+      where: { organizationId: auth.organizationId },
+      select: {
+        id: true,
+        name: true,
+        url: true,
+        events: true,
+        enabled: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    return webhooks.map((webhook) => ({
+      ...webhook,
+      endpoint: webhook.url,
+      action: this.webhookAction(webhook.events),
+    }));
   }
 
-  async createOutboundWebhook(auth: AuthContext, input: { name: string; url: string; events: string[] }) {
+  outboundWebhookActions() {
+    return OUTBOUND_WEBHOOK_ACTIONS;
+  }
+
+  async createOutboundWebhook(auth: AuthContext, input: OutboundWebhookInput) {
+    const normalized = this.validateOutboundWebhook(input);
     const secret = randomBytes(32).toString('base64url');
     const webhook = await this.db.outboundWebhook.create({ data: {
-      organizationId: auth.organizationId, name: input.name, url: input.url,
-      events: input.events as Prisma.InputJsonValue,
+      organizationId: auth.organizationId,
+      name: normalized.name,
+      url: normalized.endpoint,
+      events: [normalized.action] as Prisma.InputJsonValue,
+      enabled: false,
       secretEncrypted: encryptSecret(secret),
     } });
-    return { id: webhook.id, name: webhook.name, url: webhook.url, events: webhook.events, secret };
+    return {
+      id: webhook.id,
+      name: webhook.name,
+      endpoint: webhook.url,
+      action: normalized.action,
+      enabled: webhook.enabled,
+      secret,
+    };
+  }
+
+  async updateOutboundWebhook(auth: AuthContext, id: string, input: OutboundWebhookUpdate) {
+    const existing = await this.db.outboundWebhook.findFirst({
+      where: { id, organizationId: auth.organizationId },
+      select: { id: true, name: true, url: true, events: true, enabled: true },
+    });
+    if (!existing) throw new NotFoundException('Webhook não encontrado');
+    const normalized = this.validateOutboundWebhook({
+      name: input.name ?? existing.name,
+      endpoint: input.endpoint ?? existing.url,
+      action: input.action ?? this.webhookAction(existing.events),
+    });
+    const webhook = await this.db.outboundWebhook.update({
+      where: { id },
+      data: {
+        name: normalized.name,
+        url: normalized.endpoint,
+        events: [normalized.action] as Prisma.InputJsonValue,
+        ...(typeof input.enabled === 'boolean' ? { enabled: input.enabled } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        url: true,
+        events: true,
+        enabled: true,
+        createdAt: true,
+        updatedAt: true,
+      },
+    });
+    return {
+      ...webhook,
+      endpoint: webhook.url,
+      action: this.webhookAction(webhook.events),
+    };
+  }
+
+  async deleteOutboundWebhook(auth: AuthContext, id: string) {
+    const existing = await this.db.outboundWebhook.findFirst({
+      where: { id, organizationId: auth.organizationId },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Webhook não encontrado');
+    await this.db.outboundWebhook.delete({ where: { id } });
+    return { id, deleted: true };
+  }
+
+  private validateOutboundWebhook(input: OutboundWebhookInput): {
+    name: string;
+    endpoint: string;
+    action: OutboundWebhookAction;
+  } {
+    const name = String(input.name || '').trim();
+    if (name.length < 2 || name.length > 120) {
+      throw new BadRequestException('Informe um nome válido para o webhook');
+    }
+    const endpoint = String(input.endpoint || '').trim();
+    if (!endpoint || endpoint.length > 2_048) {
+      throw new BadRequestException('Informe um endpoint válido');
+    }
+    let parsed: URL;
+    try {
+      parsed = new URL(endpoint);
+    } catch {
+      throw new BadRequestException('Informe um endpoint HTTP ou HTTPS válido');
+    }
+    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
+      throw new BadRequestException('Informe um endpoint HTTP ou HTTPS válido, sem credenciais na URL');
+    }
+    if (!isOutboundWebhookAction(input.action)) {
+      throw new BadRequestException('Selecione uma ação válida para o webhook');
+    }
+    return { name, endpoint: parsed.toString(), action: input.action };
+  }
+
+  private webhookAction(value: Prisma.JsonValue): OutboundWebhookAction {
+    const action = Array.isArray(value) ? String(value[0] || '') : '';
+    return isOutboundWebhookAction(action) ? action : 'company.created';
   }
 }

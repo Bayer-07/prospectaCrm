@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { renderBzsEmailLayout, renderUserInviteEmail, sgaProspectingEmailTemplates } from './email-templates.js';
+import {
+  renderBzsEmailLayout,
+  renderPasswordResetEmail,
+  renderUserInviteEmail,
+  sgaProspectingEmailTemplates,
+} from './email-templates.js';
 
 describe('modelos de prospecção do SGA', () => {
   it('oferece uma cadência com cinco modelos únicos e versões alternativas', () => {
@@ -50,5 +55,23 @@ describe('modelo transacional de convite', () => {
     expect(email.html).not.toContain('%unsubscribe_url%');
     expect(email.text).toContain('token=seguro');
     expect(email.text).toContain('expira em 72 horas');
+  });
+});
+
+describe('modelo transacional de recuperação de senha', () => {
+  it('gera um e-mail seguro, responsivo e sem descadastro', () => {
+    const email = renderPasswordResetEmail({
+      recipientName: 'Gabriel <Bayer>',
+      resetUrl: 'https://one.bzs.com.br/redefinir-senha?token=seguro',
+      expiresInMinutes: 60,
+    });
+
+    expect(email.subject).toBe('Redefina sua senha no BZS One');
+    expect(email.html).toContain('Gabriel &lt;Bayer&gt;');
+    expect(email.html).toContain('Redefinir minha senha');
+    expect(email.html).toContain('SEGURANÇA DA CONTA');
+    expect(email.html).not.toContain('%unsubscribe_url%');
+    expect(email.text).toContain('token=seguro');
+    expect(email.text).toContain('expira em 60 minutos');
   });
 });

@@ -9,6 +9,7 @@ import { api, dateTime, type Envelope } from '../lib/api';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { WhatsappText } from '../components/WhatsappText';
 import { useTheme } from '../lib/theme';
+import { toast } from '../lib/toast';
 import '@xyflow/react/dist/style.css';
 
 type FlowData = { label?: string; subtitle?: string; [key: string]: unknown };
@@ -58,7 +59,7 @@ export function AutomationsPage() {
 
 function CreateWorkflowModal({ onClose, onCreated }: { onClose(): void; onCreated(workflow: WorkflowRecord): void }) {
   const [name, setName] = useState(''); const [description, setDescription] = useState('');
-  const mutation = useMutation({ mutationFn: () => api<Envelope<WorkflowRecord>>('/workflows', { method: 'POST', body: JSON.stringify({ name, description }) }), onSuccess: (result) => onCreated(result.data) });
+  const mutation = useMutation({ mutationFn: () => api<Envelope<WorkflowRecord>>('/workflows', { method: 'POST', body: JSON.stringify({ name, description }) }), onSuccess: (result) => { toast.success('Automação criada.'); onCreated(result.data); } });
   return <Modal title="Nova automação" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome da automação" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Cadência de novos leads" required /><Field label="Descrição" value={description} onChange={(event) => setDescription(event.target.value)} /><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Criar e editar</Button></div></form></Modal>;
 }
 
@@ -70,11 +71,11 @@ function WorkflowBuilder({ workflowId, metadata, onBack }: { workflowId: string;
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   useEffect(() => { if (query.data?.data.versions[0]) { setNodes(query.data.data.versions[0].graph.nodes || []); setEdges(query.data.data.versions[0].graph.edges || []); } }, [query.data, setNodes, setEdges]);
   const graph = useMemo(() => ({ nodes, edges }), [nodes, edges]);
-  const save = useMutation({ mutationFn: () => api(`/workflows/${workflowId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph }) }), onSuccess: () => query.refetch() });
+  const save = useMutation({ mutationFn: () => api(`/workflows/${workflowId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph }) }), onSuccess: () => { toast.success('Automação salva.'); return query.refetch(); } });
   const publish = useMutation({ mutationFn: async () => {
     await api(`/workflows/${workflowId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph }) });
     return api(`/workflows/${workflowId}/publish`, { method: 'POST' });
-  }, onSuccess: () => query.refetch() });
+  }, onSuccess: () => { toast.success('Automação publicada.'); return query.refetch(); } });
   const onConnect = useCallback((connection: Connection) => setEdges((current) => addEdge({ ...connection, animated: true, style: { stroke: '#7c6ff2' } }, current)), [setEdges]);
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
   const updateSelected = (changes: Partial<FlowData>) => setNodes((current) => current.map((node) => node.id === selectedNodeId ? { ...node, data: { ...node.data, ...changes } } : node));
@@ -109,7 +110,6 @@ function WorkflowBuilder({ workflowId, metadata, onBack }: { workflowId: string;
   const workflow = query.data!.data;
   return <div className="workflow-builder">
     <header className="builder-header"><div><button className="icon-button" onClick={onBack}><ChevronLeft size={18} /></button><div><h2>{workflow.name}</h2><span><Status value={workflow.status} /> · Versão {workflow.versions[0]?.version}</span></div></div><div><Button variant="secondary" onClick={() => save.mutate()} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate()} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header>
-    {(save.error || publish.error) && <div className="builder-error">{(save.error || publish.error)?.message}</div>}
     <div className="builder-body automation-builder-body">
       <aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger').map((item) => <button key={item.type} onClick={() => addNode(item.type)}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside>
       <div className="flow-canvas"><ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={20} size={1} color={theme === 'dark' ? '#38414a' : '#e4e2ee'} /><Controls /><MiniMap pannable zoomable nodeColor="#7c6ff2" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,244,249,.75)'} /></ReactFlow></div>

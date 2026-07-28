@@ -1,11 +1,21 @@
 import { BadRequestException, Injectable, NotFoundException, OnModuleInit, ServiceUnavailableException } from '@nestjs/common';
-import { CreateBucketCommand, GetObjectCommand, HeadBucketCommand, PutObjectCommand, S3Client } from '@aws-sdk/client-s3';
+import {
+  CreateBucketCommand,
+  DeleteObjectCommand,
+  GetObjectCommand,
+  HeadBucketCommand,
+  HeadObjectCommand,
+  PutObjectCommand,
+  S3Client,
+} from '@aws-sdk/client-s3';
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner';
 import { randomUUID } from 'node:crypto';
 import type { AuthContext } from '../auth/types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
+const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
+const PROFILE_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const ALLOWED_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm',
   'video/mp4', 'application/pdf', 'application/msword',
@@ -68,5 +78,48 @@ export class MediaService implements OnModuleInit {
       Bucket: this.bucket, Key: asset.key, ResponseContentDisposition: `${attachment ? 'attachment' : 'inline'}; filename="${asset.filename.replace(/"/g, '')}"`,
     }), { expiresIn });
     return { url, expiresAt: new Date(Date.now() + expiresIn * 1000), filename: asset.filename, contentType: asset.contentType };
+  }
+
+  async confirmProfilePhotoAsset(auth: AuthContext, id: string) {
+    const asset = await this.db.mediaAsset.findUnique({
+      where: { id },
+      include: { profilePhotoFor: { select: { id: true } } },
+    });
+    if (
+      !asset
+      || !asset.key.startsWith(`${auth.organizationId}/`)
+      || asset.messageId
+      || (asset.profilePhotoFor && asset.profilePhotoFor.id !== auth.userId)
+      || !PROFILE_PHOTO_TYPES.has(asset.contentType)
+      || asset.sizeBytes < 1
+      || asset.sizeBytes > MAX_PROFILE_PHOTO_BYTES
+    ) {
+      throw new BadRequestException('Selecione uma foto JPG, PNG ou WebP de até 5 MB');
+    }
+    try {
+      const stored = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: asset.key }));
+      if (
+        !stored.ContentLength
+        || stored.ContentLength !== asset.sizeBytes
+        || (stored.ContentType && stored.ContentType.split(';', 1)[0].toLowerCase() !== asset.contentType)
+      ) {
+        throw new BadRequestException('O arquivo enviado não corresponde à foto selecionada');
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Conclua o envio da foto antes de salvá-la');
+    }
+    return asset;
+  }
+
+  async deleteAsset(auth: AuthContext, id: string) {
+    const asset = await this.db.mediaAsset.findUnique({
+      where: { id },
+      include: { profilePhotoFor: { select: { id: true } } },
+    });
+    if (!asset || !asset.key.startsWith(`${auth.organizationId}/`)) return;
+    if (asset.profilePhotoFor) throw new BadRequestException('A foto ainda está vinculada a um usuário');
+    await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: asset.key }));
+    await this.db.mediaAsset.delete({ where: { id: asset.id } });
   }
 }

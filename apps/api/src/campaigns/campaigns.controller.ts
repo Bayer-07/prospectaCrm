@@ -1,4 +1,4 @@
-import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Delete, Get, Param, Post, Query, Req, StreamableFile } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import type { Request } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator.js';
@@ -70,6 +70,20 @@ export class CampaignsController {
   ) {
     const csv = await requestText(request);
     return { data: await this.campaigns.create(auth, csvCampaignInput(query, csv)) };
+  }
+
+  @RequirePermission('campaigns', 'read')
+  @Get(':id/invalid-whatsapp-numbers.csv')
+  async invalidWhatsappNumbers(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+  ) {
+    const file = await this.campaigns.invalidWhatsappNumbersCsv(auth, id);
+    return new StreamableFile(Buffer.from(file.content, 'utf8'), {
+      type: 'text/csv; charset=utf-8',
+      disposition: `attachment; filename="${file.filename}"`,
+      length: Buffer.byteLength(file.content, 'utf8'),
+    });
   }
 
   @RequirePermission('campaigns', 'read')

@@ -4,6 +4,9 @@ import { InboundProcessor, normalizeEvolutionEventType } from './inbound.process
 
 const instanceKey = process.argv[2];
 const requestedType = process.argv[3] ? normalizeEvolutionEventType(process.argv[3]) : null;
+const requestedProviderMessageIds = new Set(
+  String(process.argv[4] || '').split(',').map((value) => value.trim()).filter(Boolean),
+);
 
 if (!instanceKey) throw new Error('Informe a chave da instância: pnpm replay:evolution <instanceKey> [eventType]');
 
@@ -17,6 +20,12 @@ const events = await prisma.inboundWebhookEvent.findMany({
 const replayable = events.filter((event) => {
   const type = normalizeEvolutionEventType(event.eventType);
   if (requestedType && type !== requestedType) return false;
+  if (requestedProviderMessageIds.size) {
+    const payload = event.payload as Record<string, any>;
+    const data = payload.data || payload;
+    const providerMessageId = String(data?.key?.id || data?.key?.ID || data?.id || '');
+    if (!requestedProviderMessageIds.has(providerMessageId)) return false;
+  }
   return type.includes('CONNECTION') || type.includes('MESSAGES_') || type.includes('SEND_MESSAGE');
 });
 const processor = new InboundProcessor(prisma);

@@ -7,8 +7,8 @@ async function bootstrap() {
   const email = process.env.ADMIN_EMAIL?.trim().toLowerCase();
   const password = process.env.ADMIN_PASSWORD;
   const name = process.env.ADMIN_NAME || 'Administrador';
-  if (!email || !password || password.length < 12) {
-    throw new Error('Defina ADMIN_EMAIL, ADMIN_NAME e ADMIN_PASSWORD com pelo menos 12 caracteres');
+  if (!email || !password || password.length < 5) {
+    throw new Error('Defina ADMIN_EMAIL, ADMIN_NAME e ADMIN_PASSWORD com pelo menos 5 caracteres');
   }
   const organization = await db.organization.findFirst();
   if (!organization) throw new Error('Execute o seed antes do bootstrap');

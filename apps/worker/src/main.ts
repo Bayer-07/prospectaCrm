@@ -1,6 +1,7 @@
 import { Queue, Worker } from 'bullmq';
 import { Redis } from 'ioredis';
 import { prisma } from '@prospecta/database';
+import { AudioTranscriptionProcessor } from './audio-transcription.processor.js';
 import { CampaignProcessor } from './campaign.processor.js';
 import { ChatbotProcessor } from './chatbot.processor.js';
 import { EvolutionClient } from './evolution-client.js';
@@ -30,6 +31,7 @@ const workflows = new WorkflowProcessor(prisma, automationQueue, outboundQueue);
 const chatbots = new ChatbotProcessor(prisma, outboundQueue);
 const taskDigests = new TaskDigestProcessor(prisma);
 const userInvites = new UserInviteProcessor(prisma);
+const audioTranscriptions = new AudioTranscriptionProcessor(prisma);
 
 const workers = [
   new Worker('inbound-webhooks', async (job) => {
@@ -49,6 +51,13 @@ const workers = [
   new Worker('external-webhooks', (job) => processExternalWebhook(prisma, job), { connection, concurrency: 5 }),
   new Worker('task-digests', () => taskDigests.process(), { connection, concurrency: 1 }),
   new Worker('transactional-emails', (job) => userInvites.process(job), { connection, concurrency: 3 }),
+  new Worker('audio-transcriptions', async (job) => {
+    const event = await audioTranscriptions.process(job);
+    if (event) await connection.publish('prospecta:realtime', JSON.stringify(event));
+  }, {
+    connection,
+    concurrency: Math.min(Math.max(Number(process.env.TRANSCRIPTION_CONCURRENCY) || 1, 1), 3),
+  }),
 ];
 
 for (const worker of workers) {
@@ -85,7 +94,11 @@ if (Number(saoPauloNow.hour) >= 8) {
 }
 
 await runMaintenance(prisma);
-const maintenanceTimer = setInterval(() => void runMaintenance(prisma).catch((error) => console.error('Falha de manutenção:', error)), 60 * 60_000);
+await campaigns.reconcileActiveCampaigns();
+const maintenanceTimer = setInterval(() => void (async () => {
+  await runMaintenance(prisma);
+  await campaigns.reconcileActiveCampaigns();
+})().catch((error) => console.error('Falha de manutenção:', error)), 60 * 60_000);
 
 let recentSyncRunning = false;
 const syncRecentEvolutionMessages = async () => {

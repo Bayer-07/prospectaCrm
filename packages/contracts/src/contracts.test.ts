@@ -1,11 +1,21 @@
 import { describe, expect, it } from 'vitest';
-import { campaignCadenceSchema, canSendWhatsapp, companyInputSchema, contactInputSchema, contactsAreDuplicates, isOptOutMessage, nextWarmupCap, normalizePhoneKey, opportunityStatusForStage, phoneSchema } from './index.js';
+import { campaignCadenceSchema, canSendWhatsapp, companyInputSchema, contactInputSchema, contactsAreDuplicates, extractSharedWhatsappContacts, formatCnpj, isOptOutMessage, isValidCnpj, nextWarmupCap, normalizeEvolutionInstanceStatus, normalizePhoneKey, opportunityStatusForStage, phoneSchema } from './index.js';
 
 describe('contratos', () => {
   it('normaliza e valida empresa', () => {
     const result = companyInputSchema.parse({ name: ' Acme Brasil ', domain: 'ACME.COM.BR' });
     expect(result.name).toBe('Acme Brasil');
     expect(result.domain).toBe('acme.com.br');
+  });
+
+  it('formata o CNPJ e valida seus dígitos verificadores', () => {
+    expect(formatCnpj('04252011000110')).toBe('04.252.011/0001-10');
+    expect(formatCnpj('04a252b011000110999')).toBe('04.252.011/0001-10');
+    expect(isValidCnpj('04.252.011/0001-10')).toBe(true);
+    expect(isValidCnpj('04.252.011/0001-11')).toBe(false);
+    expect(companyInputSchema.parse({ name: 'Google Brasil', cnpj: '04252011000110' }).cnpj).toBe('04252011000110');
+    expect(companyInputSchema.safeParse({ name: 'Empresa inválida', cnpj: '04.252.011/0001-11' }).success).toBe(false);
+    expect(companyInputSchema.safeParse({ name: 'Empresa inválida', cnpj: '04A252011000110' }).success).toBe(false);
   });
 
   it('permite remover a empresa principal de um contato', () => {
@@ -19,6 +29,14 @@ describe('contratos', () => {
 
   it('rejeita intervalo de cadência invertido', () => {
     expect(campaignCadenceSchema.safeParse({ bubbleDelayMinSeconds: 9, bubbleDelayMaxSeconds: 2 }).success).toBe(false);
+  });
+
+  it('não confunde uma instância conectando com uma conexão estabelecida', () => {
+    expect(normalizeEvolutionInstanceStatus('open')).toBe('CONNECTED');
+    expect(normalizeEvolutionInstanceStatus('connected')).toBe('CONNECTED');
+    expect(normalizeEvolutionInstanceStatus('connecting')).toBe('CONNECTING');
+    expect(normalizeEvolutionInstanceStatus('close')).toBe('DISCONNECTED');
+    expect(normalizeEvolutionInstanceStatus('LOGOUT')).toBe('DISCONNECTED');
   });
 
   it('detecta duplicidade por telefone ou e-mail sem diferenciar maiúsculas', () => {
@@ -37,6 +55,32 @@ describe('contratos', () => {
 
   it('não adiciona o nono dígito a telefones fixos brasileiros', () => {
     expect(normalizePhoneKey('+554532221234')).toBe('+554532221234');
+  });
+
+  it('extrai um contato compartilhado do payload da Evolution', () => {
+    expect(extractSharedWhatsappContacts({
+      message: {
+        contactMessage: {
+          displayName: 'José Inácio',
+          vcard: 'BEGIN:VCARD\nVERSION:3.0\nFN:José Inácio\nTEL;type=CELL;waid=553791911020:+55 37 99191-1020\nEND:VCARD',
+        },
+      },
+    })).toEqual([{ name: 'José Inácio', phone: '+5537991911020' }]);
+  });
+
+  it('extrai e elimina duplicatas de vários contatos compartilhados', () => {
+    expect(extractSharedWhatsappContacts({
+      data: {
+        message: {
+          contactsArrayMessage: {
+            contacts: [
+              { displayName: 'Pessoa A', vcard: 'BEGIN:VCARD\nFN:Pessoa A\nTEL;waid=5545999225389:+55 45 99922-5389\nEND:VCARD' },
+              { displayName: 'Pessoa A duplicada', vcard: 'BEGIN:VCARD\nFN:Pessoa A duplicada\nTEL:+55 45 99922-5389\nEND:VCARD' },
+            ],
+          },
+        },
+      },
+    })).toEqual([{ name: 'Pessoa A duplicada', phone: '+5545999225389' }]);
   });
 
   it('bloqueia WhatsApp sem consentimento e por supressão', () => {

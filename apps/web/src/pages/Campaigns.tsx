@@ -1,7 +1,8 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock3, Download, FileSpreadsheet, LoaderCircle, MessageSquareText, Pause, Play, Plus, Search, Send, ShieldCheck, Trash2, Upload, UserRoundCheck, Users, X } from 'lucide-react';
-import { api, apiErrorMessage, dateTime, initials, type Envelope } from '../lib/api';
+import { api, apiFetch, dateTime, initials, type Envelope } from '../lib/api';
+import { toast } from '../lib/toast';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import {
@@ -10,7 +11,47 @@ import {
   normalizeContactSearch,
 } from '../lib/contactSelection';
 
-type Campaign = { id: string; name: string; channel: string; status: string; scheduledAt?: string; createdAt: string; stats: Record<string, any>; instance?: { id: string; name: string; status: string }; bubbles: Array<{ content: string }>; _count?: { recipients: number } };
+type CampaignProgress = {
+  audience: number;
+  sent: number;
+  replied: number;
+  remaining: number;
+  failed: number;
+  skipped: number;
+};
+type CampaignRecipient = {
+  id: string;
+  status: string;
+  exclusionReason?: string;
+  lastBubblePosition: number;
+  sentAt?: string;
+  repliedAt?: string;
+  contact: {
+    id: string;
+    name: string;
+    phone?: string;
+    email?: string;
+    jobTitle?: string;
+    companies?: Array<{ company?: { name?: string } }>;
+  };
+  messages?: unknown;
+  renderedMessages?: Array<{ type: string; content: string; mediaKey?: string }>;
+};
+type Campaign = {
+  id: string;
+  name: string;
+  channel: string;
+  status: string;
+  scheduledAt?: string;
+  createdAt: string;
+  stats: Record<string, any>;
+  progress?: CampaignProgress;
+  instance?: { id: string; name: string; status: string };
+  bubbles: Array<{ content: string }>;
+  recipients?: CampaignRecipient[];
+  recipientsTruncated?: boolean;
+  _count?: { recipients: number };
+};
 type Instance = { id: string; name: string; status: string; phone?: string; warmupProfile?: { currentDailyCap: number; sentToday: number } };
 type CampaignContact = { id: string; name: string; phone?: string; email?: string };
 type CsvPreview = {
@@ -22,27 +63,124 @@ type CsvPreview = {
   errors: Array<{ row: number; error: string }>;
 };
 
+function campaignProgress(campaign: Campaign): CampaignProgress {
+  if (!campaign.progress && campaign.recipients?.length) {
+    const count = (statuses: string[]) => campaign.recipients!.filter((recipient) => statuses.includes(recipient.status)).length;
+    return {
+      audience: Number(campaign._count?.recipients ?? campaign.recipients.length),
+      sent: count(['SENT', 'DELIVERED', 'READ', 'REPLIED']),
+      replied: count(['REPLIED']),
+      remaining: count(['PENDING', 'QUEUED']),
+      failed: count(['FAILED']),
+      skipped: count(['SKIPPED', 'OPTED_OUT']),
+    };
+  }
+  return campaign.progress || {
+    audience: Number(campaign.stats?.audience ?? campaign._count?.recipients ?? 0),
+    sent: Number(campaign.stats?.sent || 0),
+    replied: Number(campaign.stats?.replied || 0),
+    remaining: Number(campaign.stats?.pending || 0),
+    failed: Number(campaign.stats?.failed || 0),
+    skipped: Number(campaign.stats?.skipped || 0),
+  };
+}
+
+function campaignRecipientMessages(campaign: Campaign, recipient: CampaignRecipient) {
+  const storedMessages = Array.isArray(recipient.messages)
+    ? recipient.messages
+      .filter((message): message is Record<string, unknown> => Boolean(message && typeof message === 'object' && !Array.isArray(message)))
+      .map((message) => ({
+        type: typeof message.type === 'string' ? message.type : 'text',
+        content: typeof message.content === 'string' ? message.content : '',
+        mediaKey: typeof message.mediaKey === 'string' ? message.mediaKey : undefined,
+      }))
+      .filter((message) => Boolean(message.content))
+    : [];
+  const messages = recipient.renderedMessages?.length
+    ? recipient.renderedMessages
+    : storedMessages.length
+      ? storedMessages
+      : campaign.bubbles.map((bubble) => ({ type: 'text', content: bubble.content }));
+  if (recipient.renderedMessages?.length) return messages;
+
+  const variables: Record<string, string> = {
+    nome: recipient.contact.name || '',
+    telefone: recipient.contact.phone || '',
+    email: recipient.contact.email || '',
+    empresa: recipient.contact.companies?.[0]?.company?.name || '',
+    cargo: recipient.contact.jobTitle || '',
+  };
+  return messages.map((message) => ({
+    ...message,
+    content: message.content.replace(/{{\s*([\w.]+)\s*}}/g, (_match, key: string) => variables[key] || ''),
+  }));
+}
+
+async function downloadInvalidWhatsappNumbers(campaign: Pick<Campaign, 'id' | 'name'>) {
+  const response = await apiFetch(`/campaigns/${campaign.id}/invalid-whatsapp-numbers.csv`);
+  if (!response.ok) {
+    const body = await response.json().catch(() => null) as { message?: string } | null;
+    throw new Error(body?.message || 'Não foi possível baixar os números inválidos');
+  }
+
+  const fallbackName = `numeros-invalidos-${campaign.name
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-+|-+$/g, '') || campaign.id}.csv`;
+  const filename = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/i)?.[1] || fallbackName;
+  const href = URL.createObjectURL(await response.blob());
+  const anchor = document.createElement('a');
+  anchor.href = href;
+  anchor.download = filename;
+  document.body.appendChild(anchor);
+  anchor.click();
+  anchor.remove();
+  URL.revokeObjectURL(href);
+}
+
+function useInvalidWhatsappDownload() {
+  return useMutation({
+    mutationFn: downloadInvalidWhatsappNumbers,
+    onSuccess: () => toast.success('Números inválidos baixados.'),
+    onError: (error) => toast.error(error instanceof Error ? error.message : 'Não foi possível baixar os números inválidos'),
+  });
+}
+
 export function CampaignsPage() {
   const client = useQueryClient();
   const [modal, setModal] = useState(false);
-  const [details, setDetails] = useState<Campaign | null>(null);
+  const [detailsId, setDetailsId] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<Campaign | null>(null);
   const [filter, setFilter] = useState<'all' | 'RUNNING' | 'SCHEDULED' | 'COMPLETED'>('all');
-  const [actionError, setActionError] = useState('');
-  const campaigns = useQuery({ queryKey: ['campaigns'], queryFn: () => api<Envelope<Campaign[]>>('/campaigns') });
+  const invalidWhatsappDownload = useInvalidWhatsappDownload();
+  const campaigns = useQuery({
+    queryKey: ['campaigns'],
+    queryFn: () => api<Envelope<Campaign[]>>('/campaigns'),
+    refetchInterval: 5_000,
+  });
   const instances = useQuery({ queryKey: ['instances'], queryFn: () => api<Envelope<Instance[]>>('/whatsapp/instances') });
   const schedule = useMutation({
     mutationFn: (id: string) => api(`/campaigns/${id}/schedule`, { method: 'POST', body: JSON.stringify({}) }),
-    onMutate: () => setActionError(''),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns'] }),
-    onError: (error) => setActionError(apiErrorMessage(error, 'Não foi possível iniciar a campanha')),
+    onSuccess: () => {
+      toast.success('Campanha iniciada.');
+      return client.invalidateQueries({ queryKey: ['campaigns'] });
+    },
   });
-  const status = useMutation({ mutationFn: ({ id, action }: { id: string; action: string }) => api(`/campaigns/${id}/${action}`, { method: 'POST' }), onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns'] }) });
+  const status = useMutation({
+    mutationFn: ({ id, action }: { id: string; action: string }) => api(`/campaigns/${id}/${action}`, { method: 'POST' }),
+    onSuccess: (_result, variables) => {
+      toast.success(variables.action === 'pause' ? 'Campanha pausada.' : 'Campanha retomada.');
+      return client.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+  });
   const remove = useMutation({
     mutationFn: (id: string) => api(`/campaigns/${id}`, { method: 'DELETE' }),
     onSuccess: () => {
+      toast.success('Campanha excluída.');
       setDeleting(null);
-      setDetails(null);
+      setDetailsId(null);
       client.invalidateQueries({ queryKey: ['campaigns'] });
     },
   });
@@ -69,36 +207,51 @@ export function CampaignsPage() {
       </div>
       <Button onClick={() => setModal(true)} disabled={!connectedInstances.length}><Plus size={15} />Nova campanha</Button>
     </div>
-    {!instances.isLoading && !connectedInstances.length && <div className="inline-alert"><AlertTriangle size={17} /><div><strong>Conecte um número antes de criar campanhas.</strong><p>Vá até Configurações → WhatsApp e conecte uma instância.</p></div></div>}
-    {actionError && <div className="inline-alert campaign-action-error"><AlertTriangle size={17} /><div><strong>Não foi possível iniciar a campanha</strong><p>{actionError}</p></div><button type="button" onClick={() => setActionError('')} aria-label="Fechar aviso"><X size={15} /></button></div>}
-    {data.length ? <div className="campaign-list">{data.map((campaign) => <article key={campaign.id} onClick={() => setDetails(campaign)}>
+    {!instances.isLoading && !connectedInstances.length && <div className="inline-alert"><AlertTriangle size={17} /><div><strong>Conecte um número antes de criar campanhas.</strong><p>Vá até Conexões e conecte uma instância.</p></div></div>}
+    {data.length ? <div className="campaign-list">{data.map((campaign) => {
+      const progress = campaignProgress(campaign);
+      return <article key={campaign.id} onClick={() => setDetailsId(campaign.id)}>
       <div className="campaign-channel"><MessageSquareText size={18} /></div>
       <div className="campaign-info"><div><strong>{campaign.name}</strong><Status value={campaign.status} /></div><p>{campaign.bubbles?.[0]?.content || (campaign.stats?.audienceSource === 'csv' ? 'Mensagens personalizadas pelo CSV' : 'Sem prévia de conteúdo')}</p><small>{campaign.instance?.name || 'Sem número de envio'} · Criada em {dateTime(campaign.createdAt)}</small></div>
-      <div className="campaign-numbers"><div><span>Audiência</span><strong>{campaign.stats?.audience ?? campaign._count?.recipients ?? 0}</strong></div><div><span>Elegíveis</span><strong>{campaign.stats?.eligible ?? 0}</strong></div><div><span>Enviadas</span><strong>{campaign.stats?.sent ?? 0}</strong></div></div>
+      <div className="campaign-numbers"><div><span>Enviados</span><strong>{progress.sent}</strong></div><div><span>Responderam</span><strong>{progress.replied}</strong></div><div><span>Faltam</span><strong>{progress.remaining}</strong></div></div>
       <div className="campaign-actions">
         {campaign.status === 'DRAFT' && <button className="campaign-start-button" title="Validar contatos e iniciar" disabled={schedule.isPending} onClick={(event) => { event.stopPropagation(); schedule.mutate(campaign.id); }}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
         {campaign.status === 'RUNNING' && <button title="Pausar" onClick={(event) => { event.stopPropagation(); status.mutate({ id: campaign.id, action: 'pause' }); }}><Pause size={16} /></button>}
         {campaign.status === 'PAUSED' && <button title="Retomar" onClick={(event) => { event.stopPropagation(); status.mutate({ id: campaign.id, action: 'resume' }); }}><Play size={16} /></button>}
+        <button
+          type="button"
+          className="campaign-invalid-download-button"
+          title="Baixar números sem WhatsApp"
+          aria-label={`Baixar números sem WhatsApp da campanha ${campaign.name}`}
+          disabled={invalidWhatsappDownload.isPending && invalidWhatsappDownload.variables?.id === campaign.id}
+          onClick={(event) => {
+            event.stopPropagation();
+            invalidWhatsappDownload.mutate(campaign);
+          }}
+        >
+          {invalidWhatsappDownload.isPending && invalidWhatsappDownload.variables?.id === campaign.id
+            ? <LoaderCircle size={16} className="spin" />
+            : <Download size={16} />}
+        </button>
         <button type="button" className="campaign-delete-button" title="Excluir campanha" aria-label={`Excluir campanha ${campaign.name}`} onClick={(event) => { event.stopPropagation(); setDeleting(campaign); }}><Trash2 size={16} /></button>
         <ChevronRight size={18} />
       </div>
-    </article>)}</div> : <Empty icon={<MessageSquareText />} title={allCampaigns.length ? 'Nenhuma campanha neste filtro' : 'Nenhuma campanha criada'} description="Crie uma campanha com audiência consentida, mensagens em bolhas e cadência controlada." action={<Button onClick={() => setModal(true)} disabled={!connectedInstances.length}>Criar campanha</Button>} />}
+    </article>;
+    })}</div> : <Empty icon={<MessageSquareText />} title={allCampaigns.length ? 'Nenhuma campanha neste filtro' : 'Nenhuma campanha criada'} description="Crie uma campanha com audiência consentida, mensagens em bolhas e cadência controlada." action={<Button onClick={() => setModal(true)} disabled={!connectedInstances.length}>Criar campanha</Button>} />}
     {modal && <CampaignModal instances={connectedInstances} onClose={() => setModal(false)} onCreated={() => { setModal(false); client.invalidateQueries({ queryKey: ['campaigns'] }); }} />}
-    {details && <CampaignDetails campaign={details} onClose={() => setDetails(null)} />}
+    {detailsId && <CampaignDetails campaignId={detailsId} onClose={() => setDetailsId(null)} />}
     {deleting && <DeleteCampaignModal
       campaign={deleting}
       loading={remove.isPending}
-      error={remove.error ? apiErrorMessage(remove.error) : ''}
       onClose={() => !remove.isPending && setDeleting(null)}
       onConfirm={() => remove.mutate(deleting.id)}
     />}
   </div>;
 }
 
-function DeleteCampaignModal({ campaign, loading, error, onClose, onConfirm }: {
+function DeleteCampaignModal({ campaign, loading, onClose, onConfirm }: {
   campaign: Campaign;
   loading: boolean;
-  error: string;
   onClose(): void;
   onConfirm(): void;
 }) {
@@ -110,7 +263,6 @@ function DeleteCampaignModal({ campaign, loading, error, onClose, onConfirm }: {
         <p>A campanha deixará de aparecer no sistema e todos os envios ainda pendentes serão cancelados. Mensagens e resultados já processados serão preservados para auditoria.</p>
       </div>
     </div>
-    {error && <div className="form-error delete-error">{error}</div>}
     <div className="modal-actions delete-actions">
       <Button variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
       <Button variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir campanha</Button>
@@ -127,7 +279,6 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
   const [messages, setMessages] = useState(['']);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvName, setCsvName] = useState('');
-  const [fileError, setFileError] = useState('');
   const [fileDragging, setFileDragging] = useState(false);
   const [csvVisibleRows, setCsvVisibleRows] = useState(100);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -201,18 +352,20 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
         }),
       });
     },
-    onSuccess: onCreated,
+    onSuccess: () => {
+      toast.success('Campanha criada.');
+      onCreated();
+    },
   });
 
   const chooseFile = async (file?: File) => {
-    setFileError('');
     preview.reset();
     setCsvFile(null);
     setCsvName('');
     setCsvVisibleRows(100);
     if (!file) return;
     if (!file.name.toLowerCase().endsWith('.csv') && !['text/csv', 'application/csv'].includes(file.type)) {
-      setFileError('Selecione um arquivo no formato CSV.');
+      toast.warning('Selecione um arquivo no formato CSV.');
       return;
     }
     setCsvFile(file);
@@ -389,7 +542,6 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
           <button type="button" className="campaign-template-download" onClick={downloadCsvTemplate}><Download size={15} /><span><strong>Baixar modelo CSV</strong><small>Planilha de exemplo pronta para preencher</small></span></button>
           <div className="campaign-csv-help"><ShieldCheck size={16} /><p>O sistema consulta a Evolution usando o <strong>número de envio selecionado</strong> e separa os contatos que possuem ou não WhatsApp.</p></div>
           {preview.isPending && <div className="campaign-picker-state">Consultando os números na Evolution…</div>}
-          {(fileError || preview.error) && <div className="form-error">{fileError || preview.error?.message}</div>}
           {preview.data && <div className="campaign-csv-preview">
             <header><div><strong>{preview.data.data.valid}</strong><span>com WhatsApp</span></div><div className={preview.data.data.invalid ? 'has-errors' : ''}><strong>{preview.data.data.invalid}</strong><span>sem WhatsApp ou inválidos</span></div><div><strong>{validCsvRows.reduce((total, row) => total + row.messages.length, 0)}</strong><span>mensagens que poderão ser enviadas</span></div></header>
             <div className="campaign-csv-validation-groups">
@@ -424,12 +576,94 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
       </section>
 
       <div className="campaign-validation-note"><ShieldCheck size={18} /><div><strong>Validação obrigatória antes do envio</strong><p>O sistema repete a consulta à Evolution API e ignora automaticamente contatos bloqueados, descadastrados, duplicados ou cujo número não possua WhatsApp.</p></div></div>
-      {create.error && <div className="form-error">{create.error.message}</div>}
       <div className="modal-actions campaign-form-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={create.isPending} disabled={!canSubmit}><MessageSquareText size={16} />Criar campanha</Button></div>
     </form>
   </Modal>;
 }
 
-function CampaignDetails({ campaign, onClose }: { campaign: Campaign; onClose(): void }) {
-  return <Modal title={campaign.name} width={680} onClose={onClose}><div className="campaign-detail"><div className="detail-status"><Status value={campaign.status} /><span>{campaign.instance?.name}</span></div><div className="detail-grid"><div><Users /><span>Audiência</span><strong>{campaign.stats?.audience || 0}</strong></div><div><Send /><span>Enviadas</span><strong>{campaign.stats?.sent || 0}</strong></div><div><MessageSquareText /><span>Respostas</span><strong>{campaign.stats?.replied || 0}</strong></div><div><Clock3 /><span>Agendada</span><strong>{dateTime(campaign.scheduledAt)}</strong></div></div><h3>Sequência de mensagens</h3><div className="bubble-preview">{campaign.bubbles.length ? campaign.bubbles.map((bubble, index) => <div key={index}><small>Bolha {index + 1}</small><p>{bubble.content}</p></div>) : <div><small>Conteúdo personalizado</small><p>As mensagens desta campanha foram definidas individualmente no arquivo CSV.</p></div>}</div></div></Modal>;
+function CampaignDetails({ campaignId, onClose }: { campaignId: string; onClose(): void }) {
+  const invalidWhatsappDownload = useInvalidWhatsappDownload();
+  const details = useQuery({
+    queryKey: ['campaign', campaignId],
+    queryFn: () => api<Envelope<Campaign>>(`/campaigns/${campaignId}`),
+    refetchInterval: 3_000,
+  });
+  const campaign = details.data?.data;
+  const progress = campaign ? campaignProgress(campaign) : null;
+  const processed = progress ? progress.sent + progress.failed + progress.skipped : 0;
+  const progressPercent = progress?.audience
+    ? Math.min(100, Math.round((processed / progress.audience) * 100))
+    : 0;
+
+  return <Modal title={campaign?.name || 'Detalhes da campanha'} width={900} onClose={onClose}>
+    {details.isLoading
+      ? <PageLoading />
+      : details.isError || !campaign || !progress
+        ? <div className="campaign-detail-error">Não foi possível carregar os detalhes desta campanha.</div>
+        : <div className="campaign-detail">
+          <div className="detail-status">
+            <Status value={campaign.status} />
+            <span>{campaign.instance?.name || 'Sem número de envio'}</span>
+            <span>Agendada em {dateTime(campaign.scheduledAt)}</span>
+            <div className="campaign-detail-actions">
+              {['RUNNING', 'SCHEDULED'].includes(campaign.status) && <span className="campaign-detail-live"><i />Atualização automática</span>}
+              <Button
+                variant="secondary"
+                loading={invalidWhatsappDownload.isPending}
+                onClick={() => invalidWhatsappDownload.mutate(campaign)}
+              >
+                <Download size={15} />Baixar números inválidos
+              </Button>
+            </div>
+          </div>
+          <div className="detail-grid campaign-progress-grid">
+            <div><Users /><span>Audiência</span><strong>{progress.audience}</strong></div>
+            <div><Send /><span>Enviados</span><strong>{progress.sent}</strong></div>
+            <div><MessageSquareText /><span>Responderam</span><strong>{progress.replied}</strong></div>
+            <div><Clock3 /><span>Faltam enviar</span><strong>{progress.remaining}</strong></div>
+          </div>
+          <div className="campaign-progress-summary">
+            <div><i style={{ width: `${progressPercent}%` }} /></div>
+            <p><strong>{progressPercent}% processado</strong><span>{progress.failed ? `${progress.failed} falharam · ` : ''}{progress.skipped ? `${progress.skipped} ignorados · ` : ''}{progress.remaining} aguardando envio</span></p>
+          </div>
+
+          {campaign.bubbles.length > 0 && <>
+            <h3>Sequência configurada</h3>
+            <div className="bubble-preview">{campaign.bubbles.map((bubble, index) => <div key={index}><small>Mensagem {index + 1}</small><p>{bubble.content}</p></div>)}</div>
+          </>}
+
+          <div className="campaign-recipient-heading">
+            <div><h3>Mensagens por contato</h3><p>Conteúdo final após aplicar as variáveis de cada destinatário.</p></div>
+            <span>{campaign.recipients?.length || 0} de {progress.audience}</span>
+          </div>
+          <div className="campaign-recipient-list">
+            {campaign.recipients?.length
+              ? campaign.recipients.map((recipient) => {
+                const messages = campaignRecipientMessages(campaign, recipient);
+                return <article key={recipient.id}>
+                  <header>
+                    <span className="contact-avatar">{initials(recipient.contact.name)}</span>
+                    <div><strong>{recipient.contact.name}</strong><small>{recipient.contact.phone || recipient.contact.email || 'Sem contato informado'}</small></div>
+                    <Status value={recipient.status} />
+                  </header>
+                  <div className="campaign-recipient-messages">
+                    {messages.length
+                      ? messages.map((message, index) => <div key={`${recipient.id}-${index}`}>
+                        <small>Mensagem {index + 1}{recipient.lastBubblePosition >= index ? ' · enviada' : ''}</small>
+                        <p>{message.content}</p>
+                      </div>)
+                      : <p className="campaign-recipient-empty">Nenhuma mensagem configurada para este contato.</p>}
+                  </div>
+                  {(recipient.sentAt || recipient.repliedAt || recipient.exclusionReason) && <footer>
+                    {recipient.sentAt && <span>Enviado em {dateTime(recipient.sentAt)}</span>}
+                    {recipient.repliedAt && <span>Respondeu em {dateTime(recipient.repliedAt)}</span>}
+                    {recipient.exclusionReason && <span className="negative">{recipient.exclusionReason}</span>}
+                  </footer>}
+                </article>;
+              })
+              : <p className="campaign-recipient-empty">Nenhum destinatário foi adicionado à campanha.</p>}
+          </div>
+          {campaign.recipientsTruncated && <p className="campaign-recipient-truncated">Mostrando os primeiros 500 contatos. Os contadores acima consideram toda a campanha.</p>}
+        </div>}
+  </Modal>;
 }

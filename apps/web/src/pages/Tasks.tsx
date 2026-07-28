@@ -21,12 +21,12 @@ import {
   ChevronRight,
   Circle,
   Clock,
-  Mail,
   Plus,
   Users,
 } from 'lucide-react';
 import { useAuth } from '../App';
-import { api, apiErrorMessage, type Envelope } from '../lib/api';
+import { api, type Envelope } from '../lib/api';
+import { toast } from '../lib/toast';
 import { Button, Field, Modal, PageLoading, SelectField } from '../components/ui';
 
 type TaskStatus = 'OPEN' | 'COMPLETED' | 'CANCELLED';
@@ -64,7 +64,6 @@ export function TasksPage() {
   const [modal, setModal] = useState<{ dueAt: Date; task?: Task } | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<TaskDropIndicator | null>(null);
-  const [dragError, setDragError] = useState<string | null>(null);
   const range = useMemo(() => visibleRange(anchor, view), [anchor, view]);
   const query = useQuery({
     queryKey: ['tasks', range.start.toISOString(), range.end.toISOString(), filter],
@@ -78,7 +77,10 @@ export function TasksPage() {
   });
   const complete = useMutation({
     mutationFn: (id: string) => api(`/tasks/${id}/complete`, { method: 'PATCH' }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['tasks'] }),
+    onSuccess: () => {
+      toast.success('Tarefa concluída.');
+      return client.invalidateQueries({ queryKey: ['tasks'] });
+    },
   });
   const move = useMutation({
     mutationFn: ({ id, dueAt }: { id: string; dueAt: Date }) => api(`/tasks/${id}`, {
@@ -86,7 +88,6 @@ export function TasksPage() {
       body: JSON.stringify({ dueAt: dueAt.toISOString() }),
     }),
     onMutate: async ({ id, dueAt }) => {
-      setDragError(null);
       await client.cancelQueries({ queryKey: ['tasks'] });
       const previous = client.getQueriesData<Envelope<Task[]>>({ queryKey: ['tasks'] });
       client.setQueriesData<Envelope<Task[]>>({ queryKey: ['tasks'] }, (current) => {
@@ -100,10 +101,10 @@ export function TasksPage() {
       });
       return { previous };
     },
-    onError: (error, _variables, context) => {
+    onError: (_error, _variables, context) => {
       for (const [queryKey, data] of context?.previous || []) client.setQueryData(queryKey, data);
-      setDragError(apiErrorMessage(error, 'Não foi possível reagendar a tarefa'));
     },
+    onSuccess: () => toast.success('Tarefa reagendada.'),
     onSettled: () => client.invalidateQueries({ queryKey: ['tasks'] }),
   });
   const sensors = useSensors(
@@ -159,9 +160,6 @@ export function TasksPage() {
         <h2>{title}</h2>
       </div>
       <div className="task-calendar-actions">
-        <div className="task-digest-hint" title="Cada responsável recebe por e-mail as tarefas do dia">
-          <Mail size={16} /><span>Resumo diário às 8h</span>
-        </div>
         <div className="segmented task-status-filter" aria-label="Filtrar tarefas">
           <button className={filter === 'OPEN' ? 'active' : ''} onClick={() => setFilter('OPEN')}>Em aberto</button>
           <button className={filter === 'COMPLETED' ? 'active' : ''} onClick={() => setFilter('COMPLETED')}>Concluídas</button>
@@ -179,7 +177,6 @@ export function TasksPage() {
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={(event: DragStartEvent) => {
-        setDragError(null);
         setActiveTaskId(String(event.active.id));
       }}
       onDragMove={(event: DragMoveEvent) => setDropIndicator(getTaskDropIndicator(event))}
@@ -211,11 +208,6 @@ export function TasksPage() {
         {activeTask ? <TaskDragPreview task={activeTask} view={view} /> : null}
       </DragOverlay>
     </DndContext>
-
-    {dragError && <div className="task-drag-error" role="alert">
-      <span>{dragError}</span>
-      <button type="button" onClick={() => setDragError(null)} aria-label="Fechar aviso">×</button>
-    </div>}
 
     {modal && <TaskModal
       initialDueAt={modal.dueAt}
@@ -596,17 +588,25 @@ function TaskModal({
         assigneeId: form.assigneeId || undefined,
       }),
     }),
-    onSuccess: onSaved,
+    onSuccess: () => {
+      toast.success(task ? 'Tarefa atualizada.' : 'Tarefa criada.');
+      onSaved();
+    },
   });
   const complete = useMutation({
     mutationFn: () => api(`/tasks/${task!.id}/complete`, { method: 'PATCH' }),
-    onSuccess: onSaved,
+    onSuccess: () => {
+      toast.success('Tarefa concluída.');
+      onSaved();
+    },
   });
   const cancel = useMutation({
     mutationFn: () => api(`/tasks/${task!.id}`, { method: 'DELETE' }),
-    onSuccess: onSaved,
+    onSuccess: () => {
+      toast.success('Tarefa cancelada.');
+      onSaved();
+    },
   });
-  const error = save.error || complete.error || cancel.error;
   return <Modal title={task ? 'Detalhes da tarefa' : 'Nova tarefa'} onClose={onClose} width={620}>
     <form className="modal-form task-modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); save.mutate(); }}>
       <Field label="O que precisa ser feito?" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required autoFocus />
@@ -626,7 +626,6 @@ function TaskModal({
         <span><Clock size={15} />{fullDateFormatter.format(new Date(task.dueAt))}, {timeFormatter.format(new Date(task.dueAt))}</span>
         {task.assignee && <span><Users size={15} />{task.assignee.name}</span>}
       </div>}
-      {error && <p className="form-error">{apiErrorMessage(error, 'Não foi possível salvar a tarefa')}</p>}
       <div className="modal-actions task-modal-actions">
         {task?.status === 'OPEN' && <>
           <Button type="button" variant="secondary" onClick={() => cancel.mutate()} loading={cancel.isPending}>Cancelar tarefa</Button>

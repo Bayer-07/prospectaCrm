@@ -36,6 +36,18 @@ export type UserInviteEmailInput = {
   expiresInHours: number;
 };
 
+export type PasswordResetEmailJob = {
+  passwordResetTokenId: string;
+  resetUrl: string;
+  expiresInMinutes: number;
+};
+
+export type PasswordResetEmailInput = {
+  recipientName: string;
+  resetUrl: string;
+  expiresInMinutes: number;
+};
+
 const SGA_URL = 'https://www.bzs.com.br/solucoes/controle-agua-e-gas/17';
 
 export function escapeEmailHtml(value: string) {
@@ -180,6 +192,40 @@ export function renderUserInviteEmail(input: UserInviteEmailInput) {
     '',
     `Este convite é pessoal e expira em ${expiration}.`,
     'Se você não esperava o convite, ignore esta mensagem; nenhuma conta será ativada.',
+  ].join('\n');
+  return { subject, html, text };
+}
+
+export function renderPasswordResetEmail(input: PasswordResetEmailInput) {
+  const subject = 'Redefina sua senha no BZS One';
+  const expiration = `${input.expiresInMinutes} minutos`;
+  const html = renderBzsEmailLayout({
+    preheader: 'Recebemos uma solicitação para redefinir sua senha no BZS One.',
+    eyebrow: 'SEGURANÇA DA CONTA',
+    brandLabel: 'BZS ONE',
+    title: 'Redefinição de senha',
+    bodyHtml: `
+      <p style="margin:0 0 18px">Olá, <strong style="color:#182a33">${escapeEmailHtml(input.recipientName)}</strong>.</p>
+      <p style="margin:0 0 20px">Recebemos uma solicitação para criar uma nova senha para sua conta no <strong style="color:#182a33">BZS One</strong>.</p>
+      <p style="margin:0 0 10px">Use o botão abaixo para continuar. O link é pessoal, pode ser utilizado apenas uma vez e expira em <strong style="color:#182a33">${escapeEmailHtml(expiration)}</strong>.</p>
+      <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="width:100%;margin:24px 0 0;border-collapse:collapse">
+        <tr>
+          <td style="padding:14px 16px;border-left:4px solid #2fa9dd;border-radius:0 8px 8px 0;background:#f0f8fb;color:#52646e;font-size:13px;line-height:20px">
+            Se você não solicitou a redefinição, ignore este e-mail. Sua senha atual continuará funcionando e nenhuma alteração será realizada.
+          </td>
+        </tr>
+      </table>`,
+    callToAction: { label: 'Redefinir minha senha', href: input.resetUrl },
+    footerText: 'Mensagem transacional de segurança do BZS One. Este e-mail não é uma campanha comercial.',
+  });
+  const text = [
+    `Olá, ${input.recipientName}.`,
+    '',
+    'Recebemos uma solicitação para criar uma nova senha para sua conta no BZS One.',
+    `Redefina sua senha: ${input.resetUrl}`,
+    '',
+    `Este link é pessoal, pode ser utilizado apenas uma vez e expira em ${expiration}.`,
+    'Se você não solicitou a redefinição, ignore este e-mail. Sua senha atual continuará funcionando.',
   ].join('\n');
   return { subject, html, text };
 }

@@ -1,6 +1,11 @@
 import type { Job } from 'bullmq';
 import type { PrismaClient } from '@prisma/client';
-import { renderUserInviteEmail, type UserInviteEmailJob } from '@prospecta/contracts';
+import {
+  renderPasswordResetEmail,
+  renderUserInviteEmail,
+  type PasswordResetEmailJob,
+  type UserInviteEmailJob,
+} from '@prospecta/contracts';
 import { MailgunClient } from './mailgun-client.js';
 
 export class UserInviteProcessor {
@@ -9,10 +14,14 @@ export class UserInviteProcessor {
     private readonly mailgun = new MailgunClient(),
   ) {}
 
-  async process(job: Job<UserInviteEmailJob>) {
+  async process(job: Job<UserInviteEmailJob | PasswordResetEmailJob>) {
+    if (job.name === 'send-password-reset') {
+      return this.processPasswordReset(job as Job<PasswordResetEmailJob>);
+    }
     if (job.name !== 'send-user-invite') return { skipped: true, reason: 'job desconhecido' };
+    const inviteJob = job as Job<UserInviteEmailJob>;
     const invite = await this.db.inviteToken.findUnique({
-      where: { id: job.data.inviteTokenId },
+      where: { id: inviteJob.data.inviteTokenId },
       include: {
         user: {
           include: {
@@ -49,8 +58,8 @@ export class UserInviteProcessor {
       inviterName: invite.createdBy.name,
       organizationName: invite.user.organization.name,
       roleName: invite.user.role.name,
-      inviteUrl: job.data.inviteUrl,
-      expiresInHours: job.data.expiresInHours,
+      inviteUrl: inviteJob.data.inviteUrl,
+      expiresInHours: inviteJob.data.expiresInHours,
     });
 
     try {
@@ -90,6 +99,87 @@ export class UserInviteProcessor {
       const message = error instanceof Error ? error.message : 'Falha desconhecida no envio do convite';
       await this.db.inviteToken.update({
         where: { id: invite.id },
+        data: { emailStatus: 'FAILED', emailError: message.slice(0, 1000) },
+      });
+      throw error;
+    }
+  }
+
+  private async processPasswordReset(job: Job<PasswordResetEmailJob>) {
+    const reset = await this.db.passwordResetToken.findUnique({
+      where: { id: job.data.passwordResetTokenId },
+      include: {
+        user: {
+          include: {
+            organization: { select: { id: true, name: true } },
+          },
+        },
+      },
+    });
+    if (!reset) return { skipped: true, reason: 'redefinição não encontrada' };
+    if (reset.emailStatus === 'SENT') return { skipped: true, reason: 'e-mail já enviado' };
+    if (reset.usedAt || reset.expiresAt <= new Date()) {
+      await this.db.passwordResetToken.update({
+        where: { id: reset.id },
+        data: {
+          emailStatus: 'FAILED',
+          emailError: reset.usedAt ? 'Link já utilizado' : 'Link expirado antes do envio',
+        },
+      });
+      return { skipped: true, reason: reset.usedAt ? 'link utilizado' : 'link expirado' };
+    }
+
+    await this.db.passwordResetToken.update({
+      where: { id: reset.id },
+      data: {
+        emailStatus: 'PENDING',
+        emailAttempts: { increment: 1 },
+        emailError: null,
+      },
+    });
+    const content = renderPasswordResetEmail({
+      recipientName: reset.user.name,
+      resetUrl: job.data.resetUrl,
+      expiresInMinutes: job.data.expiresInMinutes,
+    });
+
+    try {
+      const result = await this.mailgun.sendPasswordReset({
+        to: reset.user.email,
+        subject: content.subject,
+        html: content.html,
+        text: content.text,
+        passwordResetTokenId: reset.id,
+        userId: reset.user.id,
+      });
+      await this.db.passwordResetToken.update({
+        where: { id: reset.id },
+        data: {
+          emailStatus: 'SENT',
+          emailSentAt: new Date(),
+          providerMessageId: result.id,
+          emailError: null,
+        },
+      });
+      await this.db.auditLog.create({
+        data: {
+          organizationId: reset.user.organization.id,
+          userId: null,
+          action: 'user.password_reset_email_sent',
+          entityType: 'PasswordResetToken',
+          entityId: reset.id,
+          after: {
+            targetUserId: reset.user.id,
+            recipient: reset.user.email,
+            providerMessageId: result.id,
+          },
+        },
+      });
+      return { sent: true, passwordResetTokenId: reset.id, providerMessageId: result.id };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Falha desconhecida no envio da recuperação';
+      await this.db.passwordResetToken.update({
+        where: { id: reset.id },
         data: { emailStatus: 'FAILED', emailError: message.slice(0, 1000) },
       });
       throw error;

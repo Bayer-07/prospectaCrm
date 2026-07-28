@@ -17,11 +17,13 @@ const auth: AuthContext = {
 
 describe('MediaService uploads', () => {
   const create = vi.fn();
-  const service = new MediaService({ mediaAsset: { create } } as never);
+  const findUnique = vi.fn();
+  const service = new MediaService({ mediaAsset: { create, findUnique } } as never);
 
   beforeEach(() => {
     create.mockReset();
     create.mockResolvedValue({ id: 'media-1' });
+    findUnique.mockReset();
   });
 
   it('aceita áudio WebM/Opus e remove parâmetros do MIME antes de assinar', async () => {
@@ -35,5 +37,25 @@ describe('MediaService uploads', () => {
       data: expect.objectContaining({ contentType: 'audio/webm', filename: 'audio.webm', sizeBytes: 2048 }),
     });
     expect(result.uploadUrl).toBe('http://storage.local/upload');
+  });
+
+  it('confirma uma foto de perfil somente depois de validar o objeto armazenado', async () => {
+    findUnique.mockResolvedValue({
+      id: '14ee3455-a854-40ab-92dc-01d71c3dbef8',
+      key: 'organization-1/2026-07-27/foto.webp',
+      filename: 'foto.webp',
+      contentType: 'image/webp',
+      sizeBytes: 4096,
+      messageId: null,
+      createdAt: new Date('2026-07-27T12:00:00Z'),
+      profilePhotoFor: null,
+    });
+    vi.spyOn((service as any).client, 'send').mockResolvedValueOnce({
+      ContentLength: 4096,
+      ContentType: 'image/webp',
+    });
+
+    await expect(service.confirmProfilePhotoAsset(auth, '14ee3455-a854-40ab-92dc-01d71c3dbef8'))
+      .resolves.toEqual(expect.objectContaining({ contentType: 'image/webp', sizeBytes: 4096 }));
   });
 });

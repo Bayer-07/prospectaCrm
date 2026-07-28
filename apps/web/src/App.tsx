@@ -12,6 +12,7 @@ import {
 
 const Shell = lazy(() => import('./components/Shell').then((module) => ({ default: module.Shell })));
 const LoginPage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.LoginPage })));
+const ForgotPasswordPage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.ForgotPasswordPage })));
 const InvitePage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.InvitePage })));
 const ResetPasswordPage = lazy(() => import('./pages/Auth').then((module) => ({ default: module.ResetPasswordPage })));
 const DashboardPage = lazy(() => import('./pages/Dashboard').then((module) => ({ default: module.DashboardPage })));
@@ -25,6 +26,8 @@ const ChatbotsPage = lazy(() => import('./pages/Chatbots').then((module) => ({ d
 const AutomationsPage = lazy(() => import('./pages/Automations').then((module) => ({ default: module.AutomationsPage })));
 const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ default: module.ReportsPage })));
 const SettingsPage = lazy(() => import('./pages/Settings').then((module) => ({ default: module.SettingsPage })));
+const ConnectionsPage = lazy(() => import('./pages/Settings').then((module) => ({ default: module.ConnectionsPage })));
+const IntegrationsPage = lazy(() => import('./pages/Settings').then((module) => ({ default: module.IntegrationsPage })));
 const EmailPage = lazy(() => import('./pages/Email').then((module) => ({ default: module.EmailPage })));
 
 type AuthValue = { user: UserContext | null; loading: boolean; refresh(): Promise<unknown>; logout(): Promise<void> };
@@ -84,7 +87,7 @@ function Protected() {
   return user ? <Outlet /> : <Navigate to="/login" state={{ from: location.pathname }} replace />;
 }
 
-const routeTitles: Record<string, string> = { '/': 'Visão geral', '/pipeline': 'Pipeline', '/empresas': 'Empresas', '/contatos': 'Contatos', '/tarefas': 'Tarefas', '/inbox': 'Inbox', '/chatbots': 'Chatbots', '/campanhas': 'Campanhas', '/automacoes': 'Automações', '/relatorios': 'Relatórios', '/email': 'E-mail', '/configuracoes': 'Configurações' };
+const routeTitles: Record<string, string> = { '/': 'Visão geral', '/pipeline': 'Pipeline', '/empresas': 'Empresas', '/contatos': 'Contatos', '/tarefas': 'Tarefas', '/inbox': 'Inbox', '/chatbots': 'Chatbots', '/campanhas': 'Campanhas', '/automacoes': 'Automações', '/relatorios': 'Relatórios', '/email': 'E-mail', '/conexoes': 'Conexões', '/configuracoes': 'Configurações', '/integracoes': 'Integrações', '/integracoes/api': 'API', '/integracoes/mcp': 'Servidor MCP', '/integracoes/webhooks': 'Webhooks', '/integracoes/swagger': 'Swagger' };
 
 function RouteTitle() {
   const location = useLocation();
@@ -97,6 +100,7 @@ function RouteTitle() {
 export function App() {
   return <AuthProvider><RouteTitle /><Suspense fallback={<PageLoading />}><Routes>
     <Route path="/login" element={<LoginPage />} />
+    <Route path="/recuperar-senha" element={<ForgotPasswordPage />} />
     <Route path="/aceitar-convite" element={<InvitePage />} />
     <Route path="/redefinir-senha" element={<ResetPasswordPage />} />
     <Route element={<Protected />}>
@@ -112,7 +116,9 @@ export function App() {
         <Route path="automacoes" element={<AutomationsPage />} />
         <Route path="relatorios" element={<ReportsPage />} />
         <Route path="email" element={<EmailPage />} />
+        <Route path="conexoes" element={<ConnectionsPage />} />
         <Route path="configuracoes" element={<SettingsPage />} />
+        <Route path="integracoes/:section?" element={<IntegrationsPage />} />
       </Route>
     </Route>
     <Route path="*" element={<Navigate to="/" replace />} />

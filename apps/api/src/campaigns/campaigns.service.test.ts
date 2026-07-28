@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../auth/types.js';
-import { CampaignsService } from './campaigns.service.js';
+import { CampaignsService, campaignProgressFromStatusCounts, campaignSendingSchedule, invalidWhatsappRecipientsCsv, renderCampaignContent } from './campaigns.service.js';
 
 const auth: AuthContext = {
   type: 'session',
@@ -12,6 +12,102 @@ const auth: AuthContext = {
 };
 
 describe('pré-validação de campanhas', () => {
+  it('calcula enviados, respostas e pendentes usando o estado real dos destinatários', () => {
+    const result = campaignProgressFromStatusCounts('campaign-1', [
+      { campaignId: 'campaign-1', status: 'PENDING', _count: { _all: 4 } },
+      { campaignId: 'campaign-1', status: 'QUEUED', _count: { _all: 1 } },
+      { campaignId: 'campaign-1', status: 'SENT', _count: { _all: 3 } },
+      { campaignId: 'campaign-1', status: 'DELIVERED', _count: { _all: 2 } },
+      { campaignId: 'campaign-1', status: 'REPLIED', _count: { _all: 2 } },
+      { campaignId: 'campaign-1', status: 'FAILED', _count: { _all: 1 } },
+      { campaignId: 'campaign-1', status: 'SKIPPED', _count: { _all: 1 } },
+    ]);
+
+    expect(result).toEqual({
+      audience: 14,
+      sent: 7,
+      replied: 2,
+      remaining: 5,
+      failed: 1,
+      skipped: 1,
+    });
+  });
+
+  it('mostra no detalhe o conteúdo final personalizado para o contato', () => {
+    expect(renderCampaignContent(
+      'Olá {{nome}}, posso falar com você sobre a {{empresa}}?',
+      { nome: 'Maria', empresa: 'Acme' },
+    )).toBe('Olá Maria, posso falar com você sobre a Acme?');
+  });
+
+  it('permite iniciar campanhas imediatamente em qualquer dia por padrão', () => {
+    expect(campaignSendingSchedule({})).toEqual({
+      start: '00:00',
+      end: '23:59',
+      days: [0, 1, 2, 3, 4, 5, 6],
+    });
+    expect(campaignSendingSchedule({
+      sendingWindowStart: '08:00',
+      sendingWindowEnd: '17:00',
+      sendingDays: [1, 2, 3, 4, 5],
+    })).toEqual({
+      start: '08:00',
+      end: '17:00',
+      days: [1, 2, 3, 4, 5],
+    });
+  });
+
+  it('gera CSV compatível com Excel contendo somente nome e número', () => {
+    const csv = invalidWhatsappRecipientsCsv([
+      { contact: { name: 'Empresa; Exemplo', phone: '+5545999999999' } },
+      { contact: { name: 'Contato "Especial"', phone: '+5545888888888' } },
+    ]);
+
+    expect(csv).toBe(
+      '\uFEFFnome;número\r\n"Empresa; Exemplo";+5545999999999\r\n"Contato ""Especial""";+5545888888888\r\n',
+    );
+  });
+
+  it('baixa apenas os destinatários ignorados por não possuírem WhatsApp', async () => {
+    const findMany = vi.fn().mockResolvedValue([
+      { contact: { name: 'Contato inválido', phone: '+5545999999999' } },
+    ]);
+    const service = new CampaignsService({
+      campaign: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'campaign-1',
+          name: 'Administradoras de Condomínios',
+        }),
+      },
+      campaignRecipient: { findMany },
+    } as never, {} as never, {} as never);
+
+    const result = await service.invalidWhatsappNumbersCsv(auth, 'campaign-1');
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        campaignId: 'campaign-1',
+        status: 'SKIPPED',
+        exclusionReason: 'Número não possui WhatsApp',
+      },
+      select: {
+        contact: {
+          select: {
+            name: true,
+            phone: true,
+          },
+        },
+      },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: 50_000,
+    });
+    expect(result).toEqual({
+      filename: 'numeros-invalidos-administradoras-de-condominios.csv',
+      content: '\uFEFFnome;número\r\nContato inválido;+5545999999999\r\n',
+      count: 1,
+    });
+  });
+
   it('exclui logicamente a campanha e cancela destinatários pendentes', async () => {
     const campaignUpdate = vi.fn().mockResolvedValue({});
     const recipientUpdateMany = vi.fn().mockResolvedValue({ count: 2 });

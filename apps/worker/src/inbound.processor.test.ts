@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { advanceEvolutionMessageStatus, deletedMessagePayload, evolutionCaptionRelation, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, incomingConversationRoute, incomingConversationStatus, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
+import { createCipheriv, hkdfSync } from 'node:crypto';
+import { advanceEvolutionMessageStatus, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
 
 describe('normalização dos eventos da Evolution', () => {
   it.each([
@@ -78,6 +79,33 @@ describe('reações da Evolution', () => {
   });
 });
 
+describe('respostas recebidas pela Evolution', () => {
+  it('extrai o ID da mensagem citada no contextInfo do evento', () => {
+    expect(evolutionReplyProviderMessageId({
+      contextInfo: {
+        stanzaId: '3EB0C1E456BF121371A58E',
+        quotedMessage: { conversation: 'Mensagem original' },
+      },
+      message: { conversation: 'Resposta do cliente' },
+    })).toBe('3EB0C1E456BF121371A58E');
+  });
+
+  it('extrai o ID quando o contexto vem dentro de extendedTextMessage', () => {
+    expect(evolutionReplyProviderMessageId({
+      message: {
+        extendedTextMessage: {
+          text: 'Resposta',
+          contextInfo: { stanzaId: 'provider-original' },
+        },
+      },
+    })).toBe('provider-original');
+  });
+
+  it('ignora mensagens que não respondem outra mensagem', () => {
+    expect(evolutionReplyProviderMessageId({ message: { conversation: 'Mensagem comum' } })).toBeNull();
+  });
+});
+
 describe('mensagens apagadas', () => {
   it('preserva texto, tipo e dados anteriores ao marcar uma mensagem como apagada', () => {
     expect(deletedMessagePayload({
@@ -94,7 +122,128 @@ describe('mensagens apagadas', () => {
   });
 });
 
+describe('mensagens editadas no WhatsApp', () => {
+  const lengthDelimited = (field: number, value: Buffer) => Buffer.concat([
+    Buffer.from([(field << 3) | 2, value.length]),
+    value,
+  ]);
+
+  it('decodifica e descriptografa o envelope MESSAGE_EDIT recente', () => {
+    const targetProviderMessageId = 'ORIGINAL-1';
+    const jid = '83953759293475@lid';
+    const editedText = 'Texto editado no celular';
+    const messageKey = Buffer.concat([
+      lengthDelimited(1, Buffer.from('58738710982911@lid')),
+      Buffer.from([0x10, 0x01]),
+      lengthDelimited(3, Buffer.from(targetProviderMessageId)),
+    ]);
+    const extendedText = lengthDelimited(1, Buffer.from(editedText));
+    const editedMessage = lengthDelimited(6, extendedText);
+    const protocol = Buffer.concat([
+      lengthDelimited(1, messageKey),
+      Buffer.from([0x10, 0x0e]),
+      lengthDelimited(14, editedMessage),
+    ]);
+    const plaintext = lengthDelimited(12, protocol);
+    const messageSecret = Buffer.from(Array.from({ length: 32 }, (_, index) => index + 1));
+    const iv = Buffer.from(Array.from({ length: 12 }, (_, index) => 20 + index));
+    const key = Buffer.from(hkdfSync(
+      'sha256',
+      messageSecret,
+      Buffer.alloc(0),
+      Buffer.from(`${targetProviderMessageId}${jid}${jid}Message Edit`),
+      32,
+    ));
+    const cipher = createCipheriv('aes-256-gcm', key, iv);
+    const encryptedPayload = Buffer.concat([cipher.update(plaintext), cipher.final(), cipher.getAuthTag()]);
+    const edit = {
+      key: { id: 'EDIT-1', remoteJid: jid, fromMe: false },
+      message: {
+        secretEncryptedMessage: {
+          targetMessageKey: { id: targetProviderMessageId, remoteJid: '58738710982911@lid', fromMe: true },
+          secretEncType: 2,
+          encIv: Object.fromEntries(iv.entries()),
+          encPayload: Object.fromEntries(encryptedPayload.entries()),
+        },
+      },
+    };
+    const original = {
+      key: { id: targetProviderMessageId, remoteJid: '554599225389@s.whatsapp.net', fromMe: false },
+      message: {
+        conversation: 'Texto original',
+        messageContextInfo: { messageSecret: Object.fromEntries(messageSecret.entries()) },
+      },
+    };
+
+    expect(evolutionSecretEditEnvelope(edit)).toMatchObject({
+      providerMessageId: 'EDIT-1',
+      targetProviderMessageId,
+    });
+    expect(decodeWhatsappSecretEdit(plaintext)).toEqual({ targetProviderMessageId, text: editedText });
+    expect(decryptEvolutionSecretEdit(edit, original)).toEqual({
+      providerMessageId: 'EDIT-1',
+      targetProviderMessageId,
+      text: editedText,
+    });
+  });
+
+  it('entende o evento MESSAGES_EDITED tradicional da Evolution', () => {
+    expect(evolutionEditedMessage({
+      data: {
+        key: { id: 'ORIGINAL-2' },
+        type: 14,
+        editedMessage: { extendedTextMessage: { text: 'Nova versão' } },
+      },
+    })).toEqual({ targetProviderMessageId: 'ORIGINAL-2', text: 'Nova versão' });
+  });
+
+  it('preserva a versão anterior e não duplica o mesmo evento', () => {
+    const first = editedMessagePayload(
+      { text: 'Antes', payload: { provider: { key: { id: 'ORIGINAL-3' } } } },
+      'Depois',
+      '2026-07-27T17:47:30.000Z',
+      'EDIT-3',
+    );
+    expect(first).toMatchObject({
+      edited: true,
+      editedSource: 'WHATSAPP',
+      editEventIds: ['EDIT-3'],
+      editHistory: [{ text: 'Antes', editedAt: '2026-07-27T17:47:30.000Z', editedBy: null }],
+    });
+    expect(editedMessagePayload(
+      { text: 'Depois', payload: first },
+      'Depois',
+      '2026-07-27T17:47:30.000Z',
+      'EDIT-3',
+    )).toBeNull();
+  });
+});
+
 describe('tipos de mensagem da Evolution', () => {
+  it('identifica um contato compartilhado e usa o nome como prévia', () => {
+    const message = {
+      contactMessage: {
+        displayName: 'José Inácio',
+        vcard: 'BEGIN:VCARD\nFN:José Inácio\nTEL;waid=553791911020:+55 37 99191-1020\nEND:VCARD',
+      },
+    };
+    expect(evolutionMessageType(message)).toBe('contact');
+    expect(evolutionMessageText(message)).toBe('José Inácio');
+  });
+
+  it('sincroniza contatos compartilhados recentes mesmo sem texto comum', () => {
+    expect(isSynchronizableEvolutionMessage({
+      key: { id: 'contact-1', remoteJid: '553791183525@s.whatsapp.net', fromMe: false },
+      messageTimestamp: 1785159591,
+      message: {
+        contactMessage: {
+          displayName: 'José Inácio',
+          vcard: 'BEGIN:VCARD\nFN:José Inácio\nTEL;waid=553791911020:+55 37 99191-1020\nEND:VCARD',
+        },
+      },
+    }, new Date('2026-07-27T13:38:00.000Z'))).toBe(true);
+  });
+
   it('identifica figurinhas como mídia própria', () => {
     expect(evolutionMessageType({ stickerMessage: { mimetype: 'image/webp' } })).toBe('sticker');
   });

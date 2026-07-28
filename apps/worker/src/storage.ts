@@ -32,7 +32,7 @@ export function signedMediaUrl(key: string) {
   return getSignedUrl(deliveryClient, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 15 * 60 });
 }
 
-export async function storedMediaBase64(key: string, maximumBytes = 25 * 1024 * 1024) {
+export async function storedMediaBuffer(key: string, maximumBytes = 25 * 1024 * 1024) {
   const result = await storageClient.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   const declaredBytes = Number(result.ContentLength || 0);
   if (declaredBytes > maximumBytes) throw new Error('A mídia ultrapassa o limite de 25 MB');
@@ -40,7 +40,11 @@ export async function storedMediaBase64(key: string, maximumBytes = 25 * 1024 * 
   const bytes = Buffer.from(await result.Body.transformToByteArray());
   if (!bytes.length) throw new Error('O arquivo da mídia está vazio');
   if (bytes.length > maximumBytes) throw new Error('A mídia ultrapassa o limite de 25 MB');
-  return bytes.toString('base64');
+  return bytes;
+}
+
+export async function storedMediaBase64(key: string, maximumBytes = 25 * 1024 * 1024) {
+  return (await storedMediaBuffer(key, maximumBytes)).toString('base64');
 }
 
 export async function storeInboundMedia(input: { organizationId: string; filename: string; contentType: string; body: Buffer }) {

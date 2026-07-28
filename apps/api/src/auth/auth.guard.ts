@@ -39,7 +39,7 @@ export class AuthGuard implements CanActivate {
       throw error;
     }
 
-    if (request.auth.type === 'apiKey' && !/^\/api\/v1\/(companies|contacts|opportunities|tasks|tags|custom-fields|segments)(\/|\?|$)/.test(request.originalUrl)) {
+    if (request.auth.type === 'apiKey' && !/^\/api\/v1\/(companies|contacts|opportunities|pipelines|tasks|tags|custom-fields|segments|mcp)(\/|\?|$)/.test(request.originalUrl)) {
       throw new ForbiddenException('Este endpoint não faz parte da API pública');
     }
 
@@ -80,6 +80,7 @@ export class AuthGuard implements CanActivate {
               email: true,
               status: true,
               messageSignatureEnabled: true,
+              profilePhoto: { select: { id: true, createdAt: true } },
               role: {
                 select: {
                   key: true,
@@ -116,6 +117,8 @@ export class AuthGuard implements CanActivate {
           email: record.user.email,
           sessionExpiresAt: record.expiresAt.toISOString(),
           messageSignatureEnabled: record.user.messageSignatureEnabled,
+          profilePhotoId: record.user.profilePhoto?.id ?? null,
+          profilePhotoUpdatedAt: record.user.profilePhoto?.createdAt.toISOString(),
           permissions: record.user.role.permissions as Permission[],
         },
       } satisfies CachedSessionAuth;

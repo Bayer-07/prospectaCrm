@@ -5,8 +5,8 @@ export function Button({ children, variant = 'primary', loading, ...props }: But
   return <button className={`button button-${variant}`} {...props} disabled={props.disabled || loading}>{loading && <LoaderCircle size={15} className="spin" />}{children}</button>;
 }
 
-export function Field({ label, hint, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string }) {
-  return <label className="field"><span>{label}</span><input {...props} />{hint && <small>{hint}</small>}</label>;
+export function Field({ label, hint, error, ...props }: InputHTMLAttributes<HTMLInputElement> & { label: string; hint?: string; error?: string }) {
+  return <label className={`field ${error ? 'field-invalid' : ''}`}><span>{label}</span><input {...props} aria-invalid={error ? true : props['aria-invalid']} />{error ? <small className="field-error">{error}</small> : hint && <small>{hint}</small>}</label>;
 }
 
 export function SelectField({ label, children, ...props }: React.SelectHTMLAttributes<HTMLSelectElement> & { label: string; children: ReactNode }) {
@@ -28,7 +28,7 @@ export function Empty({ icon, title, description, action }: { icon: ReactNode; t
 
 export function Status({ value }: { value: string }) {
   const key = value.toLowerCase();
-  const labels: Record<string, string> = { active: 'Ativo', invited: 'Convidado', connected: 'Conectado', disconnected: 'Desconectado', connecting: 'Conectando', draft: 'Rascunho', scheduled: 'Agendada', running: 'Em execução', paused: 'Pausada', completed: 'Concluída', failed: 'Falhou', granted: 'Consentido', unknown: 'Não informado', revoked: 'Revogado', open: 'Aberto', closed: 'Encerrado', published: 'Publicada', archived: 'Arquivada' };
+  const labels: Record<string, string> = { active: 'Ativo', inactive: 'Inativo', invited: 'Convidado', connected: 'Conectado', disconnected: 'Desconectado', connecting: 'Conectando', draft: 'Rascunho', scheduled: 'Agendada', running: 'Em execução', paused: 'Pausada', completed: 'Concluída', failed: 'Falhou', granted: 'Consentido', unknown: 'Não informado', revoked: 'Revogado', open: 'Aberto', closed: 'Encerrado', published: 'Publicada', archived: 'Arquivada' };
   return <span className={`status status-${key}`}>{labels[key] || value}</span>;
 }
 

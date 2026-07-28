@@ -91,3 +91,76 @@ describe('UserInviteProcessor', () => {
     });
   });
 });
+
+describe('recuperação de senha por e-mail', () => {
+  const reset = {
+    id: 'reset-1',
+    emailStatus: 'PENDING',
+    usedAt: null,
+    expiresAt: new Date(Date.now() + 60 * 60_000),
+    user: {
+      id: 'user-1',
+      name: 'Gabriel Bayer',
+      email: 'gabriel@example.com',
+      organization: { id: 'organization-1', name: 'BZS Tecnologia' },
+    },
+  };
+  const resetJob = {
+    name: 'send-password-reset',
+    data: {
+      passwordResetTokenId: 'reset-1',
+      resetUrl: 'https://one.bzs.com.br/redefinir-senha?token=seguro',
+      expiresInMinutes: 60,
+    },
+  };
+
+  it('envia o link e registra a entrega de forma idempotente', async () => {
+    const update = vi.fn().mockResolvedValue({});
+    const audit = vi.fn().mockResolvedValue({});
+    const sendPasswordReset = vi.fn().mockResolvedValue({ id: 'reset-message-id' });
+    const processor = new UserInviteProcessor({
+      passwordResetToken: { findUnique: vi.fn().mockResolvedValue(reset), update },
+      auditLog: { create: audit },
+    } as never, { sendPasswordReset } as never);
+
+    await expect(processor.process(resetJob as never)).resolves.toEqual({
+      sent: true,
+      passwordResetTokenId: 'reset-1',
+      providerMessageId: 'reset-message-id',
+    });
+    expect(sendPasswordReset).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'gabriel@example.com',
+      passwordResetTokenId: 'reset-1',
+      userId: 'user-1',
+    }));
+    expect(update).toHaveBeenLastCalledWith({
+      where: { id: 'reset-1' },
+      data: expect.objectContaining({
+        emailStatus: 'SENT',
+        providerMessageId: 'reset-message-id',
+        emailSentAt: expect.any(Date),
+      }),
+    });
+    expect(audit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'user.password_reset_email_sent',
+        entityId: 'reset-1',
+      }),
+    });
+  });
+
+  it('não envia novamente quando o provedor já aceitou a mensagem', async () => {
+    const sendPasswordReset = vi.fn();
+    const processor = new UserInviteProcessor({
+      passwordResetToken: {
+        findUnique: vi.fn().mockResolvedValue({ ...reset, emailStatus: 'SENT' }),
+      },
+    } as never, { sendPasswordReset } as never);
+
+    await expect(processor.process(resetJob as never)).resolves.toEqual({
+      skipped: true,
+      reason: 'e-mail já enviado',
+    });
+    expect(sendPasswordReset).not.toHaveBeenCalled();
+  });
+});

@@ -1,7 +1,9 @@
-import { FormEvent, useMemo, useState } from 'react';
+import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, CheckCircle2, FileText, LoaderCircle, Mail, Pause, Play, Plus, Search, Send, Trash2, Users } from 'lucide-react';
-import { api, apiErrorMessage, dateTime, initials, type Envelope } from '../lib/api';
+import { CheckCircle2, FileText, LoaderCircle, Mail, Pause, Play, Plus, Search, Send, Trash2, Users } from 'lucide-react';
+import { useSearchParams } from 'react-router-dom';
+import { api, dateTime, initials, type Envelope } from '../lib/api';
+import { toast } from '../lib/toast';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import {
@@ -44,24 +46,29 @@ type EmailDeleteTarget = {
 
 export function EmailPage() {
   const client = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedCampaign = searchParams.get('new') === 'campaign';
+  const requestedContactId = searchParams.get('contactId') || '';
   const [templateModal, setTemplateModal] = useState(false);
   const [campaignTemplate, setCampaignTemplate] = useState<Template | null>(null);
   const [deleting, setDeleting] = useState<EmailDeleteTarget | null>(null);
   const [view, setView] = useState<'templates' | 'campaigns'>('templates');
-  const [actionError, setActionError] = useState('');
   const templates = useQuery({ queryKey: ['email-templates'], queryFn: () => api<Envelope<Template[]>>('/email/templates') });
   const provider = useQuery({ queryKey: ['email-provider'], queryFn: () => api<Envelope<Provider>>('/email/provider') });
   const campaigns = useQuery({ queryKey: ['campaigns'], queryFn: () => api<Envelope<EmailCampaign[]>>('/campaigns') });
   const schedule = useMutation({
     mutationFn: (id: string) => api(`/campaigns/${id}/schedule`, { method: 'POST', body: JSON.stringify({}) }),
-    onMutate: () => setActionError(''),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns'] }),
-    onError: (error) => setActionError(apiErrorMessage(error, 'Não foi possível iniciar a campanha')),
+    onSuccess: () => {
+      toast.success('Campanha de e-mail iniciada.');
+      return client.invalidateQueries({ queryKey: ['campaigns'] });
+    },
   });
   const status = useMutation({
     mutationFn: ({ id, action }: { id: string; action: string }) => api(`/campaigns/${id}/${action}`, { method: 'POST' }),
-    onSuccess: () => client.invalidateQueries({ queryKey: ['campaigns'] }),
-    onError: (error) => setActionError(apiErrorMessage(error)),
+    onSuccess: (_result, variables) => {
+      toast.success(variables.action === 'pause' ? 'Campanha pausada.' : 'Campanha retomada.');
+      return client.invalidateQueries({ queryKey: ['campaigns'] });
+    },
   });
   const remove = useMutation({
     mutationFn: (target: EmailDeleteTarget) => api(
@@ -69,19 +76,36 @@ export function EmailPage() {
       { method: 'DELETE' },
     ),
     onSuccess: (_, target) => {
+      toast.success(target.type === 'template' ? 'Modelo excluído.' : 'Campanha excluída.');
       setDeleting(null);
       client.invalidateQueries({ queryKey: target.type === 'template' ? ['email-templates'] : ['campaigns'] });
     },
   });
-
-  if (templates.isLoading || provider.isLoading || campaigns.isLoading) return <PageLoading />;
   const templateData = templates.data?.data || [];
   const providerData = provider.data?.data;
   const emailCampaigns = (campaigns.data?.data || []).filter((campaign) => campaign.channel === 'EMAIL');
 
-  return <div className="email-page">
-    {actionError && <div className="inline-alert"><AlertCircle size={17} /><div><strong>Não foi possível concluir a ação</strong><p>{actionError}</p></div></div>}
+  useEffect(() => {
+    if (!requestedCampaign || !templateData[0]) return;
+    setView('campaigns');
+    setCampaignTemplate((current) => current || templateData[0]);
+  }, [requestedCampaign, templateData[0]?.id]);
 
+  const clearCampaignRequest = () => {
+    if (!requestedCampaign && !requestedContactId) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('new');
+    next.delete('contactId');
+    setSearchParams(next, { replace: true });
+  };
+  const closeCampaign = () => {
+    setCampaignTemplate(null);
+    clearCampaignRequest();
+  };
+
+  if (templates.isLoading || provider.isLoading || campaigns.isLoading) return <PageLoading />;
+
+  return <div className="email-page">
     <div className="toolbar">
       <div className="segmented" role="group" aria-label="Alternar visão de e-mail">
         <button className={view === 'templates' ? 'active' : ''} aria-pressed={view === 'templates'} onClick={() => setView('templates')}>Modelos</button>
@@ -120,16 +144,17 @@ export function EmailPage() {
     {deleting && <DeleteEmailItemModal
       target={deleting}
       loading={remove.isPending}
-      error={remove.error ? apiErrorMessage(remove.error) : ''}
       onClose={() => !remove.isPending && setDeleting(null)}
       onConfirm={() => remove.mutate(deleting)}
     />}
     {campaignTemplate && <EmailCampaignModal
       templates={templateData}
       initialTemplate={campaignTemplate}
-      onClose={() => setCampaignTemplate(null)}
+      initialContactId={requestedContactId || undefined}
+      onClose={closeCampaign}
       onCreated={() => {
         setCampaignTemplate(null);
+        clearCampaignRequest();
         setView('campaigns');
         client.invalidateQueries({ queryKey: ['campaigns'] });
       }}
@@ -137,10 +162,9 @@ export function EmailPage() {
   </div>;
 }
 
-function DeleteEmailItemModal({ target, loading, error, onClose, onConfirm }: {
+function DeleteEmailItemModal({ target, loading, onClose, onConfirm }: {
   target: EmailDeleteTarget;
   loading: boolean;
-  error: string;
   onClose(): void;
   onConfirm(): void;
 }) {
@@ -155,7 +179,6 @@ function DeleteEmailItemModal({ target, loading, error, onClose, onConfirm }: {
           : 'O modelo será removido definitivamente. Campanhas já criadas com ele não serão alteradas, pois armazenam uma cópia própria do conteúdo.'}</p>
       </div>
     </div>
-    {error && <div className="form-error delete-error">{error}</div>}
     <div className="modal-actions delete-actions">
       <Button variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
       <Button variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir {campaign ? 'campanha' : 'modelo'}</Button>
@@ -165,19 +188,25 @@ function DeleteEmailItemModal({ target, loading, error, onClose, onConfirm }: {
 
 function TemplateModal({ onClose, onCreated }: { onClose(): void; onCreated(): void }) {
   const [form, setForm] = useState({ name: '', subject: '', html: '' });
-  const mutation = useMutation({ mutationFn: () => api('/email/templates', { method: 'POST', body: JSON.stringify(form) }), onSuccess: onCreated });
+  const mutation = useMutation({
+    mutationFn: () => api('/email/templates', { method: 'POST', body: JSON.stringify(form) }),
+    onSuccess: () => {
+      toast.success('Modelo de e-mail criado.');
+      onCreated();
+    },
+  });
   return <Modal title="Novo modelo de e-mail" onClose={onClose} width={680}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}>
     <Field label="Nome interno" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
     <Field label="Assunto" value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required />
     <label className="field"><span>Conteúdo HTML</span><textarea rows={10} value={form.html} onChange={(event) => setForm({ ...form, html: event.target.value })} placeholder="Olá {{nome}},…" required /></label>
-    {mutation.isError && <p className="form-error">{apiErrorMessage(mutation.error)}</p>}
     <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Salvar modelo</Button></div>
   </form></Modal>;
 }
 
-function EmailCampaignModal({ templates, initialTemplate, onClose, onCreated }: {
+function EmailCampaignModal({ templates, initialTemplate, initialContactId, onClose, onCreated }: {
   templates: Template[];
   initialTemplate: Template;
+  initialContactId?: string;
   onClose(): void;
   onCreated(): void;
 }) {
@@ -198,6 +227,20 @@ function EmailCampaignModal({ templates, initialTemplate, onClose, onCreated }: 
     queryKey: ['email-campaign-contacts', debouncedSearch],
     queryFn: () => api<Envelope<Contact[]>>(`/contacts?limit=100&emailOnly=true&search=${encodeURIComponent(debouncedSearch)}`),
   });
+  const initialContact = useQuery({
+    queryKey: ['email-campaign-initial-contact', initialContactId],
+    queryFn: () => api<Envelope<Contact>>(`/contacts/${initialContactId}`),
+    enabled: Boolean(initialContactId),
+  });
+
+  useEffect(() => {
+    const contact = initialContact.data?.data;
+    if (!contact?.email) return;
+    setSelected((current) => current.some((item) => item.id === contact.id)
+      ? current
+      : [contact, ...current]);
+  }, [initialContact.data?.data]);
+
   const selectedIds = useMemo(() => new Set(selected.map((contact) => contact.id)), [selected]);
   const excludedIds = useMemo(() => new Set(excluded.map((contact) => contact.id)), [excluded]);
   const currentContactSearch = normalizeContactSearch(debouncedSearch);
@@ -229,7 +272,10 @@ function EmailCampaignModal({ templates, initialTemplate, onClose, onCreated }: 
         },
       }),
     }),
-    onSuccess: onCreated,
+    onSuccess: () => {
+      toast.success('Campanha de e-mail criada.');
+      onCreated();
+    },
   });
   const changeTemplate = (id: string) => {
     const template = templates.find((item) => item.id === id);
@@ -314,7 +360,6 @@ function EmailCampaignModal({ templates, initialTemplate, onClose, onCreated }: 
       <Field label="Intervalo máximo entre contatos (s)" type="number" min={1} value={form.contactMax} onChange={(event) => setForm({ ...form, contactMax: Number(event.target.value) })} />
     </div>
     <div className="campaign-validation-note"><Mail size={18} /><div><strong>Rastreamento de e-mail</strong><p>O Mailgun atualizará entrega, abertura, clique, falha e descadastro pelo webhook configurado.</p></div></div>
-    {create.isError && <p className="form-error">{apiErrorMessage(create.error)}</p>}
     <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={create.isPending} disabled={!form.name.trim() || !form.subject.trim() || !form.html.trim() || (!selected.length && !selectedSearches.length)}><Send size={15} />Criar campanha</Button></div>
   </form></Modal>;
 }

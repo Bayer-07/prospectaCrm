@@ -40,6 +40,15 @@ export type MailgunUserInviteInput = {
   userId: string;
 };
 
+export type MailgunPasswordResetInput = {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  passwordResetTokenId: string;
+  userId: string;
+};
+
 export class MailgunRequestError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -132,6 +141,21 @@ export class MailgunClient {
       trackingClicks: false,
       variables: {
         'invite-token-id': input.inviteTokenId,
+        'user-id': input.userId,
+      },
+    });
+  }
+
+  async sendPasswordReset(input: MailgunPasswordResetInput) {
+    return this.sendMessage({
+      to: input.to,
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+      tag: 'bzs-password-reset',
+      trackingClicks: false,
+      variables: {
+        'password-reset-token-id': input.passwordResetTokenId,
         'user-id': input.userId,
       },
     });

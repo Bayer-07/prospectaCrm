@@ -1,0 +1,110 @@
+diff --git a/src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts b/src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts
+index 60e857f..faeb9ee 100644
+--- a/src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts
++++ b/src/api/integrations/channel/whatsapp/whatsapp.baileys.service.ts
+@@ -139,6 +139,7 @@ import { createHash } from 'crypto';
+ import EventEmitter2 from 'eventemitter2';
+ import ffmpeg from 'fluent-ffmpeg';
+ import FormData from 'form-data';
++import { getLinkPreview } from 'link-preview-js';
+ import Long from 'long';
+ import mimeTypes from 'mime-types';
+ import NodeCache from 'node-cache';
+@@ -2127,6 +2128,84 @@ export class BaileysStartupService extends ChannelStartupService {
+     }
+   }
+ 
++  private async generateLinkPreview(text: string) {
++    try {
++      const match = text.match(/https?:\/\/[^\s]+/);
++      if (!match) return undefined;
++
++      const url = match[0].replace(/[.,);\]]+$/u, '');
++      if (!url) return undefined;
++
++      const previewData = (await getLinkPreview(url, {
++        imagesPropertyType: 'og',
++        headers: {
++          'user-agent': 'googlebot',
++          accept: 'text/html,application/xhtml+xml',
++        },
++      })) as any;
++
++      if (!previewData?.title) return undefined;
++
++      const thumbnailUrl = previewData.images?.[0] || previewData.favicons?.[0];
++      let jpegThumbnail: Buffer | undefined;
++
++      if (thumbnailUrl) {
++        try {
++          const thumbnailResponse = await fetch(thumbnailUrl, {
++            headers: {
++              'user-agent': 'googlebot',
++              accept: 'image/*',
++            },
++            signal: AbortSignal.timeout(10_000),
++          });
++          const declaredLength = Number(thumbnailResponse.headers.get('content-length') || 0);
++          if (thumbnailResponse.ok && (!declaredLength || declaredLength <= 5 * 1024 * 1024)) {
++            const image = Buffer.from(await thumbnailResponse.arrayBuffer());
++            if (image.length && image.length <= 5 * 1024 * 1024) {
++              let thumbnailInput = image;
++              const isIco =
++                image.length >= 6 &&
++                image.readUInt16LE(0) === 0 &&
++                image.readUInt16LE(2) === 1;
++              if (isIco) {
++                const entries = Array.from({ length: image.readUInt16LE(4) }, (_, index) => {
++                  const entryOffset = 6 + index * 16;
++                  if (entryOffset + 16 > image.length) return null;
++                  const size = image.readUInt32LE(entryOffset + 8);
++                  const offset = image.readUInt32LE(entryOffset + 12);
++                  const data = image.subarray(offset, offset + size);
++                  const isPng = data.subarray(0, 8).equals(Buffer.from('89504e470d0a1a0a', 'hex'));
++                  const width = image[entryOffset] || 256;
++                  const height = image[entryOffset + 1] || 256;
++                  return isPng && offset + size <= image.length ? { data, area: width * height } : null;
++                }).filter(Boolean).sort((first: any, second: any) => second.area - first.area);
++                if (entries.length) thumbnailInput = entries[0].data;
++              }
++              jpegThumbnail = await sharp(thumbnailInput)
++                .resize(200, 200, { fit: 'cover', position: 'centre' })
++                .jpeg({ quality: 82 })
++                .toBuffer();
++            }
++          }
++        } catch (error) {
++          this.logger.warn(`Unable to prepare link preview thumbnail: ${error}`);
++        }
++      }
++
++      return {
++        'canonical-url': String(previewData.url || url),
++        'matched-text': url,
++        title: String(previewData.title),
++        description: previewData.description ? String(previewData.description) : undefined,
++        jpegThumbnail,
++        originalThumbnailUrl: thumbnailUrl,
++      };
++    } catch (error) {
++      this.logger.warn(`Unable to generate link preview: ${error}`);
++      return undefined;
++    }
++  }
++
+   private async sendMessage(
+     sender: string,
+     message: any,
+@@ -2339,6 +2418,11 @@ export class BaileysStartupService extends ChannelStartupService {
+       }
+ 
+-      const linkPreview = options?.linkPreview != false ? undefined : false;
++      const linkPreview =
++        options?.linkPreview != false && (message as any)?.conversation
++          ? await this.generateLinkPreview((message as any).conversation)
++          : options?.linkPreview != false
++            ? undefined
++            : false;
+ 
+       let quoted: WAMessage;
+ 

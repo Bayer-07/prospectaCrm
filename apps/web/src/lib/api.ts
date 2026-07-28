@@ -1,4 +1,5 @@
 import { csrfToken, handleUnauthorizedResponse } from './auth-session';
+import { toast } from './toast';
 
 const API_URL = import.meta.env.VITE_API_URL || '/api/v1';
 
@@ -27,21 +28,28 @@ export function apiErrorMessage(error: unknown, fallback = 'Não foi possível c
 
 const publicAuthenticationRequests = new Set([
   '/auth/login',
+  '/auth/forgot-password',
   '/auth/accept-invite',
   '/auth/reset-password',
 ]);
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const csrf = csrfToken();
-  const response = await fetch(`${API_URL}${path}`, {
-    ...init,
-    credentials: 'include',
-    headers: {
-      ...(init.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-      ...(init.headers || {}),
-    },
-  });
+  let response: Response;
+  try {
+    response = await fetch(`${API_URL}${path}`, {
+      ...init,
+      credentials: 'include',
+      headers: {
+        ...(init.body ? { 'Content-Type': 'application/json' } : {}),
+        ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
+        ...(init.headers || {}),
+      },
+    });
+  } catch (error) {
+    toast.error('Não foi possível conectar ao servidor. Verifique sua conexão e tente novamente.');
+    throw error;
+  }
   if (response.status === 401 && !publicAuthenticationRequests.has(path)) {
     handleUnauthorizedResponse();
   }
@@ -53,7 +61,13 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
   const text = await response.text();
   let body: any = null;
   try { body = text ? JSON.parse(text) : null; } catch { body = text; }
-  if (!response.ok) throw new ApiError(body?.message || body?.error || 'Não foi possível concluir a operação', response.status, body);
+  if (!response.ok) {
+    const error = new ApiError(body?.message || body?.error || 'Não foi possível concluir a operação', response.status, body);
+    if (response.status !== 401 || publicAuthenticationRequests.has(path)) {
+      toast.error(apiErrorMessage(error));
+    }
+    throw error;
+  }
   return body as T;
 }
 

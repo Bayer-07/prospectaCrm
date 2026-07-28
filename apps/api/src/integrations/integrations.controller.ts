@@ -6,11 +6,15 @@ import { RequirePermission } from '../auth/permission.decorator.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthContext } from '../auth/types.js';
 import { EvolutionService } from './evolution.service.js';
+import { TranscriptionsService } from './transcriptions.service.js';
 
 @ApiTags('WhatsApp e atendimento')
 @Controller()
 export class IntegrationsController {
-  constructor(private readonly evolution: EvolutionService) {}
+  constructor(
+    private readonly evolution: EvolutionService,
+    private readonly transcriptions: TranscriptionsService,
+  ) {}
 
   @RequirePermission('integrations', 'read')
   @Get('whatsapp/instances')
@@ -38,11 +42,27 @@ export class IntegrationsController {
 
   @RequirePermission('conversations', 'read')
   @Get('conversations')
-  async conversations(@CurrentUser() auth: AuthContext, @Query() query: { status?: string; assignee?: string; view?: string }) { return { data: await this.evolution.conversations(auth, query) }; }
+  async conversations(@CurrentUser() auth: AuthContext, @Query() query: {
+    status?: string;
+    assignee?: string;
+    view?: string;
+    search?: string;
+    limit?: string;
+    instanceId?: string;
+    assigneeId?: string;
+    lastInteractionFrom?: string;
+    lastInteractionTo?: string;
+  }) { return { data: await this.evolution.conversations(auth, query) }; }
 
   @RequirePermission('conversations', 'read')
   @Get('conversations/counts')
   async conversationCounts(@CurrentUser() auth: AuthContext, @Query('view') view?: string) { return { data: await this.evolution.conversationCounts(auth, view) }; }
+
+  @RequirePermission('conversations', 'read')
+  @Get('conversations/filter-options')
+  async conversationFilterOptions(@CurrentUser() auth: AuthContext, @Query('view') view?: string) {
+    return { data: await this.evolution.conversationFilterOptions(auth, view) };
+  }
 
   @RequirePermission('conversations', 'write')
   @Get('conversations/instances')
@@ -70,6 +90,26 @@ export class IntegrationsController {
     @Query() query: { cursor?: string; limit?: string },
   ) {
     return { data: await this.evolution.conversationMessages(auth, id, query) };
+  }
+
+  @RequirePermission('conversations', 'read')
+  @Get('conversations/:id/messages/:messageId/transcription')
+  async messageTranscription(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return { data: await this.transcriptions.get(auth, id, messageId) };
+  }
+
+  @RequirePermission('conversations', 'read')
+  @Post('conversations/:id/messages/:messageId/transcription')
+  async transcribeMessage(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    return { data: await this.transcriptions.request(auth, id, messageId) };
   }
 
   @RequirePermission('conversations', 'read')
@@ -108,6 +148,12 @@ export class IntegrationsController {
   @RequirePermission('conversations', 'read')
   @Post('conversations/:id/read')
   async read(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.evolution.markRead(auth, id) }; }
+
+  @RequirePermission('conversations', 'read')
+  @Patch('conversations/:id/pin')
+  async pin(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { pinned: boolean }) {
+    return { data: await this.evolution.setConversationPinned(auth, id, body.pinned === true) };
+  }
 
   @RequirePermission('conversations', 'write')
   @Post('conversations/:id/messages')

@@ -12,6 +12,8 @@ export type AuthContext = {
   email?: string;
   sessionExpiresAt?: string;
   messageSignatureEnabled?: boolean;
+  profilePhotoId?: string | null;
+  profilePhotoUpdatedAt?: string;
   permissions: Permission[];
   apiScopes?: string[];
 };

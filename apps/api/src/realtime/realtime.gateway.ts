@@ -61,4 +61,8 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
   notifyUser(userId: string, event: string, payload: unknown) {
     this.server?.to(`user:${userId}`).emit(event, payload);
   }
+
+  disconnectUser(userId: string) {
+    this.server?.in(`user:${userId}`).disconnectSockets(true);
+  }
 }

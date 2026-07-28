@@ -17,6 +17,8 @@ services:
     depends_on:
       api:
         condition: service_healthy
+      mcp:
+        condition: service_healthy
       web:
         condition: service_started
     networks: [edge, app]
@@ -60,6 +62,29 @@ services:
       retries: 5
     networks: [app, egress]
 
+  mcp:
+    build:
+      context: .
+      dockerfile: apps/mcp/Dockerfile
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      NODE_ENV: production
+      MCP_HOST: 0.0.0.0
+      MCP_PORT: 3100
+      MCP_API_URL: http://api:3000/api/v1
+      MCP_ALLOWED_HOSTS: mcp,localhost,127.0.0.1
+      MCP_ALLOWED_ORIGINS: ${MCP_ALLOWED_ORIGINS:-localhost,127.0.0.1}
+    expose: ["3100"]
+    depends_on:
+      api: { condition: service_healthy }
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://localhost:3100/health').then(r=>{if(!r.ok)process.exit(1)})"]
+      interval: 20s
+      timeout: 5s
+      retries: 5
+    networks: [app]
+
   worker:
     build:
       context: .
@@ -74,9 +99,37 @@ services:
       EVOLUTION_API_URL: http://evolution:8080
       S3_ENDPOINT: http://minio:9000
       S3_DELIVERY_ENDPOINT: ${S3_DELIVERY_ENDPOINT_DOCKER:-http://minio.local:9000}
+      TRANSCRIPTION_API_URL: http://transcription:8000/v1/audio/transcriptions
+      TRANSCRIPTION_API_KEY: ""
+      TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}
     depends_on:
       api: { condition: service_healthy }
       evolution: { condition: service_started }
+      transcription: { condition: service_started }
+    networks: [app, egress]
+
+  transcription:
+    image: ${SPEACHES_IMAGE:-ghcr.io/speaches-ai/speaches:latest-cpu}
+    restart: unless-stopped
+    environment:
+      LOG_LEVEL: warning
+      ENABLE_UI: "false"
+      PRELOAD_MODELS: '["${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}"]'
+      WHISPER__INFERENCE_DEVICE: cpu
+      WHISPER__COMPUTE_TYPE: int8
+      WHISPER__CPU_THREADS: ${TRANSCRIPTION_CPU_THREADS:-4}
+      WHISPER__NUM_WORKERS: 1
+    volumes:
+      - transcription_models:/home/ubuntu/.cache/huggingface/hub
+    ports:
+      - "127.0.0.1:${TRANSCRIPTION_BIND_PORT:-8000}:8000"
+    expose: ["8000"]
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health', timeout=5)"]
+      interval: 15s
+      timeout: 8s
+      retries: 10
+      start_period: 10m
     networks: [app, egress]
 
   postgres:
@@ -130,7 +183,12 @@ services:
           - minio.local
 
   evolution:
-    image: ${EVOLUTION_IMAGE:-evoapicloud/evolution-api:v2.3.7}
+    image: ${EVOLUTION_CUSTOM_IMAGE:-bzs-one/evolution-api:2.3.7-link-preview}
+    build:
+      context: .
+      dockerfile: infra/evolution/Dockerfile
+      args:
+        EVOLUTION_SOURCE_REF: ${EVOLUTION_SOURCE_REF:-cd800f2976e1e5b682fbf86a01ee4d85ae61f370}
     restart: unless-stopped
     env_file: .env
     environment:
@@ -175,6 +233,10 @@ services:
       TELEMETRY: "false"
     volumes:
       - evolution_instances:/evolution/instances
+    ports:
+      # API e worker executados localmente no modo de desenvolvimento usam esta
+      # porta. O bind em loopback mantém a Evolution inacessível pela rede local.
+      - "127.0.0.1:${EVOLUTION_BIND_PORT:-8082}:8080"
     expose: ["8080"]
     depends_on:
       evolution-postgres: { condition: service_healthy }
@@ -243,3 +305,4 @@ volumes:
   evolution_postgres_data:
   evolution_redis_data:
   evolution_minio_data:
+  transcription_models:

@@ -211,6 +211,7 @@ model User {
   organizationId          String               @db.Uuid
   teamId                  String?              @db.Uuid
   roleId                  String               @db.Uuid
+  profilePhotoId          String?              @unique @db.Uuid
   name                    String
   email                   String
   passwordHash            String?
@@ -222,6 +223,7 @@ model User {
   organization            Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   team                    Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   role                    Role                 @relation(fields: [roleId], references: [id])
+  profilePhoto            MediaAsset?          @relation("UserProfilePhoto", fields: [profilePhotoId], references: [id], onDelete: SetNull)
   sessions                Session[]
   inviteTokens            InviteToken[]        @relation("InvitedUser")
   invitesCreated          InviteToken[]        @relation("InviteCreator")
@@ -236,6 +238,7 @@ model User {
   notes                   Note[]
   activities              Activity[]
   assignedConversations   Conversation[]       @relation("ConversationAssignee")
+  conversationPins        ConversationPin[]
   conversationEvents      ConversationEvent[]  @relation("ConversationEventActor")
   createdCampaigns        Campaign[]
   createdWorkflows        Workflow[]
@@ -282,15 +285,22 @@ model InviteToken {
 }
 
 model PasswordResetToken {
-  id          String    @id @default(uuid()) @db.Uuid
-  userId      String    @db.Uuid
-  createdById String    @db.Uuid
-  tokenHash   String    @unique
-  expiresAt   DateTime
-  usedAt      DateTime?
-  createdAt   DateTime  @default(now())
-  user        User      @relation("ResetUser", fields: [userId], references: [id], onDelete: Cascade)
-  createdBy   User      @relation("ResetCreator", fields: [createdById], references: [id])
+  id                String            @id @default(uuid()) @db.Uuid
+  userId            String            @db.Uuid
+  createdById       String            @db.Uuid
+  tokenHash         String            @unique
+  expiresAt         DateTime
+  usedAt            DateTime?
+  emailStatus       InviteEmailStatus @default(PENDING)
+  emailAttempts     Int               @default(0)
+  emailSentAt       DateTime?
+  providerMessageId String?
+  emailError        String?
+  createdAt         DateTime          @default(now())
+  user              User              @relation("ResetUser", fields: [userId], references: [id], onDelete: Cascade)
+  createdBy         User              @relation("ResetCreator", fields: [createdById], references: [id])
+
+  @@index([emailStatus, expiresAt])
 }
 
 model Company {
@@ -747,6 +757,7 @@ model Conversation {
   assignee        User?               @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   messages        Message[]
   events          ConversationEvent[]
+  pins            ConversationPin[]
   chatbotSession  ChatbotSession?
 
   @@unique([instanceId, remoteJid])
@@ -757,6 +768,17 @@ model Conversation {
   @@index([organizationId, closedAt])
   @@index([assigneeId, status, lastMessageAt(sort: Desc), id(sort: Desc)], map: "Conversation_assignee_status_recent_idx")
   @@index([contactId], map: "Conversation_contact_idx")
+}
+
+model ConversationPin {
+  userId         String       @db.Uuid
+  conversationId String       @db.Uuid
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  conversation   Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+
+  @@id([userId, conversationId])
+  @@index([userId, createdAt(sort: Desc)], map: "ConversationPin_user_recent_idx")
 }
 
 model ConversationEvent {
@@ -789,6 +811,11 @@ model Message {
   sentAt            DateTime?
   deliveredAt       DateTime?
   readAt            DateTime?
+  transcriptionStatus   String?
+  transcriptionText     String?
+  transcriptionError    String?
+  transcriptionProvider String?
+  transcribedAt         DateTime?
   createdAt         DateTime         @default(now())
   updatedAt         DateTime         @updatedAt
   instance          WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
@@ -810,6 +837,7 @@ model MediaAsset {
   expiresAt   DateTime?
   createdAt   DateTime  @default(now())
   message     Message?  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  profilePhotoFor User? @relation("UserProfilePhoto")
 
   @@index([messageId])
 }
@@ -857,9 +885,9 @@ model Campaign {
   batchSize              Int                 @default(20)
   batchPauseMinSeconds   Int                 @default(120)
   batchPauseMaxSeconds   Int                 @default(300)
-  sendingWindowStart     String              @default("09:00")
-  sendingWindowEnd       String              @default("18:00")
-  sendingDays            Json                @default("[1,2,3,4,5]")
+  sendingWindowStart     String              @default("00:00")
+  sendingWindowEnd       String              @default("23:59")
+  sendingDays            Json                @default("[0,1,2,3,4,5,6]")
   sentRecipientCount     Int                 @default(0)
   stats                  Json                @default("{}")
   archivedAt             DateTime?

@@ -2,7 +2,7 @@ import { BadGatewayException, BadRequestException, Inject, Injectable, NotFoundE
 import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
-import { isOptOutMessage } from '@prospecta/contracts';
+import { isOptOutMessage, normalizeEvolutionInstanceStatus, type EvolutionInstanceStatus } from '@prospecta/contracts';
 import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import type { AuthContext } from '../auth/types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -30,13 +30,15 @@ export class EvolutionService {
     private readonly realtime: RealtimeGateway,
   ) {}
 
-  listInstances(auth: AuthContext) {
+  async listInstances(auth: AuthContext) {
     const scope = permissionScope(auth, 'integrations');
-    return this.db.whatsappInstance.findMany({
+    const instances = await this.db.whatsappInstance.findMany({
       where: { organizationId: auth.organizationId, archivedAt: null, ...(scope === 'ALL' ? {} : auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' }) },
       include: { teams: { include: { team: true } }, warmupProfile: true, _count: { select: { conversations: true } } },
       orderBy: { createdAt: 'asc' },
     });
+    if (!instances.length) return instances;
+    return this.reconcileProviderInstanceStatuses(instances);
   }
 
   async checkWhatsappNumbers(instanceKey: string, numbers: string[]) {
@@ -92,7 +94,7 @@ export class EvolutionService {
     try {
       const response = await this.createProviderInstance(input.instanceKey);
       await this.audit(auth, 'whatsapp.instance_created', instance.id, { instanceKey: input.instanceKey, teamIds: input.teamIds });
-      return { instance, qrcode: response.qrcode || null };
+      return { instance, qrcode: this.extractQrCode(response) };
     } catch (error) {
       await this.db.whatsappInstance.update({ where: { id: instance.id }, data: { status: 'ERROR' } });
       throw error;
@@ -108,8 +110,15 @@ export class EvolutionService {
       if (!this.isProviderNotFound(error)) throw error;
       result = await this.createProviderInstance(instance.instanceKey);
     }
+    const qrcode = this.extractQrCode(result);
+    if (!qrcode) {
+      const providerStatus = normalizeEvolutionInstanceStatus(result.instance?.state || result.state);
+      if (providerStatus === 'CONNECTED') throw new BadRequestException('Este número já está conectado');
+      throw new BadGatewayException('A Evolution API não retornou um QR Code válido');
+    }
     await this.db.whatsappInstance.update({ where: { id }, data: { status: 'CONNECTING', qrExpiresAt: new Date(Date.now() + 30_000) } });
-    return { qrcode: result.base64 || result.qrcode?.base64 || result.qrcode || result, expiresInSeconds: 30 };
+    this.realtime.notifyOrganization(auth.organizationId, 'whatsapp.updated', { instanceId: id });
+    return { qrcode, expiresInSeconds: 30 };
   }
 
   async restart(auth: AuthContext, id: string) {
@@ -120,16 +129,34 @@ export class EvolutionService {
 
   async logout(auth: AuthContext, id: string) {
     const instance = await this.getInstance(auth, id);
-    await this.request(`/instance/logout/${encodeURIComponent(instance.instanceKey)}`, { method: 'DELETE' });
-    return this.db.whatsappInstance.update({ where: { id }, data: { status: 'DISCONNECTED', connectedAt: null } });
+    try {
+      await this.request(`/instance/logout/${encodeURIComponent(instance.instanceKey)}`, { method: 'DELETE' });
+    } catch (error) {
+      if (!this.isProviderNotFound(error)) throw error;
+    }
+    const disconnected = await this.db.whatsappInstance.update({
+      where: { id },
+      data: { status: 'DISCONNECTED', connectedAt: null },
+    });
+    await this.audit(auth, 'whatsapp.instance_disconnected', id, { name: instance.name, instanceKey: instance.instanceKey });
+    this.realtime.notifyOrganization(auth.organizationId, 'whatsapp.updated', { instanceId: id });
+    return disconnected;
   }
 
   async deleteInstance(auth: AuthContext, id: string) {
     const instance = await this.getInstance(auth, id);
+    let providerCleanupError: string | null = null;
     try {
       await this.request(`/instance/delete/${encodeURIComponent(instance.instanceKey)}`, { method: 'DELETE' });
     } catch (error) {
-      if (!this.isProviderNotFound(error)) throw error;
+      if (!this.isProviderNotFound(error)) {
+        providerCleanupError = this.errorMessage(error);
+        console.warn('[evolution:delete-instance] Falha ao remover sessão remota; a conexão local será arquivada.', {
+          instanceId: id,
+          instanceKey: instance.instanceKey,
+          error: providerCleanupError,
+        });
+      }
     }
     const archived = await this.db.whatsappInstance.update({
       where: { id },
@@ -140,34 +167,160 @@ export class EvolutionService {
         instanceKey: `${instance.instanceKey}__deleted__${randomUUID()}`,
       },
     });
-    await this.audit(auth, 'whatsapp.instance_deleted', id, { name: instance.name, instanceKey: instance.instanceKey });
+    await this.audit(auth, 'whatsapp.instance_deleted', id, {
+      name: instance.name,
+      instanceKey: instance.instanceKey,
+      providerCleanupPending: Boolean(providerCleanupError),
+      ...(providerCleanupError ? { providerCleanupError } : {}),
+    });
     this.realtime.notifyOrganization(auth.organizationId, 'whatsapp.updated', { instanceId: id });
     return archived;
   }
 
-  async conversations(auth: AuthContext, query: { status?: string; assignee?: string; view?: string }) {
+  async conversations(auth: AuthContext, query: {
+    status?: string;
+    assignee?: string;
+    view?: string;
+    search?: string;
+    limit?: string;
+    instanceId?: string;
+    assigneeId?: string;
+    lastInteractionFrom?: string;
+    lastInteractionTo?: string;
+  }) {
     const requestedStatus = query.status?.toUpperCase();
-    const status = requestedStatus && ['WAITING', 'OPEN', 'CLOSED'].includes(requestedStatus) ? requestedStatus : undefined;
-    return this.db.conversation.findMany({
-      where: {
-        organizationId: auth.organizationId,
-        ...conversationVisibilityWhere(auth, query.view === 'all'),
-        ...(status ? { status: status as never } : {}),
-        ...(query.assignee === 'me' ? { assigneeId: auth.userId } : {}),
-      },
-      select: {
-        id: true, unreadCount: true, status: true, lastMessageAt: true,
-        contact: { select: { id: true, name: true } },
-        assignee: { select: { id: true, name: true } },
-        instance: { select: { id: true, name: true, phone: true, status: true } },
-        messages: {
-          where: { type: { not: 'reaction' } },
-          select: { id: true, text: true, type: true, createdAt: true },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-          take: 1,
+    const statusWhere: Prisma.ConversationWhereInput = requestedStatus === 'ACTIVE'
+      ? { status: { in: ['WAITING', 'OPEN'] } }
+      : requestedStatus && ['WAITING', 'OPEN', 'CLOSED'].includes(requestedStatus)
+        ? { status: requestedStatus as never }
+        : {};
+    const search = query.search?.trim().slice(0, 120);
+    const requestedLimit = Number.parseInt(query.limit || '', 10);
+    const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 100;
+    const searchWhere: Prisma.ConversationWhereInput = search ? {
+      OR: [
+        { contact: { name: { contains: search, mode: 'insensitive' } } },
+        { contact: { phone: { contains: search, mode: 'insensitive' } } },
+        { contact: { email: { contains: search, mode: 'insensitive' } } },
+        { contact: { companies: { some: { company: { name: { contains: search, mode: 'insensitive' } } } } } },
+        { assignee: { name: { contains: search, mode: 'insensitive' } } },
+        { instance: { name: { contains: search, mode: 'insensitive' } } },
+      ],
+    } : {};
+    const parseInteractionDate = (value: string | undefined, label: string) => {
+      if (!value) return undefined;
+      const parsed = new Date(value);
+      if (Number.isNaN(parsed.getTime())) throw new BadRequestException(`${label} inválida`);
+      return parsed;
+    };
+    const lastInteractionFrom = parseInteractionDate(query.lastInteractionFrom, 'Data inicial');
+    const lastInteractionTo = parseInteractionDate(query.lastInteractionTo, 'Data final');
+    if (lastInteractionFrom && lastInteractionTo && lastInteractionFrom >= lastInteractionTo) {
+      throw new BadRequestException('A data final deve ser posterior à data inicial');
+    }
+    const lastInteractionWhere: Prisma.ConversationWhereInput = lastInteractionFrom || lastInteractionTo
+      ? {
+        lastMessageAt: {
+          ...(lastInteractionFrom ? { gte: lastInteractionFrom } : {}),
+          ...(lastInteractionTo ? { lt: lastInteractionTo } : {}),
         },
-      }, orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }], take: 100,
+      }
+      : {};
+    const instanceWhere: Prisma.ConversationWhereInput = query.instanceId
+      ? { instanceId: query.instanceId }
+      : {};
+    const assigneeWhere: Prisma.ConversationWhereInput = query.assigneeId === 'unassigned'
+      ? { assigneeId: null }
+      : query.assigneeId
+        ? { assigneeId: query.assigneeId }
+        : query.assignee === 'me'
+          ? { assigneeId: auth.userId }
+          : {};
+    const where: Prisma.ConversationWhereInput = {
+      organizationId: auth.organizationId,
+      AND: [
+        conversationVisibilityWhere(auth, query.view === 'all'),
+        statusWhere,
+        searchWhere,
+        lastInteractionWhere,
+        instanceWhere,
+        assigneeWhere,
+      ],
+    };
+    const select = {
+      id: true, unreadCount: true, status: true, lastMessageAt: true,
+      contact: {
+        select: {
+          id: true,
+          name: true,
+          phone: true,
+          email: true,
+          consentStatus: true,
+          companies: {
+            select: {
+              isPrimary: true,
+              company: { select: { id: true, name: true } },
+            },
+            orderBy: { isPrimary: 'desc' as const },
+            take: 1,
+          },
+        },
+      },
+      assignee: { select: { id: true, name: true } },
+      instance: { select: { id: true, name: true, phone: true, status: true } },
+      messages: {
+        where: { type: { not: 'reaction' } },
+        select: { id: true, text: true, type: true, createdAt: true },
+        orderBy: [{ createdAt: 'desc' as const }, { id: 'desc' as const }],
+        take: 1,
+      },
+    } satisfies Prisma.ConversationSelect;
+    const pinnedRows = auth.userId
+      ? await this.db.conversationPin.findMany({
+        where: { userId: auth.userId, conversation: { is: { ...where, status: 'OPEN' } } },
+        select: { conversation: { select } },
+        orderBy: { createdAt: 'desc' },
+        take: limit,
+      })
+      : [];
+    const pinned = pinnedRows.map((row) => ({ ...row.conversation, isPinned: true }));
+    const remaining = limit - pinned.length;
+    if (remaining <= 0) return pinned;
+    const pinnedIds = pinned.map((conversation) => conversation.id);
+    const recent = await this.db.conversation.findMany({
+      where: {
+        ...where,
+        ...(pinnedIds.length ? { id: { notIn: pinnedIds } } : {}),
+      },
+      select,
+      orderBy: [{ lastMessageAt: 'desc' }, { id: 'desc' }],
+      take: remaining,
     });
+    return [...pinned, ...recent.map((conversation) => ({ ...conversation, isPinned: false }))];
+  }
+
+  async setConversationPinned(auth: AuthContext, id: string, pinned: boolean) {
+    if (!auth.userId) throw new BadRequestException('Fixar conversas exige sessão de usuário');
+    const conversation = await this.db.conversation.findFirst({
+      where: { id, organizationId: auth.organizationId, ...this.conversationScope(auth) },
+      select: { id: true, status: true },
+    });
+    if (!conversation) throw new NotFoundException('Conversa não encontrada');
+    if (pinned && conversation.status !== 'OPEN') {
+      throw new BadRequestException('Somente conversas abertas podem ser fixadas');
+    }
+    if (pinned) {
+      await this.db.conversationPin.upsert({
+        where: { userId_conversationId: { userId: auth.userId, conversationId: id } },
+        create: { userId: auth.userId, conversationId: id },
+        update: { createdAt: new Date() },
+      });
+    } else {
+      await this.db.conversationPin.deleteMany({
+        where: { userId: auth.userId, conversationId: id },
+      });
+    }
+    return { id, isPinned: pinned };
   }
 
   async conversationCounts(auth: AuthContext, view?: string) {
@@ -182,6 +335,37 @@ export class EvolutionService {
     return result;
   }
 
+  async conversationFilterOptions(auth: AuthContext, view?: string) {
+    void view;
+    const canViewAllUsers = auth.roleKey === 'admin';
+    const instanceScope: Prisma.WhatsappInstanceWhereInput = auth.roleKey === 'admin'
+      ? {}
+      : auth.teamId
+        ? { teams: { some: { teamId: auth.teamId } } }
+        : { id: '__none__' };
+    const [instances, users] = await Promise.all([
+      this.db.whatsappInstance.findMany({
+        where: {
+          organizationId: auth.organizationId,
+          archivedAt: null,
+          ...instanceScope,
+        },
+        select: { id: true, name: true, phone: true, status: true },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      }),
+      this.db.user.findMany({
+        where: {
+          organizationId: auth.organizationId,
+          status: 'ACTIVE',
+          ...(canViewAllUsers ? {} : { id: auth.userId || '__none__' }),
+        },
+        select: { id: true, name: true, email: true },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+    return { instances, users };
+  }
+
   conversationInstances(auth: AuthContext) {
     return this.db.whatsappInstance.findMany({
       where: this.conversationInstanceWhere(auth),
@@ -191,6 +375,8 @@ export class EvolutionService {
   }
 
   async startConversation(auth: AuthContext, input: { contactId: string; instanceId: string }) {
+    if (!auth.userId) throw new BadRequestException('Iniciar atendimento exige sessão de usuário');
+    const assigneeId = auth.userId;
     const [contact, instance] = await Promise.all([
       this.db.contact.findFirst({
         where: {
@@ -215,33 +401,43 @@ export class EvolutionService {
       orderBy: { updatedAt: 'desc' },
       select: { id: true, assigneeId: true, status: true },
     });
-    if (existing && auth.roleKey !== 'admin' && existing.assigneeId && existing.assigneeId !== auth.userId) {
+    if (existing?.status === 'OPEN' && auth.roleKey !== 'admin' && existing.assigneeId && existing.assigneeId !== assigneeId) {
       throw new NotFoundException('Conversa não encontrada');
     }
 
     const conversation = existing
       ? await this.db.conversation.update({
         where: { id: existing.id },
-        data: { contactId: contact.id, assigneeId: existing.assigneeId || auth.userId, status: 'OPEN', closedAt: null },
+        data: { contactId: contact.id, assigneeId, status: 'OPEN', closedAt: null },
+        include: { assignee: { select: { id: true, name: true } } },
       })
       : await this.db.conversation.create({
         data: {
           organizationId: auth.organizationId,
           instanceId: instance.id,
           contactId: contact.id,
-          assigneeId: auth.userId,
+          assigneeId,
           remoteJid,
           status: 'OPEN',
         },
+        include: { assignee: { select: { id: true, name: true } } },
       });
+    const tookOwnership = Boolean(existing?.assigneeId && existing.assigneeId !== assigneeId);
     const event = !existing
       ? { type: 'started', text: `${auth.name} iniciou o atendimento` }
       : existing.status === 'CLOSED'
-        ? { type: 'reopened', text: `${auth.name} reabriu o atendimento` }
+        ? { type: 'reopened', text: `${auth.name} reabriu${tookOwnership ? ' e assumiu' : ''} o atendimento` }
         : existing.status !== 'OPEN' || !existing.assigneeId
           ? { type: 'started', text: `${auth.name} iniciou o atendimento` }
-          : null;
-    if (event) await this.conversationEvent(auth, conversation.id, event.type, event.text, { contactId: contact.id, instanceId: instance.id });
+          : tookOwnership
+            ? { type: 'transferred', text: `${auth.name} assumiu o atendimento` }
+            : null;
+    if (event) await this.conversationEvent(auth, conversation.id, event.type, event.text, {
+      contactId: contact.id,
+      instanceId: instance.id,
+      previousAssigneeId: existing?.assigneeId || null,
+      assigneeId,
+    });
     await this.db.auditLog.create({
       data: {
         organizationId: auth.organizationId,
@@ -249,7 +445,12 @@ export class EvolutionService {
         action: existing ? 'conversation.reopened' : 'conversation.started',
         entityType: 'Conversation',
         entityId: conversation.id,
-        after: { contactId: contact.id, instanceId: instance.id },
+        after: {
+          contactId: contact.id,
+          instanceId: instance.id,
+          previousAssigneeId: existing?.assigneeId || null,
+          assigneeId,
+        },
       },
     });
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId: conversation.id });
@@ -486,19 +687,38 @@ export class EvolutionService {
 
   async setConversationStatus(auth: AuthContext, id: string, status: 'OPEN' | 'CLOSED') {
     const conversation = await this.assertConversation(auth, id);
-    const nextStatus = status === 'CLOSED' ? 'CLOSED' : conversation.assigneeId ? 'OPEN' : 'WAITING';
-    const event = nextStatus === conversation.status
-      ? null
-      : nextStatus === 'CLOSED'
-        ? { type: 'closed', text: `${auth.name} finalizou o atendimento` }
-        : { type: 'reopened', text: `${auth.name} reabriu o atendimento` };
+    const nextAssigneeId = status === 'OPEN'
+      ? auth.userId || conversation.assigneeId
+      : conversation.assigneeId;
+    const nextStatus = status === 'CLOSED' ? 'CLOSED' : nextAssigneeId ? 'OPEN' : 'WAITING';
+    const tookOwnership = nextStatus === 'OPEN'
+      && Boolean(nextAssigneeId)
+      && nextAssigneeId !== conversation.assigneeId;
+    const event = nextStatus === 'CLOSED' && conversation.status !== 'CLOSED'
+      ? { type: 'closed', text: `${auth.name} finalizou o atendimento` }
+      : nextStatus === 'OPEN' && conversation.status === 'CLOSED'
+        ? { type: 'reopened', text: `${auth.name} reabriu${tookOwnership ? ' e assumiu' : ''} o atendimento` }
+        : tookOwnership
+          ? { type: 'transferred', text: `${auth.name} assumiu o atendimento` }
+          : null;
     const [updated] = await this.db.$transaction([
-      this.db.conversation.update({ where: { id }, data: { status: nextStatus, closedAt: nextStatus === 'CLOSED' ? new Date() : null } }),
+      this.db.conversation.update({
+        where: { id },
+        data: {
+          status: nextStatus,
+          assigneeId: nextAssigneeId,
+          closedAt: nextStatus === 'CLOSED' ? new Date() : null,
+        },
+        include: { assignee: { select: { id: true, name: true } } },
+      }),
       ...(nextStatus === 'CLOSED' ? [this.db.chatbotSession.updateMany({
         where: { conversationId: id, status: { in: ['ACTIVE', 'WAITING', 'HANDED_OFF', 'STOPPED'] } },
         data: { status: 'COMPLETED' as const, stopReason: 'Atendimento encerrado por um usuário', completedAt: new Date() },
       })] : []),
-      ...(event ? [this.conversationEvent(auth, id, event.type, event.text)] : []),
+      ...(event ? [this.conversationEvent(auth, id, event.type, event.text, {
+        previousAssigneeId: conversation.assigneeId,
+        assigneeId: nextAssigneeId,
+      })] : []),
     ]);
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId: id });
     return updated;
@@ -739,7 +959,13 @@ export class EvolutionService {
     const eventType = String(body.event || body.type || 'UNKNOWN').toUpperCase().replace(/[-.]/g, '_');
     const data = (body.data || body) as Record<string, unknown>;
     const messageId = String((data.key as Record<string, unknown> | undefined)?.id || data.id || '');
-    const eventKey = String(body.eventId || `${eventType}:${messageId || createHash('sha256').update(JSON.stringify(body)).digest('hex')}`);
+    const payloadHash = createHash('sha256').update(JSON.stringify(body)).digest('hex');
+    // MESSAGES_EDITED points to the original message ID, so distinct edits of
+    // the same message need the payload hash to remain distinct and replayable.
+    const eventIdentity = eventType.includes('MESSAGES_EDITED')
+      ? [messageId, payloadHash].filter(Boolean).join(':')
+      : messageId || payloadHash;
+    const eventKey = String(body.eventId || `${eventType}:${eventIdentity}`);
     const event = await this.db.inboundWebhookEvent.upsert({
       where: { provider_instanceKey_eventKey: { provider: 'evolution', instanceKey, eventKey } },
       update: {}, create: { provider: 'evolution', instanceKey, eventKey, eventType, payload: body as never },
@@ -862,6 +1088,78 @@ export class EvolutionService {
     this.profilePictureCacheBytes = Math.max(0, this.profilePictureCacheBytes - cached.sizeBytes);
   }
 
+  private async reconcileProviderInstanceStatuses<T extends {
+    id: string;
+    instanceKey: string;
+    status: string;
+    connectedAt: Date | null;
+  }>(instances: T[]) {
+    let providerInstances: Array<Record<string, any>>;
+    try {
+      const response = await this.request('/instance/fetchInstances', { method: 'GET' });
+      providerInstances = Array.isArray(response) ? response : [];
+    } catch (error) {
+      console.warn('[evolution:list-instances] Não foi possível atualizar os estados das conexões.', {
+        error: this.errorMessage(error),
+      });
+      return instances;
+    }
+
+    const providerStatuses = new Map<string, EvolutionInstanceStatus>();
+    for (const providerInstance of providerInstances) {
+      const instanceKey = String(providerInstance.name || providerInstance.instanceName || '').trim();
+      if (!instanceKey) continue;
+      providerStatuses.set(
+        instanceKey,
+        normalizeEvolutionInstanceStatus(
+          providerInstance.connectionStatus
+          || providerInstance.state
+          || providerInstance.instance?.state,
+        ),
+      );
+    }
+
+    const now = new Date();
+    const updates: Array<Promise<unknown>> = [];
+    const reconciled = instances.map((instance) => {
+      const status = providerStatuses.get(instance.instanceKey) || 'DISCONNECTED';
+      const connectedAt = status === 'CONNECTED' ? instance.connectedAt || now : null;
+      if (status !== instance.status || connectedAt?.getTime() !== instance.connectedAt?.getTime()) {
+        updates.push(this.db.whatsappInstance.update({
+          where: { id: instance.id },
+          data: { status, connectedAt },
+        }));
+      }
+      return { ...instance, status, connectedAt };
+    });
+    await Promise.all(updates);
+    return reconciled;
+  }
+
+  private extractQrCode(payload: Record<string, any>) {
+    const candidate = [
+      payload.base64,
+      payload.qrcode?.base64,
+      payload.qrcode,
+    ].find((value) => typeof value === 'string' && value.trim()) as string | undefined;
+    if (!candidate) return null;
+    const value = candidate.trim();
+    if (value.startsWith('data:image/')) return value;
+    if (/^[a-z0-9+/=\r\n]+$/i.test(value) && value.length > 256) {
+      return `data:image/png;base64,${value.replace(/\s/g, '')}`;
+    }
+    return null;
+  }
+
+  private errorMessage(error: unknown) {
+    if (error instanceof BadGatewayException) {
+      const response = error.getResponse();
+      if (typeof response === 'string') return response;
+      if (response && typeof response === 'object') return JSON.stringify(response).slice(0, 1000);
+    }
+    return error instanceof Error ? error.message : String(error);
+  }
+
   private tryJson(text: string) { try { return JSON.parse(text); } catch { return { message: text }; } }
 
   private createProviderInstance(instanceKey: string) {
@@ -875,7 +1173,7 @@ export class EvolutionService {
         webhook: {
           enabled: true,
           url: webhookUrl,
-          events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_DELETE', 'SEND_MESSAGE'],
+          events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_EDITED', 'MESSAGES_DELETE', 'SEND_MESSAGE'],
           headers: { 'x-prospecta-webhook-secret': process.env.EVOLUTION_WEBHOOK_SECRET || '' },
         },
       }),

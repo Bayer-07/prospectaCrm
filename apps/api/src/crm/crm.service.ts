@@ -8,6 +8,48 @@ import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EXTERNAL_WEBHOOK_QUEUE } from '../queue/queue.module.js';
 
+function csvSeparatorCount(line: string, separator: string) {
+  let quoted = false;
+  let count = 0;
+  for (let index = 0; index < line.length; index += 1) {
+    if (line[index] === '"') {
+      if (quoted && line[index + 1] === '"') index += 1;
+      else quoted = !quoted;
+    } else if (!quoted && line[index] === separator) count += 1;
+  }
+  return count;
+}
+
+function csvDelimiter(csv: string) {
+  const firstLine = csv.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] || '';
+  return [',', ';', '\t'].reduce((best, current) =>
+    csvSeparatorCount(firstLine, current) > csvSeparatorCount(firstLine, best) ? current : best);
+}
+
+function importedContactPhone(value: unknown) {
+  const raw = String(value || '').trim();
+  if (!raw) return undefined;
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return raw;
+  const international = digits.length === 10 || digits.length === 11 ? `55${digits}` : digits;
+  return normalizePhoneKey(international) || raw;
+}
+
+function csvImportError(error: unknown) {
+  const issues = (error as { issues?: Array<{ path?: Array<string | number>; message?: string }> } | null)?.issues;
+  if (Array.isArray(issues) && issues.length) {
+    return issues.map((issue) => `${issue.path?.join('.') || 'campo'}: ${issue.message || 'valor inválido'}`).join('; ');
+  }
+  const response = (error as { getResponse?: () => unknown } | null)?.getResponse?.();
+  if (typeof response === 'string') return response;
+  if (response && typeof response === 'object') {
+    const message = (response as { message?: string | string[] }).message;
+    if (Array.isArray(message)) return message.join('; ');
+    if (message) return message;
+  }
+  return error instanceof Error ? error.message : 'Erro desconhecido';
+}
+
 @Injectable()
 export class CrmService {
   constructor(private readonly db: PrismaService, @Inject(EXTERNAL_WEBHOOK_QUEUE) private readonly externalWebhooks: Queue) {}
@@ -57,17 +99,49 @@ export class CrmService {
     };
   }
 
-  listCompanies(auth: AuthContext, query: { cursor?: string; limit?: number; search?: string }) {
-    const limit = Math.min(query.limit || 25, 100);
+  listCompanies(auth: AuthContext, query: {
+    cursor?: string;
+    limit?: number;
+    search?: string;
+    ownerId?: string;
+    teamId?: string;
+    sector?: string;
+    size?: string;
+    hasContacts?: string;
+  }) {
+    const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
+    const ownerId = this.contactFilterId(query.ownerId, 'responsável');
+    const teamId = this.contactFilterId(query.teamId, 'equipe');
+    const sector = String(query.sector || '').trim().slice(0, 100);
+    const size = String(query.size || '').trim().slice(0, 60);
+    const hasContacts = this.booleanFilter(query.hasContacts, 'contatos');
+    const filters: Prisma.CompanyWhereInput[] = [
+      scopedWhere(auth, 'companies') as Prisma.CompanyWhereInput,
+    ];
+    if (ownerId) filters.push({ ownerId: ownerId === 'none' ? null : ownerId });
+    if (teamId) filters.push({ teamId: teamId === 'none' ? null : teamId });
+    if (sector) filters.push({ sector: { contains: sector, mode: 'insensitive' } });
+    if (size) filters.push({ size: { contains: size, mode: 'insensitive' } });
+    if (hasContacts !== undefined) {
+      const activeContact = { contact: { archivedAt: null } };
+      filters.push(hasContacts
+        ? { contacts: { some: activeContact } }
+        : { contacts: { none: activeContact } });
+    }
     return this.db.company.findMany({
       where: {
-        organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'companies'),
+        organizationId: auth.organizationId, archivedAt: null, AND: filters,
         ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { domain: { contains: query.search, mode: 'insensitive' } }, { cnpj: { contains: query.search } }] } : {}),
       },
       include: {
         owner: { select: { id: true, name: true } },
         team: { select: { id: true, name: true, color: true } },
-        _count: { select: { contacts: true, opportunities: true } },
+        _count: {
+          select: {
+            contacts: { where: { contact: { archivedAt: null } } },
+            opportunities: { where: { archivedAt: null } },
+          },
+        },
       },
       orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }], take: limit + 1, ...(query.cursor ? { cursor: { id: query.cursor }, skip: 1 } : {}),
     }).then((rows) => this.page(rows, limit));
@@ -136,11 +210,38 @@ export class CrmService {
     await this.audit(auth, 'company.archived', 'Company', id, before, company); return company;
   }
 
-  listContacts(auth: AuthContext, query: { cursor?: string; limit?: number; search?: string; consent?: string; emailOnly?: string }) {
-    const limit = Math.min(query.limit || 25, 100);
+  listContacts(auth: AuthContext, query: {
+    cursor?: string;
+    limit?: number;
+    search?: string;
+    consent?: string;
+    emailOnly?: string;
+    ownerId?: string;
+    teamId?: string;
+    tagId?: string;
+    company?: string;
+    hasPhone?: string;
+    hasEmail?: string;
+  }) {
+    const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
+    const ownerId = this.contactFilterId(query.ownerId, 'responsável');
+    const teamId = this.contactFilterId(query.teamId, 'equipe');
+    const tagId = this.contactFilterId(query.tagId, 'tag', false);
+    const company = String(query.company || '').trim().slice(0, 160);
+    const hasPhone = this.booleanFilter(query.hasPhone, 'telefone');
+    const hasEmail = this.booleanFilter(query.hasEmail, 'e-mail');
+    const filters: Prisma.ContactWhereInput[] = [
+      scopedWhere(auth, 'contacts') as Prisma.ContactWhereInput,
+    ];
+    if (ownerId) filters.push({ ownerId: ownerId === 'none' ? null : ownerId });
+    if (teamId) filters.push({ teamId: teamId === 'none' ? null : teamId });
+    if (tagId) filters.push({ tags: { some: { tagId } } });
+    if (company) filters.push({ companies: { some: { isPrimary: true, company: { name: { contains: company, mode: 'insensitive' } } } } });
+    if (hasPhone !== undefined) filters.push(hasPhone ? { phone: { not: null } } : { phone: null });
+    if (hasEmail !== undefined) filters.push(hasEmail ? { email: { not: null } } : { email: null });
     return this.db.contact.findMany({
       where: {
-        organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts'),
+        organizationId: auth.organizationId, archivedAt: null, AND: filters,
         ...(query.consent ? { consentStatus: query.consent.toUpperCase() as never } : {}),
         ...(query.emailOnly === 'true' ? { email: { not: null } } : {}),
         ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { email: { contains: query.search, mode: 'insensitive' } }, { phone: { contains: query.search } }] } : {}),
@@ -214,6 +315,27 @@ export class CrmService {
     }
     await this.audit(auth, 'contact.created', 'Contact', contact.id, null, contact);
     return contact;
+  }
+
+  async saveSharedContact(auth: AuthContext, raw: unknown) {
+    const input = this.parse(contactInputSchema.pick({ name: true, phone: true }), raw);
+    const phoneKey = normalizePhoneKey(input.phone);
+    if (!phoneKey) throw new BadRequestException('O contato compartilhado não possui um telefone válido');
+    const existing = await this.db.contact.findFirst({
+      where: {
+        organizationId: auth.organizationId,
+        archivedAt: null,
+        phoneKey,
+        ...scopedWhere(auth, 'contacts', 'write'),
+      },
+    });
+    if (existing) return existing;
+    return this.createContact(auth, {
+      name: input.name,
+      phone: phoneKey,
+      source: 'Contato compartilhado no WhatsApp',
+      consentStatus: 'unknown',
+    });
   }
 
   async updateContact(auth: AuthContext, id: string, raw: unknown) {
@@ -328,6 +450,7 @@ export class CrmService {
       ...(input.contactId ? { contacts: { create: { contactId: input.contactId, isPrimary: true } } } : {}),
     } });
     await this.activity(auth, 'opportunity.created', 'Oportunidade criada', { opportunityId: opportunity.id, companyId: input.companyId });
+    await this.audit(auth, 'opportunity.created', 'Opportunity', opportunity.id, null, opportunity);
     return opportunity;
   }
 
@@ -404,33 +527,55 @@ export class CrmService {
 
   async createTask(auth: AuthContext, raw: unknown) {
     const input = this.parse(taskInputSchema, raw);
-    if (!auth.userId) throw new BadRequestException('Tarefa exige usuário');
-    return this.db.task.create({ data: {
-      organizationId: auth.organizationId, teamId: auth.teamId, createdById: auth.userId,
+    let createdById = auth.userId;
+    let assigneeId = input.assigneeId || auth.userId;
+    let teamId = auth.teamId;
+    if (auth.type === 'apiKey') {
+      if (!input.assigneeId) throw new BadRequestException('Informe o responsável pela tarefa');
+      const assignee = await this.db.user.findFirst({
+        where: { id: input.assigneeId, organizationId: auth.organizationId, status: 'ACTIVE' },
+        select: { id: true, teamId: true },
+      });
+      if (!assignee) throw new BadRequestException('Responsável pela tarefa inválido');
+      createdById = assignee.id;
+      assigneeId = assignee.id;
+      teamId = assignee.teamId;
+    }
+    if (!createdById || !assigneeId) throw new BadRequestException('Tarefa exige usuário');
+    const task = await this.db.task.create({ data: {
+      organizationId: auth.organizationId, teamId, createdById,
       title: input.title, description: input.description, dueAt: input.dueAt,
-      priority: input.priority.toUpperCase() as never, assigneeId: input.assigneeId || auth.userId,
+      priority: input.priority.toUpperCase() as never, assigneeId,
       contactId: input.contactId, companyId: input.companyId, opportunityId: input.opportunityId,
     } });
+    await this.audit(auth, 'task.created', 'Task', task.id, null, task);
+    return task;
   }
 
   async completeTask(auth: AuthContext, id: string) {
-    const task = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth) }, select: { id: true } });
-    if (!task) throw new NotFoundException('Tarefa não encontrada');
-    return this.db.task.update({ where: { id }, data: { status: 'COMPLETED', completedAt: new Date() } });
+    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth) } });
+    if (!before) throw new NotFoundException('Tarefa não encontrada');
+    const task = await this.db.task.update({ where: { id }, data: { status: 'COMPLETED', completedAt: new Date() } });
+    await this.audit(auth, 'task.completed', 'Task', id, before, task);
+    return task;
   }
 
   async updateTask(auth: AuthContext, id: string, raw: unknown) {
     const input = this.parse(taskInputSchema.partial(), raw);
-    const task = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') }, select: { id: true } });
-    if (!task) throw new NotFoundException('Tarefa não encontrada');
+    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') } });
+    if (!before) throw new NotFoundException('Tarefa não encontrada');
     const { priority, ...fields } = input;
-    return this.db.task.update({ where: { id }, data: { ...fields, ...(priority ? { priority: priority.toUpperCase() as never } : {}) } as Prisma.TaskUncheckedUpdateInput });
+    const task = await this.db.task.update({ where: { id }, data: { ...fields, ...(priority ? { priority: priority.toUpperCase() as never } : {}) } as Prisma.TaskUncheckedUpdateInput });
+    await this.audit(auth, 'task.updated', 'Task', id, before, task);
+    return task;
   }
 
   async cancelTask(auth: AuthContext, id: string) {
-    const task = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') }, select: { id: true } });
-    if (!task) throw new NotFoundException('Tarefa não encontrada');
-    return this.db.task.update({ where: { id }, data: { status: 'CANCELLED' } });
+    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') } });
+    if (!before) throw new NotFoundException('Tarefa não encontrada');
+    const task = await this.db.task.update({ where: { id }, data: { status: 'CANCELLED' } });
+    await this.audit(auth, 'task.cancelled', 'Task', id, before, task);
+    return task;
   }
 
   async metadata(auth: AuthContext) {
@@ -503,16 +648,36 @@ export class CrmService {
 
   async importCsv(auth: AuthContext, input: { entityType: 'companies' | 'contacts'; csv: string; mapping: Record<string, string>; commit?: boolean }) {
     const { parse } = await import('csv-parse/sync');
-    const rows = parse(input.csv, { columns: true, skip_empty_lines: true, trim: true }) as Record<string, string>[];
+    if (!input.csv?.trim()) throw new BadRequestException('Selecione um arquivo CSV preenchido');
+    const mapping = Object.entries(input.mapping || {}).filter(([source, target]) => source.trim() && target.trim());
+    if (!mapping.length) throw new BadRequestException('Relacione ao menos uma coluna do arquivo');
+    let rows: Record<string, string>[];
+    try {
+      rows = parse(input.csv, {
+        bom: true,
+        columns: true,
+        delimiter: csvDelimiter(input.csv),
+        relax_column_count: true,
+        skip_empty_lines: true,
+        trim: true,
+      }) as Record<string, string>[];
+    } catch (error) {
+      throw new BadRequestException(`Arquivo CSV inválido: ${csvImportError(error)}`);
+    }
+    if (!rows.length) throw new BadRequestException('O arquivo CSV não possui contatos para importar');
     if (rows.length > 10_000) throw new BadRequestException('O limite por importação é 10 mil linhas');
     const results: Array<{ row: number; status: string; id?: string; error?: string }> = [];
     let valid = 0;
     let errors = 0;
-    const mapping = Object.entries(input.mapping);
     for (let index = 0; index < rows.length; index += 1) {
+      const mapped = Object.fromEntries(mapping.flatMap(([source, target]) => {
+        const value = rows[index][source]?.trim();
+        return value ? [[target, value]] : [];
+      }));
+      if (input.entityType === 'contacts' && mapped.phone) mapped.phone = importedContactPhone(mapped.phone) || mapped.phone;
       const item = {
         row: index + 2,
-        data: Object.fromEntries(mapping.map(([source, target]) => [target, rows[index][source]])),
+        data: mapped,
       };
       try {
         const parsed = input.entityType === 'companies' ? companyInputSchema.parse(item.data) : contactInputSchema.parse(item.data);
@@ -524,7 +689,7 @@ export class CrmService {
         valid += 1;
       } catch (error) {
         errors += 1;
-        results.push({ row: item.row, status: 'error', error: error instanceof Error ? error.message : 'Erro desconhecido' });
+        results.push({ row: item.row, status: 'error', error: csvImportError(error) });
       }
     }
     return { total: rows.length, valid, errors, results };
@@ -550,6 +715,23 @@ export class CrmService {
     const result = schema.safeParse(value);
     if (!result.success) throw new BadRequestException({ message: 'Dados inválidos', details: result.error?.flatten() });
     return result.data as T;
+  }
+
+  private contactFilterId(value: string | undefined, label: string, allowNone = true) {
+    const normalized = String(value || '').trim();
+    if (!normalized) return undefined;
+    if (allowNone && normalized === 'none') return normalized;
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(normalized)) {
+      throw new BadRequestException(`Filtro de ${label} inválido`);
+    }
+    return normalized;
+  }
+
+  private booleanFilter(value: string | undefined, label: string) {
+    if (value === undefined || value === '') return undefined;
+    if (value === 'true') return true;
+    if (value === 'false') return false;
+    throw new BadRequestException(`Filtro de ${label} inválido`);
   }
 
   private page<T extends { id: string }>(rows: T[], limit: number) {

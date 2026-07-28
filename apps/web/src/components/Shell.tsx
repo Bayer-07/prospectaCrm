@@ -3,11 +3,11 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Bell, Blocks, Bot, Building2, CheckCheck, CheckSquare, ChevronDown, ContactRound, Gauge,
-  Inbox, KanbanSquare, LogOut, Mail, Menu, MessageSquareText, Moon, Plus,
-  Settings, Sun, UserRound, Users, X,
+  Bell, Blocks, BookOpen, Bot, Building2, Cable, Camera, CheckCheck, CheckSquare, ChevronDown, ContactRound, Eye, Gauge,
+  Inbox, KanbanSquare, KeyRound, LogOut, Mail, Menu, MessageSquareText, Moon, Network, Plug, Plus,
+  Settings, Sun, Trash2, UserRound, Users, Webhook, X,
 } from 'lucide-react';
-import { api, dateTime, initials, type Envelope } from '../lib/api';
+import { api, dateTime, type Envelope } from '../lib/api';
 import { Button, Field, Modal } from './ui';
 import { useTheme } from '../lib/theme';
 import { mergeLatestHistory, RealtimeContext, type RealtimeHistoryData, type RealtimeHistoryPage } from '../lib/realtime';
@@ -19,6 +19,8 @@ import {
   type InboxRealtimePayload,
 } from '../lib/incoming-notification';
 import { GlobalSearch } from './GlobalSearch';
+import { toast } from '../lib/toast';
+import { UserAvatar, userProfilePhotoUrl } from './UserAvatar';
 
 type NotificationItem = {
   id: string;
@@ -29,7 +31,15 @@ type NotificationItem = {
   readAt?: string | null;
 };
 
-const nav: Array<{ section: string; items: Array<{ to: string; label: string; icon: typeof Gauge; resource?: string }> }> = [
+type NavItem = {
+  to: string;
+  label: string;
+  icon: typeof Gauge;
+  resource?: string;
+  children?: Array<{ to: string; label: string; icon: typeof Gauge; resource?: string }>;
+};
+
+const nav: Array<{ section: string; items: NavItem[] }> = [
   { section: 'Trabalho', items: [
     { to: '/', label: 'Visão geral', icon: Gauge }, { to: '/pipeline', label: 'Pipeline', icon: KanbanSquare, resource: 'opportunities' },
     { to: '/empresas', label: 'Empresas', icon: Building2, resource: 'companies' }, { to: '/contatos', label: 'Contatos', icon: ContactRound, resource: 'contacts' },
@@ -40,7 +50,20 @@ const nav: Array<{ section: string; items: Array<{ to: string; label: string; ic
     { to: '/automacoes', label: 'Automações', icon: Bot, resource: 'workflows' }, { to: '/email', label: 'E-mail', icon: Mail, resource: 'campaigns' },
   ] },
   { section: 'Gestão', items: [
-    { to: '/relatorios', label: 'Relatórios', icon: Blocks, resource: 'reports' }, { to: '/configuracoes', label: 'Configurações', icon: Settings, resource: 'users' },
+    { to: '/relatorios', label: 'Relatórios', icon: Blocks, resource: 'reports' },
+    { to: '/conexoes', label: 'Conexões', icon: Cable, resource: 'integrations' },
+    { to: '/configuracoes', label: 'Configurações', icon: Settings, resource: 'users' },
+    {
+      to: '/integracoes',
+      label: 'Integrações',
+      icon: Plug,
+      children: [
+        { to: '/integracoes/api', label: 'API', icon: KeyRound, resource: 'api_keys' },
+        { to: '/integracoes/mcp', label: 'Servidor MCP', icon: Network, resource: 'api_keys' },
+        { to: '/integracoes/webhooks', label: 'Webhooks', icon: Webhook, resource: 'webhooks' },
+        { to: '/integracoes/swagger', label: 'Swagger', icon: BookOpen, resource: 'integrations' },
+      ],
+    },
   ] },
 ];
 
@@ -56,14 +79,18 @@ const pageInfo: Record<string, { title: string; description: string }> = {
   '/automacoes': { title: 'Automações', description: 'Jornadas visuais de WhatsApp e CRM.' },
   '/relatorios': { title: 'Relatórios', description: 'Indicadores comerciais e operacionais.' },
   '/email': { title: 'E-mail', description: 'Modelos, campanhas e acompanhamento de envios pelo Mailgun.' },
-  '/configuracoes': { title: 'Configurações', description: 'Equipe, números e segurança.' },
+  '/conexoes': { title: 'Conexões', description: 'Números e sessões conectadas ao WhatsApp.' },
+  '/configuracoes': { title: 'Configurações', description: 'Equipe, papéis e permissões.' },
+  '/integracoes': { title: 'Integrações', description: 'API, webhooks e documentação técnica.' },
 };
 
 export function Shell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
   const [profileOpen, setProfileOpen] = useState(false);
+  const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
+  const [integrationsOpen, setIntegrationsOpen] = useState(() => window.location.pathname.startsWith('/integracoes'));
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const historyRefreshes = useRef(new Map<string, { running: boolean; rerun: boolean }>());
   const { theme, toggleTheme } = useTheme();
@@ -99,11 +126,25 @@ export function Shell() {
   const info = pageInfo[rootPath] || pageInfo['/'];
   const isInbox = rootPath === '/inbox';
   const canRead = (resource?: string) => !resource || user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === resource) && (permission.action === '*' || permission.action === 'read'));
+  const canWrite = (resource: string) => user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === resource) && (permission.action === '*' || permission.action === 'write'));
+  const quickAddItems = [
+    { label: 'Contato', description: 'Cadastrar uma nova pessoa', icon: ContactRound, resource: 'contacts', target: '/contatos?new=1' },
+    { label: 'Empresa', description: 'Cadastrar uma nova organização', icon: Building2, resource: 'companies', target: '/empresas?new=1' },
+    { label: 'Oportunidade', description: 'Adicionar uma negociação ao funil', icon: KanbanSquare, resource: 'opportunities', target: '/pipeline?new=1' },
+  ].filter((item) => canWrite(item.resource));
+  const openQuickAdd = (target: string) => {
+    setQuickAddOpen(false);
+    navigate(target);
+  };
   const openNotification = (notification: NotificationItem) => {
     markRead.mutate(notification.id);
     if (notification.actionUrl) navigate(notification.actionUrl);
     setNotificationsOpen(false);
   };
+
+  useEffect(() => {
+    if (location.pathname.startsWith('/integracoes')) setIntegrationsOpen(true);
+  }, [location.pathname]);
 
   useEffect(() => {
     const unlockNotificationAudio = () => {
@@ -224,8 +265,42 @@ export function Shell() {
   }, [queryClient]);
 
   const sidebar = <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
-    <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo BZS One" /><div><strong>BZS One</strong><span>Plataforma interna</span></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
-    <nav>{nav.map((group) => <div className="nav-group" key={group.section}><span className="nav-section">{group.section}</span>{group.items.filter((item) => canRead(item.resource)).map((item) => <NavLink end={item.to === '/'} key={item.to} to={item.to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><item.icon size={17} strokeWidth={1.9} /><span>{item.label}</span></NavLink>)}</div>)}</nav>
+    <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo BZS One" /><div><strong>BZS One</strong></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
+    <nav>{nav.map((group) => <div className="nav-group" key={group.section}>
+      <span className="nav-section">{group.section}</span>
+      {group.items.map((item) => {
+        const visibleChildren = item.children?.filter((child) => canRead(child.resource));
+        if (item.children) {
+          if (!visibleChildren?.length) return null;
+          const active = location.pathname.startsWith(item.to);
+          return <div className="nav-submenu-wrap" key={item.to}>
+            <button
+              type="button"
+              className={`nav-item nav-parent ${active ? 'active' : ''}`}
+              onClick={() => setIntegrationsOpen((open) => !open)}
+              aria-expanded={integrationsOpen}
+            >
+              <item.icon size={17} strokeWidth={1.9} />
+              <span>{item.label}</span>
+              <ChevronDown className="nav-parent-chevron" size={14} />
+            </button>
+            {integrationsOpen && <div className="nav-submenu">
+              {visibleChildren.map((child) => <NavLink
+                key={child.to}
+                to={child.to}
+                onClick={() => setMobileOpen(false)}
+                className={({ isActive }) => `nav-subitem ${isActive ? 'active' : ''}`}
+              >
+                <child.icon size={14} strokeWidth={1.9} />
+                <span>{child.label}</span>
+              </NavLink>)}
+            </div>}
+          </div>;
+        }
+        if (!canRead(item.resource)) return null;
+        return <NavLink end={item.to === '/'} key={item.to} to={item.to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><item.icon size={17} strokeWidth={1.9} /><span>{item.label}</span></NavLink>;
+      })}
+    </div>)}</nav>
     <div className="sidebar-footer"><img className="workspace-avatar" src="/brand-logo.png" alt="Logo BZS" /><div><strong>BZS Tecnologia</strong><span>Ambiente corporativo</span></div><ChevronDown size={15} /></div>
   </aside>;
 
@@ -236,10 +311,34 @@ export function Shell() {
         <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
         <GlobalSearch />
         <div className="topbar-actions">
-          <button className="quick-add" onClick={() => navigate('/contatos')}><Plus size={16} /><span>Novo</span></button>
+          <div className="popover-wrap quick-add-wrap">
+            <button
+              className="quick-add"
+              onClick={() => {
+                setQuickAddOpen((open) => !open);
+                setNotificationsOpen(false);
+                setProfileOpen(false);
+              }}
+              aria-haspopup="menu"
+              aria-expanded={quickAddOpen}
+              disabled={!quickAddItems.length}
+            >
+              <Plus size={16} /><span>Novo</span><ChevronDown size={13} />
+            </button>
+            {quickAddOpen && <>
+              <button className="quick-add-backdrop" type="button" onClick={() => setQuickAddOpen(false)} aria-label="Fechar menu de criação" />
+              <div className="popover quick-add-popover" role="menu" aria-label="Adicionar novo">
+                <header><strong>O que você deseja adicionar?</strong><small>Escolha um tipo de registro</small></header>
+                {quickAddItems.map((item) => <button type="button" role="menuitem" key={item.resource} onClick={() => openQuickAdd(item.target)}>
+                  <span><item.icon size={17} /></span>
+                  <div><strong>{item.label}</strong><small>{item.description}</small></div>
+                </button>)}
+              </div>
+            </>}
+          </div>
           <button className="icon-button theme-toggle" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'} title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
-          <div className="popover-wrap"><button className="icon-button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notificações"><Bell size={18} />{unread > 0 && <i>{unread}</i>}</button>{notificationsOpen && <div className="popover notifications-popover"><div className="popover-header notification-popover-header"><strong>Notificações</strong><div><span>{unread} novas</span>{unread > 0 && <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending} title="Marcar todas como lidas"><CheckCheck size={14} />Marcar todas como lidas</button>}</div></div><div className="notification-list">{unreadNotifications.length ? unreadNotifications.slice(0, 8).map((item) => <div key={item.id} className="notification-item unread"><button type="button" className="notification-main" onClick={() => openNotification(item)}><span className="notification-icon"><Bell size={14} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{dateTime(item.createdAt)}</small></div></button><button type="button" className="notification-read" onClick={() => markRead.mutate(item.id)} disabled={markRead.isPending && markRead.variables === item.id} aria-label={`Marcar ${item.title} como lida`} title="Marcar como lida"><CheckCheck size={16} /></button></div>) : <p className="popover-empty">Tudo lido por aqui.</p>}</div>{(markRead.isError || markAllRead.isError) && <p className="notification-error">Não foi possível marcar a notificação como lida.</p>}</div>}</div>
-          <div className="popover-wrap"><button className="profile-button" onClick={() => setProfileOpen(!profileOpen)}><span>{initials(user?.name)}</span><div><strong>{user?.name}</strong><small>{user?.roleKey === 'admin' ? 'Administrador' : user?.roleKey}</small></div><ChevronDown size={14} /></button>{profileOpen && <div className="popover profile-popover"><button type="button" onClick={() => { setProfileOpen(false); setProfileModalOpen(true); }}><UserRound size={16} />Meu perfil</button><button type="button" disabled={!canRead('users')} title={!canRead('users') ? 'Você não possui acesso à gestão da equipe' : undefined} onClick={() => { setProfileOpen(false); navigate('/configuracoes?tab=users'); }}><Users size={16} />Minha equipe</button><button type="button" className="profile-logout" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOut size={16} />{signOut.isPending ? 'Saindo…' : 'Sair'}</button>{signOut.isError && <small className="profile-menu-error">Não foi possível sair. Tente novamente.</small>}</div>}</div>
+          <div className="popover-wrap"><button className="icon-button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notificações"><Bell size={18} />{unread > 0 && <i>{unread}</i>}</button>{notificationsOpen && <div className="popover notifications-popover"><div className="popover-header notification-popover-header"><strong>Notificações</strong><div><span>{unread} novas</span>{unread > 0 && <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending} title="Marcar todas como lidas"><CheckCheck size={14} />Marcar todas como lidas</button>}</div></div><div className="notification-list">{unreadNotifications.length ? unreadNotifications.slice(0, 8).map((item) => <div key={item.id} className="notification-item unread"><button type="button" className="notification-main" onClick={() => openNotification(item)}><span className="notification-icon"><Bell size={14} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{dateTime(item.createdAt)}</small></div></button><button type="button" className="notification-read" onClick={() => markRead.mutate(item.id)} disabled={markRead.isPending && markRead.variables === item.id} aria-label={`Marcar ${item.title} como lida`} title="Marcar como lida"><CheckCheck size={16} /></button></div>) : <p className="popover-empty">Tudo lido por aqui.</p>}</div></div>}</div>
+          <div className="popover-wrap"><button className="profile-button" onClick={() => setProfileOpen(!profileOpen)}><UserAvatar user={user} /><div><strong>{user?.name}</strong><small>{user?.roleKey === 'admin' ? 'Administrador' : user?.roleKey}</small></div><ChevronDown size={14} /></button>{profileOpen && <div className="popover profile-popover"><button type="button" onClick={() => { setProfileOpen(false); setProfileModalOpen(true); }}><UserRound size={16} />Meu perfil</button><button type="button" disabled={!canRead('users')} title={!canRead('users') ? 'Você não possui acesso à gestão da equipe' : undefined} onClick={() => { setProfileOpen(false); navigate('/configuracoes?tab=users'); }}><Users size={16} />Minha equipe</button><button type="button" className="profile-logout" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOut size={16} />{signOut.isPending ? 'Saindo…' : 'Sair'}</button></div>}</div>
         </div>
       </header>
       <div className="page-heading"><div><h1>{info.title}</h1><p>{info.description}</p></div></div>
@@ -252,22 +351,110 @@ export function Shell() {
 function ProfileModal({ onClose }: { onClose(): void }) {
   const { user, refresh } = useAuth();
   const [form, setForm] = useState({ name: user?.name || '', email: user?.email || '' });
+  const [photoMenuOpen, setPhotoMenuOpen] = useState(false);
+  const [photoViewerOpen, setPhotoViewerOpen] = useState(false);
+  const photoInputRef = useRef<HTMLInputElement>(null);
   const update = useMutation({
     mutationFn: () => api('/users/me', { method: 'PATCH', body: JSON.stringify(form) }),
     onSuccess: async () => {
       await refresh();
+      toast.success('Perfil atualizado.');
       onClose();
+    },
+  });
+  const uploadPhoto = useMutation({
+    mutationFn: async (file: File) => {
+      const created = await api<Envelope<{ id: string; uploadUrl: string }>>('/media/uploads', {
+        method: 'POST',
+        body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
+      });
+      const uploaded = await fetch(created.data.uploadUrl, {
+        method: 'PUT',
+        headers: { 'Content-Type': file.type },
+        body: file,
+      });
+      if (!uploaded.ok) {
+        toast.error('Não foi possível enviar a foto para o armazenamento.');
+        throw new Error('Falha no envio da foto');
+      }
+      return api('/users/me/profile-photo', {
+        method: 'PATCH',
+        body: JSON.stringify({ mediaAssetId: created.data.id }),
+      });
+    },
+    onSuccess: async () => {
+      await refresh();
+      setPhotoMenuOpen(false);
+      toast.success('Foto de perfil atualizada.');
+    },
+  });
+  const removePhoto = useMutation({
+    mutationFn: () => api('/users/me/profile-photo', { method: 'DELETE' }),
+    onSuccess: async () => {
+      await refresh();
+      setPhotoMenuOpen(false);
+      setPhotoViewerOpen(false);
+      toast.success('Foto de perfil removida.');
     },
   });
   if (!user) return null;
   const role = user.roleKey === 'admin' ? 'Administrador' : user.roleKey || 'Usuário';
-  return <Modal title="Meu perfil" onClose={() => { if (!update.isPending) onClose(); }} width={500}>
-    <form className="modal-form profile-modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); update.mutate(); }}>
-      <div className="profile-modal-summary"><span>{initials(user.name)}</span><div><strong>{user.name}</strong><small>{role}</small></div></div>
-      <Field label="Nome" value={form.name} minLength={2} maxLength={120} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-      <Field label="E-mail de acesso" type="email" value={form.email} maxLength={254} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
-      {update.isError && <div className="form-error">{update.error instanceof Error ? update.error.message : 'Não foi possível atualizar o perfil'}</div>}
-      <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose} disabled={update.isPending}>Cancelar</Button><Button type="submit" loading={update.isPending}>Salvar alterações</Button></div>
-    </form>
-  </Modal>;
+  const busy = update.isPending || uploadPhoto.isPending || removePhoto.isPending;
+  const choosePhoto = (file?: File) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Selecione uma foto JPG, PNG ou WebP.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('A foto deve ter no máximo 5 MB.');
+      return;
+    }
+    uploadPhoto.mutate(file);
+  };
+  return <>
+    <Modal title="Meu perfil" onClose={() => { if (!busy) onClose(); }} width={500}>
+      <form className="modal-form profile-modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); update.mutate(); }}>
+        <div className="profile-modal-summary">
+          <div className="profile-photo-control">
+            <button
+              className="profile-photo-button"
+              type="button"
+              onClick={() => setPhotoMenuOpen((open) => !open)}
+              aria-label="Opções da foto de perfil"
+              aria-expanded={photoMenuOpen}
+              disabled={busy}
+            >
+              <UserAvatar user={user} className="profile-modal-avatar" />
+              <span className="profile-photo-edit"><Camera size={13} /></span>
+            </button>
+            {photoMenuOpen && <div className="profile-photo-menu">
+              <button type="button" disabled={!user.profilePhotoId} onClick={() => { setPhotoMenuOpen(false); setPhotoViewerOpen(true); }}><Eye size={16} />Visualizar foto</button>
+              <button type="button" className="profile-photo-remove" disabled={!user.profilePhotoId || removePhoto.isPending} onClick={() => removePhoto.mutate()}><Trash2 size={16} />Remover foto</button>
+              <button type="button" disabled={uploadPhoto.isPending} onClick={() => photoInputRef.current?.click()}><Camera size={16} />Editar foto</button>
+            </div>}
+            <input
+              ref={photoInputRef}
+              className="profile-photo-input"
+              type="file"
+              accept="image/jpeg,image/png,image/webp"
+              onChange={(event) => {
+                choosePhoto(event.target.files?.[0]);
+                event.currentTarget.value = '';
+              }}
+            />
+          </div>
+          <div><strong>{user.name}</strong><small>{role}</small></div>
+        </div>
+        <Field label="Nome" value={form.name} minLength={2} maxLength={120} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+        <Field label="E-mail de acesso" type="email" value={form.email} maxLength={254} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
+        <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose} disabled={busy}>Cancelar</Button><Button type="submit" loading={update.isPending} disabled={uploadPhoto.isPending || removePhoto.isPending}>Salvar alterações</Button></div>
+      </form>
+    </Modal>
+    {photoViewerOpen && <Modal title="Foto de perfil" onClose={() => setPhotoViewerOpen(false)} width={620}>
+      <div className="profile-photo-viewer">
+        <img src={userProfilePhotoUrl(user)} alt={`Foto de ${user.name}`} />
+      </div>
+    </Modal>}
+  </>;
 }

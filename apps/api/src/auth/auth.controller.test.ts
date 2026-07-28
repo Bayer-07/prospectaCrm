@@ -32,4 +32,21 @@ describe('AuthController', () => {
     expect(JSON.stringify(result)).not.toContain('header.payload.signature');
     expect(JSON.stringify(result)).not.toContain('csrf-token');
   });
+
+  it('responde de forma neutra à solicitação de recuperação', async () => {
+    const requestPasswordReset = vi.fn().mockResolvedValue({ accepted: true });
+    const controller = new AuthController({ requestPasswordReset } as never);
+
+    const result = await controller.forgotPassword(
+      { email: 'usuario@empresa.com' },
+      { ip: '127.0.0.1', headers: { 'user-agent': 'Vitest' } } as never,
+    );
+
+    expect(requestPasswordReset).toHaveBeenCalledWith('usuario@empresa.com', {
+      ip: '127.0.0.1',
+      userAgent: 'Vitest',
+    });
+    expect(result.data.accepted).toBe(true);
+    expect(result.data.message).not.toContain('cadastrado com sucesso');
+  });
 });

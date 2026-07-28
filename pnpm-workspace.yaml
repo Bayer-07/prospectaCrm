@@ -11,3 +11,9 @@ allowBuilds:
   esbuild: true
   msgpackr-extract: true
   prisma: true
+
+minimumReleaseAgeExclude:
+  - '@modelcontextprotocol/client@2.0.0'
+  - '@modelcontextprotocol/core@2.0.0'
+  - '@modelcontextprotocol/node@2.0.0'
+  - '@modelcontextprotocol/server@2.0.0'

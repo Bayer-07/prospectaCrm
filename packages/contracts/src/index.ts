@@ -1,8 +1,13 @@
 import { z } from 'zod';
+import { normalizePhoneKey } from './whatsapp-contact.js';
+
+export { extractSharedWhatsappContacts, normalizePhoneKey } from './whatsapp-contact.js';
+export type { SharedWhatsappContact } from './whatsapp-contact.js';
 
 export {
   escapeEmailHtml,
   renderBzsEmailLayout,
+  renderPasswordResetEmail,
   renderUserInviteEmail,
   sgaProspectingEmailTemplates,
 } from './email-templates.js';
@@ -10,6 +15,8 @@ export type {
   BrandedEmailCallToAction,
   BrandedEmailLayoutInput,
   DefaultEmailTemplate,
+  PasswordResetEmailInput,
+  PasswordResetEmailJob,
   UserInviteEmailInput,
   UserInviteEmailJob,
 } from './email-templates.js';
@@ -39,6 +46,17 @@ export type OpportunityStatus = (typeof opportunityStatuses)[number];
 export const channelTypes = ['whatsapp', 'email'] as const;
 export type ChannelType = (typeof channelTypes)[number];
 
+export const evolutionInstanceStatuses = ['CONNECTED', 'CONNECTING', 'DISCONNECTED', 'ERROR'] as const;
+export type EvolutionInstanceStatus = (typeof evolutionInstanceStatuses)[number];
+
+export function normalizeEvolutionInstanceStatus(value: unknown): EvolutionInstanceStatus {
+  const state = String(value || '').trim().toLowerCase().replace(/[\s._-]+/g, '');
+  if (state === 'open' || state === 'connected') return 'CONNECTED';
+  if (state === 'connecting' || state === 'pairing' || state === 'qrcode') return 'CONNECTING';
+  if (state === 'error' || state === 'failed' || state === 'refused') return 'ERROR';
+  return 'DISCONNECTED';
+}
+
 export const uuidSchema = z.string().uuid();
 export const phoneSchema = z.string().regex(/^\+[1-9]\d{7,14}$/, 'Telefone deve estar em E.164');
 
@@ -48,10 +66,37 @@ export const paginationSchema = z.object({
   search: z.string().trim().max(160).optional(),
 });
 
+export const normalizeCnpj = (value: string) => value.replace(/\D/g, '');
+
+export function formatCnpj(value: string) {
+  const digits = normalizeCnpj(value).slice(0, 14);
+  return digits
+    .replace(/^(\d{2})(\d)/, '$1.$2')
+    .replace(/^(\d{2})\.(\d{3})(\d)/, '$1.$2.$3')
+    .replace(/\.(\d{3})(\d)/, '.$1/$2')
+    .replace(/(\d{4})(\d)/, '$1-$2');
+}
+
+export function isValidCnpj(value: string) {
+  const digits = normalizeCnpj(value);
+  if (digits.length !== 14 || /^(\d)\1{13}$/.test(digits)) return false;
+  const calculateDigit = (base: string, weights: number[]) => {
+    const sum = base.split('').reduce((total, digit, index) => total + Number(digit) * weights[index], 0);
+    const remainder = sum % 11;
+    return remainder < 2 ? 0 : 11 - remainder;
+  };
+  const firstDigit = calculateDigit(digits.slice(0, 12), [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const secondDigit = calculateDigit(`${digits.slice(0, 12)}${firstDigit}`, [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  return digits.endsWith(`${firstDigit}${secondDigit}`);
+}
+
 export const companyInputSchema = z.object({
   name: z.string().trim().min(2).max(180),
   legalName: z.string().trim().max(180).optional(),
-  cnpj: z.string().trim().max(18).optional(),
+  cnpj: z.string().trim().max(18)
+    .refine((value) => !value || /^(?:\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$/.test(value), 'CNPJ contém caracteres inválidos')
+    .refine((value) => !value || isValidCnpj(value), 'CNPJ inválido')
+    .optional(),
   domain: z.string().trim().toLowerCase().max(160).optional(),
   sector: z.string().trim().max(100).optional(),
   size: z.string().trim().max(60).optional(),
@@ -146,28 +191,6 @@ export type ApiEnvelope<T> = { data: T; meta?: Record<string, unknown> };
 export type CursorPage<T> = ApiEnvelope<T[]> & { meta: { nextCursor: string | null; count: number } };
 
 export const DEFAULT_OPT_OUT_WORDS = ['SAIR', 'PARAR', 'CANCELAR', 'REMOVER'] as const;
-
-export const normalizeCnpj = (value: string) => value.replace(/\D/g, '');
-
-/**
- * Produces the stable key used to compare telephone numbers.
- *
- * Brazilian mobile numbers written in the legacy eight-digit format are
- * equivalent to the current format with the ninth digit. The original phone
- * remains untouched for display, while this key is used for lookups and
- * uniqueness.
- */
-export function normalizePhoneKey(value?: string | null) {
-  const digits = value?.replace(/\D/g, '') || '';
-  if (!digits) return null;
-
-  const brazilianLegacyMobile = /^55[1-9]\d[6-9]\d{7}$/;
-  const canonicalDigits = brazilianLegacyMobile.test(digits)
-    ? `${digits.slice(0, 4)}9${digits.slice(4)}`
-    : digits;
-
-  return `+${canonicalDigits}`;
-}
 
 export function contactsAreDuplicates(a: { phone?: string | null; email?: string | null }, b: { phone?: string | null; email?: string | null }) {
   const aPhoneKey = normalizePhoneKey(a.phone);

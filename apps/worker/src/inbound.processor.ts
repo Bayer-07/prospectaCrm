@@ -1,6 +1,7 @@
 import type { Job, Queue } from 'bullmq';
 import { Prisma, PrismaClient, type MessageStatus } from '@prisma/client';
-import { isOptOutMessage, normalizePhoneKey } from '@prospecta/contracts';
+import { extractSharedWhatsappContacts, isOptOutMessage, normalizeEvolutionInstanceStatus, normalizePhoneKey } from '@prospecta/contracts';
+import { createDecipheriv, createHash, hkdfSync } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
 import { storeInboundMedia } from './storage.js';
 
@@ -116,6 +117,20 @@ export const evolutionReaction = (data: AnyObject) => {
   return { targetProviderMessageId, emoji: String(reaction.text || '') };
 };
 
+export const evolutionReplyProviderMessageId = (data: AnyObject) => {
+  const content = unwrapEvolutionMessage(data.message || data.Message || data);
+  const context = data.contextInfo
+    || content.extendedTextMessage?.contextInfo
+    || content.imageMessage?.contextInfo
+    || content.videoMessage?.contextInfo
+    || content.documentMessage?.contextInfo
+    || content.audioMessage?.contextInfo
+    || content.contactMessage?.contextInfo
+    || content.contextInfo;
+  const providerMessageId = context?.stanzaId || context?.key?.id || context?.key?.ID;
+  return typeof providerMessageId === 'string' && providerMessageId.trim() ? providerMessageId : null;
+};
+
 export const unwrapEvolutionMessage = (input: AnyObject) => {
   let message = input || {};
   for (let depth = 0; depth < 6; depth += 1) {
@@ -132,6 +147,8 @@ export const unwrapEvolutionMessage = (input: AnyObject) => {
 
 export const evolutionMessageText = (input: AnyObject): string | null => {
   const message = unwrapEvolutionMessage(input);
+  const sharedContacts = extractSharedWhatsappContacts(message);
+  if (sharedContacts.length) return sharedContacts.map((contact) => contact.name).join(', ');
   const value = message.conversation
     || message.extendedTextMessage?.text
     || message.imageMessage?.caption
@@ -145,6 +162,7 @@ export const evolutionMessageText = (input: AnyObject): string | null => {
 
 export const evolutionMessageType = (input: AnyObject) => {
   const message = unwrapEvolutionMessage(input);
+  if (message.contactMessage || message.contactsArrayMessage) return 'contact';
   if (message.stickerMessage) return 'sticker';
   if (message.imageMessage) return 'image';
   if (message.audioMessage) return 'audio';
@@ -171,7 +189,7 @@ export const isSynchronizableEvolutionMessage = (data: AnyObject, since: Date) =
   const type = evolutionMessageType(content);
   if (type === 'reaction') return Boolean(evolutionReaction(data));
   if (type === 'text') return Boolean(evolutionMessageText(content));
-  return ['sticker', 'image', 'audio', 'video', 'document'].includes(type);
+  return ['sticker', 'image', 'audio', 'video', 'document', 'contact'].includes(type);
 };
 
 const mediaNode = (record: AnyObject, type: string) => {
@@ -225,6 +243,219 @@ export const deletedMessagePayload = (message: { type: string; text?: string | n
   };
 };
 
+type SecretEditEnvelope = {
+  providerMessageId: string;
+  targetProviderMessageId: string;
+  encryptedPayload: Buffer;
+  iv: Buffer;
+};
+
+type DecodedMessageEdit = {
+  targetProviderMessageId: string;
+  text: string;
+  providerMessageId?: string;
+};
+
+const evolutionBytes = (value: unknown): Buffer | null => {
+  if (Buffer.isBuffer(value)) return value;
+  if (value instanceof Uint8Array) return Buffer.from(value);
+  if (Array.isArray(value)) return Buffer.from(value);
+  if (!value || typeof value !== 'object') return null;
+  const record = value as AnyObject;
+  if (typeof record.data === 'string') return Buffer.from(record.data, 'base64');
+  if (Array.isArray(record.data)) return Buffer.from(record.data);
+  const numericKeys = Object.keys(record).filter((key) => /^\d+$/.test(key)).sort((left, right) => Number(left) - Number(right));
+  return numericKeys.length ? Buffer.from(numericKeys.map((key) => Number(record[key]) || 0)) : null;
+};
+
+const protobufFields = (input: Buffer) => {
+  const fields: Array<{ field: number; wire: number; bytes?: Buffer; value?: bigint }> = [];
+  let offset = 0;
+  const readVarint = () => {
+    let value = 0n;
+    let shift = 0n;
+    for (let count = 0; count < 10 && offset < input.length; count += 1) {
+      const byte = input[offset++];
+      value |= BigInt(byte & 0x7f) << shift;
+      if ((byte & 0x80) === 0) return value;
+      shift += 7n;
+    }
+    throw new Error('Protobuf inválido');
+  };
+  while (offset < input.length) {
+    const tag = readVarint();
+    const field = Number(tag >> 3n);
+    const wire = Number(tag & 7n);
+    if (!field) throw new Error('Campo protobuf inválido');
+    if (wire === 0) fields.push({ field, wire, value: readVarint() });
+    else if (wire === 1) {
+      if (offset + 8 > input.length) throw new Error('Protobuf truncado');
+      offset += 8;
+      fields.push({ field, wire });
+    } else if (wire === 2) {
+      const length = Number(readVarint());
+      if (!Number.isSafeInteger(length) || length < 0 || offset + length > input.length) throw new Error('Protobuf truncado');
+      fields.push({ field, wire, bytes: input.subarray(offset, offset + length) });
+      offset += length;
+    } else if (wire === 5) {
+      if (offset + 4 > input.length) throw new Error('Protobuf truncado');
+      offset += 4;
+      fields.push({ field, wire });
+    } else {
+      throw new Error(`Wire type protobuf não suportado: ${wire}`);
+    }
+  }
+  return fields;
+};
+
+const protobufText = (input: Buffer, field: number) => {
+  const value = protobufFields(input).find((item) => item.field === field && item.wire === 2)?.bytes?.toString('utf8').trim();
+  return value || null;
+};
+
+const decodedWhatsappMessageText = (message: Buffer): string | null => {
+  const fields = protobufFields(message);
+  const conversation = fields.find((item) => item.field === 1 && item.wire === 2)?.bytes?.toString('utf8').trim();
+  if (conversation) return conversation;
+  const nestedTextFields: Array<[number, number]> = [
+    [6, 1], // extendedTextMessage.text
+    [3, 3], // imageMessage.caption
+    [9, 7], // videoMessage.caption
+    [7, 20], // documentMessage.caption
+  ];
+  for (const [messageField, textField] of nestedTextFields) {
+    const nested = fields.find((item) => item.field === messageField && item.wire === 2)?.bytes;
+    if (!nested) continue;
+    const text = protobufText(nested, textField);
+    if (text) return text;
+  }
+  return null;
+};
+
+export const decodeWhatsappSecretEdit = (plaintext: Buffer): Omit<DecodedMessageEdit, 'providerMessageId'> | null => {
+  try {
+    const protocol = protobufFields(plaintext).find((item) => item.field === 12 && item.wire === 2)?.bytes;
+    if (!protocol) return null;
+    const protocolFields = protobufFields(protocol);
+    const type = protocolFields.find((item) => item.field === 2 && item.wire === 0)?.value;
+    if (type !== 14n) return null;
+    const key = protocolFields.find((item) => item.field === 1 && item.wire === 2)?.bytes;
+    const editedMessage = protocolFields.find((item) => item.field === 14 && item.wire === 2)?.bytes;
+    if (!key || !editedMessage) return null;
+    const targetProviderMessageId = protobufText(key, 3);
+    const text = decodedWhatsappMessageText(editedMessage);
+    return targetProviderMessageId && text ? { targetProviderMessageId, text } : null;
+  } catch {
+    return null;
+  }
+};
+
+export const evolutionSecretEditEnvelope = (input: AnyObject): SecretEditEnvelope | null => {
+  const data = Array.isArray(input.data) ? input.data[0] : input.data || input;
+  const content = unwrapEvolutionMessage(data.message || data.Message || data);
+  const secret = content.secretEncryptedMessage;
+  if (!secret || Number(secret.secretEncType) !== 2) return null;
+  const targetProviderMessageId = String(secret.targetMessageKey?.id || secret.targetMessageKey?.ID || '');
+  const providerMessageId = String(data.key?.id || data.key?.ID || data.id || '');
+  const encryptedPayload = evolutionBytes(secret.encPayload);
+  const iv = evolutionBytes(secret.encIv || secret.encIV);
+  return targetProviderMessageId && providerMessageId && encryptedPayload?.length && iv?.length
+    ? { targetProviderMessageId, providerMessageId, encryptedPayload, iv }
+    : null;
+};
+
+const normalizedJid = (value: unknown) => {
+  const jid = String(value || '').trim();
+  if (!jid.includes('@')) return '';
+  return jid.replace(/:\d+@/, '@');
+};
+
+const editCandidateJids = (...sources: AnyObject[]) => [...new Set(sources.flatMap((source) => {
+  const data = Array.isArray(source?.data) ? source.data[0] : source?.data || source || {};
+  const content = unwrapEvolutionMessage(data.message || data.Message || data);
+  const target = content.secretEncryptedMessage?.targetMessageKey || {};
+  const key = data.key || data.Info || data.info || {};
+  return [
+    key.remoteJid,
+    key.remoteJidAlt,
+    key.participant,
+    target.remoteJid,
+    target.participant,
+    data.remoteJid,
+    data.phoneJid,
+  ].map(normalizedJid).filter(Boolean);
+}))];
+
+export const decryptEvolutionSecretEdit = (
+  editInput: AnyObject,
+  originalPayload: AnyObject,
+  ...candidateSources: AnyObject[]
+): DecodedMessageEdit | null => {
+  const envelope = evolutionSecretEditEnvelope(editInput);
+  if (!envelope) return null;
+  const originalContent = unwrapEvolutionMessage(originalPayload.message || originalPayload.Message || originalPayload);
+  const messageSecret = evolutionBytes(originalContent.messageContextInfo?.messageSecret || originalPayload.messageSecret);
+  if (!messageSecret?.length) return null;
+  const candidates = editCandidateJids(editInput, originalPayload, ...candidateSources);
+  for (const originalSender of candidates) {
+    for (const editor of candidates) {
+      const useCase = Buffer.from(`${envelope.targetProviderMessageId}${originalSender}${editor}Message Edit`);
+      const key = Buffer.from(hkdfSync('sha256', messageSecret, Buffer.alloc(0), useCase, 32));
+      const encrypted = envelope.encryptedPayload.subarray(0, -16);
+      const authenticationTag = envelope.encryptedPayload.subarray(-16);
+      if (!encrypted.length || authenticationTag.length !== 16) continue;
+      try {
+        const decipher = createDecipheriv('aes-256-gcm', key, envelope.iv);
+        decipher.setAuthTag(authenticationTag);
+        const plaintext = Buffer.concat([decipher.update(encrypted), decipher.final()]);
+        const decoded = decodeWhatsappSecretEdit(plaintext);
+        if (decoded?.targetProviderMessageId === envelope.targetProviderMessageId) {
+          return { ...decoded, providerMessageId: envelope.providerMessageId };
+        }
+      } catch {
+        // LID/PN migrations can leave more than one plausible author. Try the next pair.
+      }
+    }
+  }
+  return null;
+};
+
+export const evolutionEditedMessage = (input: AnyObject): DecodedMessageEdit | null => {
+  const data = Array.isArray(input.data) ? input.data[0] : input.data || input;
+  const protocol = data.protocolMessage
+    || data.message?.protocolMessage
+    || data.editedMessage?.message?.protocolMessage
+    || (data.key && data.editedMessage ? data : null);
+  const targetProviderMessageId = String(protocol?.key?.id || protocol?.key?.ID || '');
+  const text = evolutionMessageText(protocol?.editedMessage || {});
+  return targetProviderMessageId && text ? { targetProviderMessageId, text } : null;
+};
+
+export const editedMessagePayload = (
+  message: { text?: string | null; payload?: unknown },
+  text: string,
+  editedAt: string,
+  editIdentity: string,
+) => {
+  const payload = message.payload && typeof message.payload === 'object' && !Array.isArray(message.payload)
+    ? message.payload as AnyObject
+    : {};
+  const editEventIds = Array.isArray(payload.editEventIds) ? payload.editEventIds.filter((item: unknown) => typeof item === 'string').slice(-19) : [];
+  if (editEventIds.includes(editIdentity)) return null;
+  const editHistory = Array.isArray(payload.editHistory) ? payload.editHistory.slice(-9) : [];
+  return {
+    ...payload,
+    edited: true,
+    editedAt,
+    editedBy: null,
+    editedSource: 'WHATSAPP',
+    editEventIds: [...editEventIds, editIdentity],
+    editHistory: message.text === text
+      ? editHistory
+      : [...editHistory, { text: message.text || '', editedAt, editedBy: null }],
+  };
+};
+
 export class InboundProcessor {
   private connectedInstancesCache?: { expiresAt: number; instances: SyncInstance[] };
   private readonly recentSyncState = new Map<string, RecentSyncState>();
@@ -256,6 +487,7 @@ export class InboundProcessor {
         conversationId = result?.conversationId;
         newMessage = result?.newMessage;
       }
+      else if (eventType.includes('MESSAGES_EDITED')) conversationId = await this.messageEdited(instance.id, payload);
       else if (eventType.includes('MESSAGES_UPDATE')) conversationId = await this.messageUpdate(instance.id, payload);
       else if (eventType.includes('MESSAGES_DELETE')) conversationId = await this.messageDelete(instance.id, payload);
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'processed', processedAt: new Date() } });
@@ -356,7 +588,7 @@ export class InboundProcessor {
   private async connection(instanceId: string, payload: AnyObject) {
     const data = payload.data || payload;
     const state = String(data.state || data.status || data.connection || '').toLowerCase();
-    const status = state.includes('open') || state.includes('connect') && !state.includes('disconnect') ? 'CONNECTED' : state.includes('connect') ? 'CONNECTING' : 'DISCONNECTED';
+    const status = normalizeEvolutionInstanceStatus(state);
     await this.db.whatsappInstance.update({ where: { id: instanceId }, data: { status, connectedAt: status === 'CONNECTED' ? new Date() : null } });
     this.connectedInstancesCache = undefined;
     if (status === 'CONNECTED') this.markEvolutionActivity(instanceId, true);
@@ -390,6 +622,11 @@ export class InboundProcessor {
     const data = Array.isArray(payload.data) ? payload.data[0] : payload.data || payload;
     const occurredAt = evolutionMessageDate(data);
     const key = data.key || data.Info || data.info || {};
+    const secretEdit = evolutionSecretEditEnvelope(data);
+    if (secretEdit) {
+      const conversationId = await this.secretMessageEdited(instance, data, secretEdit, occurredAt);
+      return conversationId ? { conversationId } : undefined;
+    }
     const remoteJid = String(key.remoteJid || key.Chat || data.remoteJid || data.from || '');
     if (!remoteJid || remoteJid.includes('@g.us')) return;
     const providerMessageId = String(key.id || key.ID || data.id || '');
@@ -404,23 +641,39 @@ export class InboundProcessor {
     const phone = phoneDigits ? `+${phoneDigits}` : undefined;
     const text = this.extractText(data.message || data.Message || data);
     const type = this.extractType(data.message || data.Message || data);
-    const existing = await this.db.message.findUnique({
-      where: { instanceId_providerMessageId: { instanceId: instance.id, providerMessageId } },
-      select: {
-        id: true,
-        conversationId: true,
-        type: true,
-        text: true,
-        payload: true,
-        media: { select: { id: true }, take: 1 },
-      },
-    });
+    const replyProviderMessageId = evolutionReplyProviderMessageId(data);
+    const [existing, replyTarget] = await Promise.all([
+      this.db.message.findUnique({
+        where: { instanceId_providerMessageId: { instanceId: instance.id, providerMessageId } },
+        select: {
+          id: true,
+          conversationId: true,
+          type: true,
+          text: true,
+          payload: true,
+          media: { select: { id: true }, take: 1 },
+        },
+      }),
+      replyProviderMessageId
+        ? this.db.message.findUnique({
+          where: { instanceId_providerMessageId: { instanceId: instance.id, providerMessageId: replyProviderMessageId } },
+          select: { id: true, conversationId: true },
+        })
+        : null,
+    ]);
     if (existing) {
-      const shouldRefresh = (existing.type !== type && type !== 'text') || (!existing.text && Boolean(text));
+      const resolvedReply = replyTarget?.conversationId === existing.conversationId ? replyTarget : null;
+      const storedPayload = resolvedReply
+        ? { ...data, replyToMessageId: resolvedReply.id, replyToProviderMessageId: replyProviderMessageId }
+        : data;
+      const existingPayload = existing.payload as AnyObject;
+      const shouldRefresh = (existing.type !== type && type !== 'text')
+        || (!existing.text && Boolean(text))
+        || Boolean(resolvedReply && existingPayload.replyToMessageId !== resolvedReply.id);
       const storedMessage = shouldRefresh
         ? await this.db.message.update({
           where: { id: existing.id },
-          data: { type, text, payload: data as Prisma.InputJsonValue },
+          data: { type, text, payload: storedPayload as Prisma.InputJsonValue },
           select: { id: true },
         })
         : existing;
@@ -431,7 +684,7 @@ export class InboundProcessor {
           const detail = error instanceof Error ? error.message : String(error);
           await this.db.message.update({
             where: { id: storedMessage.id },
-            data: { payload: { ...data, mediaError: detail } as Prisma.InputJsonValue },
+            data: { payload: { ...storedPayload, mediaError: detail } as Prisma.InputJsonValue },
           });
           console.error(`[inbound-media] Falha ao armazenar ${type} ${providerMessageId}: ${detail}`);
         }
@@ -533,10 +786,14 @@ export class InboundProcessor {
         text: 'Novo atendimento iniciado por mensagem do cliente',
       } });
     }
+    const resolvedReply = replyTarget?.conversationId === conversation.id ? replyTarget : null;
+    const storedPayload = resolvedReply
+      ? { ...data, replyToMessageId: resolvedReply.id, replyToProviderMessageId: replyProviderMessageId }
+      : data;
     const storedMessage = await this.db.message.create({ data: {
       instanceId: instance.id, conversationId: conversation.id, providerMessageId,
       direction: fromMe ? 'OUTBOUND' : 'INBOUND', type, text, status: fromMe ? 'SENT' : 'DELIVERED',
-      payload: data as Prisma.InputJsonValue, sentAt: occurredAt, deliveredAt: fromMe ? undefined : occurredAt, createdAt: occurredAt,
+      payload: storedPayload as Prisma.InputJsonValue, sentAt: occurredAt, deliveredAt: fromMe ? undefined : occurredAt, createdAt: occurredAt,
     } });
     if (this.isMediaType(type)) {
       try {
@@ -545,7 +802,7 @@ export class InboundProcessor {
         const detail = error instanceof Error ? error.message : String(error);
         await this.db.message.update({
           where: { id: storedMessage.id },
-          data: { payload: { ...data, mediaError: detail } as Prisma.InputJsonValue },
+          data: { payload: { ...storedPayload, mediaError: detail } as Prisma.InputJsonValue },
         });
         console.error(`[inbound-media] Falha ao armazenar ${type} ${providerMessageId}: ${detail}`);
       }
@@ -826,6 +1083,104 @@ export class InboundProcessor {
       });
     });
     return message.conversationId;
+  }
+
+  private async secretMessageEdited(
+    instance: { id: string; instanceKey: string },
+    data: AnyObject,
+    envelope: SecretEditEnvelope,
+    occurredAt: Date,
+  ) {
+    const original = await this.db.message.findUnique({
+      where: {
+        instanceId_providerMessageId: {
+          instanceId: instance.id,
+          providerMessageId: envelope.targetProviderMessageId,
+        },
+      },
+      include: { conversation: { select: { remoteJid: true, phoneJid: true } } },
+    });
+    if (!original) throw new Error(`Mensagem original da edição não encontrada: ${envelope.targetProviderMessageId}`);
+    const originalPayload = (original.payload || {}) as AnyObject;
+    let decoded = decryptEvolutionSecretEdit(data, originalPayload, original.conversation);
+    if (!decoded) {
+      const raw = await this.evolution.findMessage(instance.instanceKey, envelope.providerMessageId);
+      if (raw) decoded = decryptEvolutionSecretEdit(raw, originalPayload, data, original.conversation);
+    }
+    if (!decoded) {
+      console.error(`[evolution-edit] Não foi possível decodificar a edição ${envelope.providerMessageId} de ${envelope.targetProviderMessageId}.`);
+      return original.conversationId;
+    }
+    return this.applyMessageEdit(instance.id, decoded, occurredAt, data);
+  }
+
+  private async messageEdited(instanceId: string, payload: AnyObject) {
+    const decoded = evolutionEditedMessage(payload);
+    if (!decoded) return;
+    const data = Array.isArray(payload.data) ? payload.data[0] : payload.data || payload;
+    const occurredAt = evolutionMessageDate(data);
+    const editHash = createHash('sha256').update(JSON.stringify(data)).digest('hex');
+    const editIdentity = `messages.edited:${decoded.targetProviderMessageId}:${editHash}`;
+    return this.applyMessageEdit(instanceId, { ...decoded, providerMessageId: editIdentity }, occurredAt, data);
+  }
+
+  private async applyMessageEdit(instanceId: string, edit: DecodedMessageEdit, occurredAt: Date, providerPayload: AnyObject) {
+    const original = await this.db.message.findUnique({
+      where: {
+        instanceId_providerMessageId: {
+          instanceId,
+          providerMessageId: edit.targetProviderMessageId,
+        },
+      },
+      include: { conversation: { select: { unreadCount: true } } },
+    });
+    if (!original) throw new Error(`Mensagem original da edição não encontrada: ${edit.targetProviderMessageId}`);
+    const editIdentity = edit.providerMessageId || `${edit.targetProviderMessageId}:${occurredAt.toISOString()}:${edit.text}`;
+    const payload = editedMessagePayload(original, edit.text, occurredAt.toISOString(), editIdentity);
+    const controlMessageId = edit.providerMessageId && !edit.providerMessageId.startsWith('messages.edited:')
+      ? edit.providerMessageId
+      : null;
+    await this.db.$transaction(async (tx) => {
+      const controlMessage = controlMessageId && controlMessageId !== edit.targetProviderMessageId
+        ? await tx.message.findFirst({
+          where: { instanceId, providerMessageId: controlMessageId, id: { not: original.id } },
+          select: { id: true, direction: true },
+        })
+        : null;
+      const removed = controlMessage
+        ? await tx.message.deleteMany({ where: { id: controlMessage.id } })
+        : { count: 0 };
+      if (payload) {
+        await tx.message.update({
+          where: { id: original.id },
+          data: {
+            text: edit.text,
+            payload: {
+              ...payload,
+              providerEdit: providerPayload,
+            } as Prisma.InputJsonValue,
+          },
+        });
+      }
+      if (removed.count > 0) {
+        const latest = await tx.message.findFirst({
+          where: { conversationId: original.conversationId },
+          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+          select: { createdAt: true },
+        });
+        await tx.conversation.update({
+          where: { id: original.conversationId },
+          data: {
+            unreadCount: Math.max(
+              0,
+              original.conversation.unreadCount - (controlMessage?.direction === 'INBOUND' ? removed.count : 0),
+            ),
+            lastMessageAt: latest?.createdAt || original.createdAt,
+          },
+        });
+      }
+    });
+    return original.conversationId;
   }
 
   private async touchInstanceEvent(instanceId: string) {

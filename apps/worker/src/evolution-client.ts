@@ -72,6 +72,24 @@ export class EvolutionClient {
     return Array.isArray(records) ? records as Array<Record<string, any>> : [];
   }
 
+  async findMessage(instance: string, providerMessageId: string) {
+    if (!this.apiKey) throw new Error('EVOLUTION_API_KEY nÃ£o configurada');
+    const response = await fetch(`${this.baseUrl}/chat/findMessages/${encodeURIComponent(instance)}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', apikey: this.apiKey },
+      body: JSON.stringify({ where: { key: { id: providerMessageId } }, page: 1, offset: 5 }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    const raw = await response.text();
+    let result: Record<string, any> = {};
+    try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
+    if (!response.ok) throw new Error(`Evolution ${response.status}: ${raw.slice(0, 500)}`);
+    const records = result.messages?.records || result.records || result.data || [];
+    return Array.isArray(records)
+      ? records.find((record) => String(record?.key?.id || record?.key?.ID || record?.id || '') === providerMessageId)
+      : undefined;
+  }
+
   async checkWhatsappNumbers(instance: string, numbers: string[]) {
     if (!this.apiKey) throw new Error('EVOLUTION_API_KEY não configurada');
     const normalized = [...new Set(numbers.map((number) => number.replace(/\D/g, '')).filter(Boolean))];

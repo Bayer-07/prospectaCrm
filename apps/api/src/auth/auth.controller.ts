@@ -42,6 +42,21 @@ export class AuthController {
   }
 
   @Public()
+  @Post('forgot-password')
+  async forgotPassword(@Body() body: { email: string }, @Req() req: Request) {
+    await this.auth.requestPasswordReset(body.email, {
+      ip: req.ip,
+      userAgent: req.headers['user-agent'],
+    });
+    return {
+      data: {
+        accepted: true,
+        message: 'Se o e-mail estiver cadastrado, você receberá as instruções para redefinir sua senha.',
+      },
+    };
+  }
+
+  @Public()
   @Post('reset-password')
   async resetPassword(@Body() body: { token: string; password: string }) {
     await this.auth.resetPassword(body.token, body.password);

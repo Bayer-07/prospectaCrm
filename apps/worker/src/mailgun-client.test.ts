@@ -139,4 +139,36 @@ describe('MailgunClient', () => {
       'v:user-id': 'user-1',
     }));
   });
+
+  it('envia recuperação de senha sem rastrear o link temporário', async () => {
+    const create = vi.fn().mockResolvedValue({
+      id: '<reset@mg.example.com>',
+      message: 'Queued',
+      status: 200,
+    });
+    const client = new MailgunClient({
+      apiKey: 'secret',
+      domain: 'mg.example.com',
+      fromEmail: 'contato@example.com',
+      fromName: 'BZS',
+      region: 'US',
+      baseUrl: 'https://api.mailgun.net',
+    }, { create });
+
+    await client.sendPasswordReset({
+      to: 'usuario@example.com',
+      subject: 'Redefinição',
+      html: '<p>Redefinição</p>',
+      text: 'Redefinição',
+      passwordResetTokenId: 'reset-1',
+      userId: 'user-1',
+    });
+
+    expect(create).toHaveBeenCalledWith('mg.example.com', expect.objectContaining({
+      'o:tag': 'bzs-password-reset',
+      'o:tracking-clicks': 'no',
+      'v:password-reset-token-id': 'reset-1',
+      'v:user-id': 'user-1',
+    }));
+  });
 });

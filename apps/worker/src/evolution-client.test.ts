@@ -15,13 +15,22 @@ beforeAll(async () => {
     let body = '';
     request.on('data', (chunk) => { body += chunk; });
     request.on('end', () => {
-      requests.push({ url: request.url || '', apiKey: request.headers.apikey as string, body: JSON.parse(body) });
+      const parsedBody = JSON.parse(body);
+      requests.push({ url: request.url || '', apiKey: request.headers.apikey as string, body: parsedBody });
       response.setHeader('content-type', 'application/json');
       response.end(JSON.stringify(
         request.url?.includes('getBase64FromMediaMessage')
           ? { mediaType: 'stickerMessage', mimetype: 'image/webp', fileName: 'figurinha.webp', base64: 'UklGRg==' }
           : request.url?.includes('findMessages')
-            ? { messages: { total: 1, records: [{ key: { id: 'document-caption-1' }, message: { documentMessage: { caption: 'Legenda recuperada' } } }] } }
+            ? {
+              messages: {
+                total: 1,
+                records: [{
+                  key: { id: parsedBody.where?.key?.id || 'document-caption-1' },
+                  message: { documentMessage: { caption: 'Legenda recuperada' } },
+                }],
+              },
+            }
             : request.url?.includes('whatsappNumbers')
               ? { numbers: [{ number: '5511999999999', exists: true }] }
             : { key: { id: `simulated-${requests.length}` } },
@@ -41,17 +50,34 @@ describe('contrato de envio Evolution', () => {
   it('envia texto no endpoint e formato esperados', async () => {
     const result = await new EvolutionClient().send('comercial', { number: '+5511999999999', type: 'text', text: 'Olá' });
     expect(result.key.id).toBe('simulated-1');
-    expect(requests[0]).toMatchObject({ url: '/message/sendText/comercial', apiKey: 'test-key', body: { number: '5511999999999', text: 'Olá' } });
+    expect(requests[0]).toMatchObject({ url: '/message/sendText/comercial', apiKey: 'test-key', body: { number: '5511999999999', text: 'Olá', linkPreview: true } });
+  });
+
+  it('solicita a prévia rica ao enviar uma URL', async () => {
+    await new EvolutionClient().send('comercial', {
+      number: '+5511999999999',
+      type: 'text',
+      text: 'Conheça https://www.bzs.com.br/sistemas/controle-agua-gas',
+    });
+
+    expect(requests[1]).toMatchObject({
+      url: '/message/sendText/comercial',
+      body: {
+        number: '5511999999999',
+        text: 'Conheça https://www.bzs.com.br/sistemas/controle-agua-gas',
+        linkPreview: true,
+      },
+    });
   });
 
   it('envia mídia usando URL temporária', async () => {
     await new EvolutionClient().send('comercial', { number: '+5511999999999', type: 'image', text: 'Legenda', mediaUrl: 'http://minio.local/arquivo-assinado' });
-    expect(requests[1]).toMatchObject({ url: '/message/sendMedia/comercial', body: { number: '5511999999999', mediatype: 'image', media: 'http://minio.local/arquivo-assinado', caption: 'Legenda' } });
+    expect(requests[2]).toMatchObject({ url: '/message/sendMedia/comercial', body: { number: '5511999999999', mediatype: 'image', media: 'http://minio.local/arquivo-assinado', caption: 'Legenda' } });
   });
 
   it('preserva o endereço LID aprendido nos eventos do WhatsApp', async () => {
     await new EvolutionClient().send('comercial', { number: '83953759293475@lid', type: 'text', text: 'Teste' });
-    expect(requests[2]).toMatchObject({ url: '/message/sendText/comercial', body: { number: '83953759293475@lid', text: 'Teste' } });
+    expect(requests[3]).toMatchObject({ url: '/message/sendText/comercial', body: { number: '83953759293475@lid', text: 'Teste' } });
   });
 
   it('envia a mensagem citada ao responder', async () => {
@@ -64,7 +90,7 @@ describe('contrato de envio Evolution', () => {
         message: { conversation: 'Mensagem original' },
       },
     });
-    expect(requests[3]).toMatchObject({
+    expect(requests[4]).toMatchObject({
       url: '/message/sendText/comercial',
       body: {
         number: '5511999999999',
@@ -81,7 +107,7 @@ describe('contrato de envio Evolution', () => {
     const result = await new EvolutionClient().getMedia('comercial', { key: { id: 'sticker-1' }, messageType: 'stickerMessage', message: { stickerMessage: {} } });
 
     expect(result).toMatchObject({ mimetype: 'image/webp', fileName: 'figurinha.webp', base64: 'UklGRg==' });
-    expect(requests[4]).toMatchObject({
+    expect(requests[5]).toMatchObject({
       url: '/chat/getBase64FromMediaMessage/comercial',
       apiKey: 'test-key',
       body: { message: { key: { id: 'sticker-1' }, messageType: 'stickerMessage', message: { stickerMessage: {} } } },
@@ -92,7 +118,7 @@ describe('contrato de envio Evolution', () => {
     const result = await new EvolutionClient().findMessages('comercial', '83953759293475@lid');
 
     expect(result).toEqual([{ key: { id: 'document-caption-1' }, message: { documentMessage: { caption: 'Legenda recuperada' } } }]);
-    expect(requests[5]).toMatchObject({
+    expect(requests[6]).toMatchObject({
       url: '/chat/findMessages/comercial',
       apiKey: 'test-key',
       body: { where: { key: { remoteJid: '83953759293475@lid' } }, page: 1, offset: 50 },
@@ -102,7 +128,7 @@ describe('contrato de envio Evolution', () => {
   it('consulta as mensagens recentes da instância sem depender de um contato', async () => {
     await new EvolutionClient().findMessages('comercial');
 
-    expect(requests[6]).toMatchObject({
+    expect(requests[7]).toMatchObject({
       url: '/chat/findMessages/comercial',
       apiKey: 'test-key',
       body: { where: {}, page: 1, offset: 50 },
@@ -120,7 +146,7 @@ describe('contrato de envio Evolution', () => {
       },
     });
 
-    expect(requests[7]).toMatchObject({
+    expect(requests[8]).toMatchObject({
       url: '/message/sendWhatsAppAudio/comercial',
       body: {
         number: '5511999999999',
@@ -143,7 +169,7 @@ describe('contrato de envio Evolution', () => {
       mediaBase64: audio,
     });
 
-    expect(requests[8]).toMatchObject({
+    expect(requests[9]).toMatchObject({
       url: '/message/sendWhatsAppAudio/comercial',
       body: {
         number: '5511999999999',
@@ -156,7 +182,7 @@ describe('contrato de envio Evolution', () => {
   it('verifica quais destinatários realmente possuem WhatsApp', async () => {
     const result = await new EvolutionClient().checkWhatsappNumbers('comercial', ['+55 11 99999-9999', '+55 11 98888-8888']);
 
-    expect(requests[9]).toMatchObject({
+    expect(requests[10]).toMatchObject({
       url: '/chat/whatsappNumbers/comercial',
       apiKey: 'test-key',
       body: { numbers: ['5511999999999', '5511988888888'] },
@@ -165,5 +191,16 @@ describe('contrato de envio Evolution', () => {
       { number: '5511999999999', exists: true },
       { number: '5511988888888', exists: false },
     ]);
+  });
+
+  it('busca uma mensagem exata para recuperar o JID LID preservado pela Evolution', async () => {
+    const result = await new EvolutionClient().findMessage('comercial', 'edit-envelope-1');
+
+    expect(result).toMatchObject({ key: { id: 'edit-envelope-1' } });
+    expect(requests[11]).toMatchObject({
+      url: '/chat/findMessages/comercial',
+      apiKey: 'test-key',
+      body: { where: { key: { id: 'edit-envelope-1' } }, page: 1, offset: 5 },
+    });
   });
 });

@@ -5,7 +5,7 @@ export type BrowserAuthEvent = {
 };
 
 export const AUTH_EVENT_STORAGE_KEY = 'bzs_one_auth_event';
-const PUBLIC_AUTH_PATHS = ['/login', '/aceitar-convite', '/redefinir-senha'];
+const PUBLIC_AUTH_PATHS = ['/login', '/recuperar-senha', '/aceitar-convite', '/redefinir-senha'];
 let redirectingToLogin = false;
 
 function browserAvailable() {

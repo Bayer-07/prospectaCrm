@@ -10,64 +10,43 @@ Plataforma interna integrada da BZS Tecnologia. A estrutura atual reúne CRM, at
 | API | http://localhost:3000/api/v1 |
 | Saúde da API | http://localhost:3000/health |
 | OpenAPI | http://localhost:3000/docs |
+| Servidor MCP | http://localhost:3100/mcp |
+| Saúde do MCP | http://localhost:3100/health |
 | Evolution API | http://localhost:8082 |
 | MinIO | http://localhost:9001 |
 
-## Acesso pela rede local
+## Configuração local padrão
 
-O frontend usa `/api/v1` e `/socket.io` como endereços relativos. Assim, um
-computador que abrir `http://IP_DO_SERVIDOR:5173` envia as requisições ao
-servidor, e não ao próprio `localhost`.
-
-Descubra o IPv4 do servidor no PowerShell:
-
-```powershell
-Get-NetIPAddress -AddressFamily IPv4 |
-  Where-Object { $_.IPAddress -notlike '127.*' -and $_.IPAddress -notlike '169.254.*' } |
-  Select-Object IPAddress, InterfaceAlias
-```
-
-No `.env`, substitua `192.168.0.10` pelo IP reservado do servidor:
+Durante o desenvolvimento, todos os links gerados pelo sistema usam
+`localhost`. Mantenha estas variáveis no `.env`:
 
 ```dotenv
-APP_URL=http://192.168.0.10:5173
-APP_ADDRESS=http://192.168.0.10
-API_URL=http://192.168.0.10:5173/api/v1
-CORS_ORIGINS=http://192.168.0.10:5173,http://192.168.0.10,http://localhost:5173,http://127.0.0.1:5173
-HOST=::
-S3_PUBLIC_ENDPOINT=http://192.168.0.10:9000
-S3_BIND_ADDRESS=0.0.0.0
+APP_URL=http://localhost:5173
+APP_ADDRESS=http://localhost
+API_URL=http://localhost:5173/api/v1
+CORS_ORIGINS=http://localhost:5173,http://127.0.0.1:5173,http://localhost
+S3_PUBLIC_ENDPOINT=http://localhost:9000
 VITE_API_URL=/api/v1
 VITE_SOCKET_URL=/
+VITE_MCP_URL=http://localhost:3100/mcp
 ```
 
-Reinicie a aplicação depois de alterar o `.env`. Os outros computadores
-podem então acessar:
+Assim, convites, recuperação de senha, e-mails de tarefas, mídias, Swagger,
+API e Socket.IO não dependem do IP atual do computador.
 
-- sistema: `http://192.168.0.10:5173`;
-- API para integrações: `http://192.168.0.10:5173/api/v1`;
-- Swagger: `http://192.168.0.10:5173/docs`.
+## Quando publicar em produção
 
-No Docker Compose completo, o Caddy publica o sistema sem a porta `5173`:
-`http://192.168.0.10`, `http://192.168.0.10/api/v1` e
-`http://192.168.0.10/docs`.
-
-`DATABASE_URL`, `REDIS_URL`, `EVOLUTION_API_URL`, `API_INTERNAL_URL` e
-`S3_ENDPOINT` podem continuar apontando para `localhost` ou para nomes de
-serviços Docker: são conexões internas executadas no servidor e nunca são
-enviadas ao navegador.
-
-Use uma reserva DHCP ou IP fixo para o endereço do servidor não mudar. No
-Firewall do Windows, libere somente para a rede privada/local as portas
-`5173` (aplicação) e `9000` (mídias). Se clientes externos chamarem a API
-diretamente sem o proxy, libere também `3000`.
+Na implantação, substitua `APP_URL`, `APP_ADDRESS`, `API_URL`,
+`CORS_ORIGINS` e `S3_PUBLIC_ENDPOINT` pelo domínio HTTPS definitivo. O
+frontend continuará usando `/api/v1` e `/socket.io` como endereços relativos,
+portanto não será necessário alterar o código da aplicação.
 
 ## Pré-requisitos
 
 - Node.js 22 ou mais recente;
 - pnpm 11;
 - Docker Desktop com Docker Compose;
-- portas `3000`, `5173`, `5433`, `6380`, `8082`, `9000` e `9001` livres.
+- portas `3000`, `5173`, `5434`, `6380`, `8082`, `9000` e `9001` livres.
 
 Os comandos abaixo devem ser executados no PowerShell, na raiz deste repositório.
 
@@ -90,7 +69,7 @@ Os comandos abaixo devem ser executados no PowerShell, na raiz deste repositóri
 4. Suba os bancos, filas, armazenamento e Evolution API:
 
    ```powershell
-   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis minio evolution-postgres evolution-redis evolution-minio evolution
+   docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis minio evolution-postgres evolution-redis evolution-minio evolution transcription
    ```
 
 5. Prepare o banco do CRM:
@@ -111,7 +90,7 @@ Os comandos abaixo devem ser executados no PowerShell, na raiz deste repositóri
    Remove-Item Env:ADMIN_EMAIL, Env:ADMIN_NAME, Env:ADMIN_PASSWORD
    ```
 
-7. Inicie frontend, API e worker:
+7. Inicie frontend, API, worker e servidor MCP:
 
    ```powershell
    pnpm dev
@@ -124,11 +103,11 @@ Deixe esse terminal aberto enquanto estiver usando o sistema. Acesse http://loca
 Depois da primeira instalação, são necessários somente dois comandos:
 
 ```powershell
-docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis minio evolution-postgres evolution-redis evolution-minio evolution
+docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres redis minio evolution-postgres evolution-redis evolution-minio evolution transcription
 pnpm dev
 ```
 
-O primeiro comando inicia a infraestrutura em segundo plano. O segundo mantém a aplicação, a API e o worker em execução no terminal e atualiza o código automaticamente durante o desenvolvimento.
+O primeiro comando inicia a infraestrutura em segundo plano. O segundo mantém a aplicação, a API, o worker e o servidor MCP em execução no terminal e atualiza o código automaticamente durante o desenvolvimento.
 
 Não use `docker compose up` sem a lista de serviços durante o desenvolvimento: isso também iniciaria as imagens de produção da API e do frontend.
 
@@ -159,7 +138,83 @@ Invoke-RestMethod http://localhost:3000/health
 
 A resposta esperada contém `"status": "ok"`. No terminal do `pnpm dev`, também devem aparecer as mensagens de que a API iniciou e de que o worker está ativo.
 
+Teste também a saúde do servidor MCP:
+
+```powershell
+Invoke-RestMethod http://localhost:3100/health
+```
+
+## Servidor MCP para LLMs
+
+O BZS One disponibiliza um servidor MCP remoto por **Streamable HTTP**. Ele
+permite que clientes de IA leiam, criem e editem empresas, contatos,
+oportunidades, tarefas, tags, campos personalizados e segmentos. Não existem
+ferramentas MCP para excluir, arquivar ou cancelar registros.
+
+1. Entre como administrador e abra **Integrações → Servidor MCP**.
+2. Clique em **Gerar chave MCP** e copie a chave exibida uma única vez.
+3. Configure o cliente MCP com:
+
+   - URL local: `http://localhost:3100/mcp`;
+   - URL em produção: `https://SEU_DOMINIO/mcp`;
+   - cabeçalho: `Authorization: Bearer SUA_CHAVE_MCP`.
+
+Exemplo genérico — o formato externo pode variar conforme o cliente:
+
+```json
+{
+  "mcpServers": {
+    "bzs-one": {
+      "type": "http",
+      "url": "http://localhost:3100/mcp",
+      "headers": {
+        "Authorization": "Bearer SUA_CHAVE_MCP"
+      }
+    }
+  }
+}
+```
+
+Variáveis locais:
+
+```dotenv
+MCP_HOST=127.0.0.1
+MCP_PORT=3100
+MCP_API_URL=http://localhost:3000/api/v1
+MCP_API_TIMEOUT_MS=15000
+MCP_ALLOWED_HOSTS=localhost,127.0.0.1,[::1]
+MCP_ALLOWED_ORIGINS=localhost,127.0.0.1,[::1]
+VITE_MCP_URL=http://localhost:3100/mcp
+```
+
+O serviço MCP não acessa o PostgreSQL diretamente: toda ferramenta chama a
+API REST autenticada, preservando escopos, validações, idempotência e
+auditoria. Em produção ele fica isolado na rede interna do Docker e somente o
+Caddy publica `/mcp`.
+
 Se o WhatsApp não conectar, confirme primeiro se `prospecta-evolution-1`, `prospecta-evolution-postgres-1`, `prospecta-evolution-redis-1` e `prospecta-evolution-minio-1` aparecem como ativos no comando `docker compose ... ps`.
+
+## Transcrição de áudios
+
+Áudios recebidos pelo WhatsApp e áudios gravados dentro do BZS One exibem o botão **Transcrever áudio**. A solicitação é processada pelo worker, sem travar o Inbox, e o texto fica salvo na própria mensagem para não processar o mesmo arquivo novamente.
+
+Por padrão, a transcrição é totalmente local e gratuita. O container `transcription` executa o [Speaches](https://github.com/speaches-ai/speaches), baseado em `faster-whisper`, com CPU, quantização INT8 e o modelo multilíngue `small`:
+
+```dotenv
+TRANSCRIPTION_API_URL=http://localhost:8000/v1/audio/transcriptions
+TRANSCRIPTION_API_KEY=
+TRANSCRIPTION_MODEL=Systran/faster-whisper-small
+TRANSCRIPTION_LANGUAGE=pt
+TRANSCRIPTION_TIMEOUT_MS=120000
+TRANSCRIPTION_MODEL_DOWNLOAD_TIMEOUT_MS=600000
+TRANSCRIPTION_MAX_BYTES=26214400
+TRANSCRIPTION_CONCURRENCY=1
+TRANSCRIPTION_BIND_PORT=8000
+TRANSCRIPTION_CPU_THREADS=4
+SPEACHES_IMAGE=ghcr.io/speaches-ai/speaches:latest-cpu
+```
+
+Na primeira transcrição, o worker verifica se o modelo existe, baixa-o automaticamente e o mantém no volume `transcription_models`; isso pode levar alguns minutos, mas acontece somente uma vez. A porta `8000` fica vinculada ao `localhost` e não é exposta para outros computadores da rede. Se necessário, ajuste `TRANSCRIPTION_CPU_THREADS` à quantidade de núcleos que deseja reservar para as transcrições.
 
 ## CSV de campanhas
 
@@ -226,6 +281,17 @@ O mesmo provedor Mailgun envia, todos os dias às **08:00**, um resumo individua
 - mantenha `APP_URL` com o endereço público do BZS One, pois ele é usado no botão **Abrir minha agenda** do e-mail.
 
 Na interface, abra **Tarefas** para alternar entre as visualizações de mês e semana. Clique em qualquer dia ou horário vazio para criar uma tarefa já com aquela data selecionada.
+
+### Webhooks de saída
+
+Em **Integrações → Webhooks**, podem ser cadastrados vários endpoints. Cada webhook possui uma única ação associada e é criado desativado. Depois de ativado, a ocorrência da ação selecionada envia uma requisição HTTP `GET` para o endpoint, preservando parâmetros que já existam na URL e adicionando:
+
+- `event`: identificador da ação, como `contact.created`;
+- `event_id`: identificador único da entrega;
+- `created_at`: data do evento em UTC;
+- `entity_type` e `entity_id`: tipo e identificador do registro afetado.
+
+A chamada também inclui os cabeçalhos `X-BZS-One-Event`, `X-BZS-One-Event-Id`, `X-BZS-One-Timestamp` e `X-BZS-One-Signature`. Falhas recebem novas tentativas exponenciais pela fila do worker.
 
 ## Comandos úteis
 

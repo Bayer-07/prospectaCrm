@@ -2,7 +2,8 @@ import { lazy, memo, Suspense, type FormEvent, type ReactNode, useCallback, useE
 import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Check, CheckCheck, ChevronDown, Copy, Clock, Download, Eye, FileText, Filter, History, Inbox, Mail, MessageCircle, Mic, MoreHorizontal, Pause, Pencil, Phone, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Check, CheckCheck, ChevronDown, Copy, Clock, Download, Eye, FileText, Filter, History, Inbox, Mail, MessageCircle, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
@@ -12,6 +13,9 @@ import { WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../
 import { useAuth } from '../App';
 import { useRealtimeConnected } from '../lib/realtime';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import { isMessageEdited, messageEditedAt, messageEditHistory } from '../lib/message-edit-history';
+import { toast } from '../lib/toast';
+import { inboxFilterForStatus, shouldSyncInboxFilter, type InboxFilter } from '../lib/inbox-navigation';
 
 type WhatsappInstance = { id: string; name: string; phone?: string; status: string };
 type ConversationHistoryPage = { messages: Message[]; events: ConversationEvent[]; nextCursor: string | null };
@@ -19,6 +23,34 @@ type ConversationAssignee = { id: string; name: string; email: string; team?: { 
 type WorkflowShortcut = { id: string; name: string; description?: string; status: string; publishedVersion?: number };
 type WorkflowEnrollmentResult = { requested: number; enrolled: number; skipped: number };
 type ContactInlineField = 'phone' | 'email' | 'companyId';
+type TicketContextMenuState = { conversation: Conversation; top: number; left: number };
+type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string };
+type ConversationFilterOptions = {
+  instances: WhatsappInstance[];
+  users: Array<{ id: string; name: string; email: string }>;
+};
+
+const EMPTY_CONVERSATION_FILTERS: ConversationListFilters = {
+  lastInteractionFrom: '',
+  lastInteractionTo: '',
+  instanceId: '',
+  assigneeId: '',
+};
+
+function conversationFiltersQuery(filters: ConversationListFilters) {
+  const params = new URLSearchParams();
+  if (filters.instanceId) params.set('instanceId', filters.instanceId);
+  if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
+  if (filters.lastInteractionFrom) {
+    params.set('lastInteractionFrom', new Date(`${filters.lastInteractionFrom}T00:00:00`).toISOString());
+  }
+  if (filters.lastInteractionTo) {
+    const nextDay = new Date(`${filters.lastInteractionTo}T00:00:00`);
+    nextDay.setDate(nextDay.getDate() + 1);
+    params.set('lastInteractionTo', nextDay.toISOString());
+  }
+  return params.toString();
+}
 
 function normalizeEditablePhone(value: string) {
   const trimmed = value.trim();
@@ -33,12 +65,6 @@ function uniqueById<T extends { id: string }>(items: T[]) {
   const unique = new Map<string, T>();
   for (const item of items) unique.set(item.id, item);
   return [...unique.values()];
-}
-
-type InboxFilter = 'waiting' | 'open' | 'closed';
-
-function inboxFilterForStatus(status: string): InboxFilter {
-  return status === 'CLOSED' ? 'closed' : status === 'WAITING' ? 'waiting' : 'open';
 }
 
 function awaitsRecoveredCaption(message: Message) {
@@ -57,13 +83,29 @@ export function InboxPage() {
   const isAdmin = user?.roleKey === 'admin';
   const [filter, setFilter] = useState<InboxFilter>('waiting');
   const [search, setSearch] = useState('');
-  const [statusError, setStatusError] = useState('');
   const [startingConversation, setStartingConversation] = useState(false);
   const [showAll, setShowAll] = useState(false);
+  const [ticketMenu, setTicketMenu] = useState<TicketContextMenuState | null>(null);
+  const [filterPanelOpen, setFilterPanelOpen] = useState(false);
+  const [draftListFilters, setDraftListFilters] = useState<ConversationListFilters>({ ...EMPTY_CONVERSATION_FILTERS });
+  const [appliedListFilters, setAppliedListFilters] = useState<ConversationListFilters>({ ...EMPTY_CONVERSATION_FILTERS });
+  const closingWithoutFilterChangeRef = useRef<string | null>(null);
   const view = isAdmin && showAll ? 'all' : 'mine';
-  const conversations = useQuery({ queryKey: ['conversations', filter, view], queryFn: () => api<Envelope<Conversation[]>>(`/conversations?status=${filter}&view=${view}`), refetchInterval: realtimeConnected ? false : 15_000 });
+  const listFilterQuery = useMemo(() => conversationFiltersQuery(appliedListFilters), [appliedListFilters]);
+  const activeListFilterCount = useMemo(() => Object.values(appliedListFilters).filter(Boolean).length, [appliedListFilters]);
+  const conversations = useQuery({
+    queryKey: ['conversations', filter, view, listFilterQuery],
+    queryFn: () => api<Envelope<Conversation[]>>(`/conversations?status=${filter}&view=${view}${listFilterQuery ? `&${listFilterQuery}` : ''}`),
+    refetchInterval: realtimeConnected ? false : 15_000,
+  });
   const counts = useQuery({ queryKey: ['conversation-counts', view], queryFn: () => api<Envelope<{ waiting: number; open: number; closed: number }>>(`/conversations/counts?view=${view}`), refetchInterval: realtimeConnected ? false : 15_000 });
-  const selectedId = conversationId || conversations.data?.data[0]?.id;
+  const filterOptions = useQuery({
+    queryKey: ['conversation-filter-options', view],
+    queryFn: () => api<Envelope<ConversationFilterOptions>>(`/conversations/filter-options?view=${view}`),
+    enabled: filterPanelOpen,
+    staleTime: 60_000,
+  });
+  const selectedId = conversationId || '';
   const conversation = useQuery({ queryKey: ['conversation', selectedId], queryFn: () => api<Envelope<Conversation>>(`/conversations/${selectedId}`), enabled: Boolean(selectedId), refetchInterval: realtimeConnected ? false : 10_000 });
   const history = useInfiniteQuery({
     queryKey: ['conversation-messages', selectedId],
@@ -97,15 +139,17 @@ export function InboxPage() {
       void client.invalidateQueries({ queryKey: ['conversation', id] });
     },
   });
-  useEffect(() => { if (!conversationId && selectedId) navigate(`/inbox/${selectedId}`, { replace: true }); }, [conversationId, selectedId, navigate]);
   useEffect(() => {
     if (selectedId && (conversation.data?.data.unreadCount || 0) > 0 && !markRead.isPending) markRead.mutate(selectedId);
   }, [selectedId, conversation.data?.data.unreadCount, markRead.isPending]);
   useEffect(() => {
-    if (!conversationId || !conversation.data?.data.status) return;
-    const currentStatus = conversation.data.data.status.toLowerCase() as 'waiting' | 'open' | 'closed';
-    setFilter(currentStatus);
+    const currentStatus = conversation.data?.data.status;
+    if (!shouldSyncInboxFilter(conversationId, currentStatus, closingWithoutFilterChangeRef.current)) return;
+    setFilter(inboxFilterForStatus(currentStatus!));
   }, [conversationId, conversation.data?.data.status]);
+  useEffect(() => {
+    if (!conversationId) closingWithoutFilterChangeRef.current = null;
+  }, [conversationId]);
   const normalizedSearch = search.trim().toLocaleLowerCase('pt-BR');
   const shown = useMemo(() => conversations.data?.data.filter((item) => !normalizedSearch || item.contact.name.toLocaleLowerCase('pt-BR').includes(normalizedSearch)) || [], [conversations.data?.data, normalizedSearch]);
   const historyMessages = useMemo(() => uniqueById(history.data?.pages.flatMap((page) => page.data.messages) || []), [history.data]);
@@ -130,22 +174,23 @@ export function InboxPage() {
     onSuccess: (response) => moveToConversationStatus(response.data),
   });
   const status = useMutation({
-    mutationFn: (value: string) => api<Envelope<Conversation>>(`/conversations/${selectedId}/status`, { method: 'PATCH', body: JSON.stringify({ status: value }) }),
-    onMutate: async (value) => {
-      const current = conversation.data?.data;
-      if (!current || !selectedId) return;
-      setStatusError('');
+    mutationFn: ({ conversationId: statusConversationId, value }: { conversationId: string; value: 'OPEN' | 'CLOSED' }) =>
+      api<Envelope<Conversation>>(`/conversations/${statusConversationId}/status`, { method: 'PATCH', body: JSON.stringify({ status: value }) }),
+    onMutate: async ({ conversationId: statusConversationId, value }) => {
+      const current = client.getQueryData<Envelope<Conversation>>(['conversation', statusConversationId])?.data
+        || (selectedId === statusConversationId ? conversation.data?.data : undefined);
+      if (!current) return;
       await Promise.all([
-        client.cancelQueries({ queryKey: ['conversation', selectedId] }),
+        client.cancelQueries({ queryKey: ['conversation', statusConversationId] }),
         client.cancelQueries({ queryKey: ['conversations'] }),
         client.cancelQueries({ queryKey: ['conversation-counts'] }),
       ]);
       const previousFilter = filter;
       const targetStatus = value === 'CLOSED' ? 'CLOSED' : current.assignee ? 'OPEN' : 'WAITING';
       const targetFilter = inboxFilterForStatus(targetStatus);
-      const sourceKey = ['conversations', previousFilter, view] as const;
-      const targetKey = ['conversations', targetFilter, view] as const;
-      const conversationKey = ['conversation', selectedId] as const;
+      const sourceKey = ['conversations', previousFilter, view, listFilterQuery] as const;
+      const targetKey = ['conversations', targetFilter, view, listFilterQuery] as const;
+      const conversationKey = ['conversation', statusConversationId] as const;
       const countsKey = ['conversation-counts', view] as const;
       const previousConversation = client.getQueryData<Envelope<Conversation>>(conversationKey);
       const previousSource = client.getQueryData<Envelope<Conversation[]>>(sourceKey);
@@ -153,11 +198,12 @@ export function InboxPage() {
       const previousCounts = client.getQueryData<Envelope<{ waiting: number; open: number; closed: number }>>(countsKey);
       const optimistic = { ...current, status: targetStatus };
 
+      if (value === 'CLOSED') closingWithoutFilterChangeRef.current = statusConversationId;
       client.setQueryData<Envelope<Conversation>>(conversationKey, (cached) => cached ? { ...cached, data: { ...cached.data, status: targetStatus } } : { data: optimistic });
-      client.setQueryData<Envelope<Conversation[]>>(sourceKey, (cached) => cached ? { ...cached, data: cached.data.filter((item) => item.id !== selectedId) } : { data: [] });
+      client.setQueryData<Envelope<Conversation[]>>(sourceKey, (cached) => cached ? { ...cached, data: cached.data.filter((item) => item.id !== statusConversationId) } : { data: [] });
       client.setQueryData<Envelope<Conversation[]>>(targetKey, (cached) => ({
         ...(cached || { data: [] }),
-        data: uniqueById([optimistic, ...(cached?.data || []).filter((item) => item.id !== selectedId)]),
+        data: uniqueById([optimistic, ...(cached?.data || []).filter((item) => item.id !== statusConversationId)]),
       }));
       client.setQueryData<Envelope<{ waiting: number; open: number; closed: number }>>(countsKey, (cached) => {
         if (!cached || previousFilter === targetFilter) return cached;
@@ -167,20 +213,35 @@ export function InboxPage() {
           [targetFilter]: cached.data[targetFilter] + 1,
         } };
       });
-      setFilter(targetFilter);
-      return { previousFilter, sourceKey, targetKey, conversationKey, countsKey, previousConversation, previousSource, previousTarget, previousCounts };
+      const clearedSelection = value === 'CLOSED';
+      if (clearedSelection) navigate('/inbox', { replace: true });
+      else setFilter(targetFilter);
+      return {
+        previousFilter,
+        previousSelectedId: statusConversationId,
+        clearedSelection,
+        sourceKey,
+        targetKey,
+        conversationKey,
+        countsKey,
+        previousConversation,
+        previousSource,
+        previousTarget,
+        previousCounts,
+      };
     },
     onSuccess: (response) => {
+      toast.success(response.data.status === 'CLOSED' ? 'Atendimento finalizado.' : 'Atendimento reaberto.');
       const targetFilter = inboxFilterForStatus(response.data.status);
       const cachedConversation = client.getQueryData<Envelope<Conversation>>(['conversation', response.data.id]);
       const reconciled = cachedConversation ? { ...cachedConversation.data, ...response.data } : response.data;
       client.setQueryData<Envelope<Conversation>>(['conversation', response.data.id], (cached) => cached ? { ...cached, data: reconciled } : { data: reconciled });
-      client.setQueryData<Envelope<Conversation[]>>(['conversations', targetFilter, view], (cached) => ({
+      client.setQueryData<Envelope<Conversation[]>>(['conversations', targetFilter, view, listFilterQuery], (cached) => ({
         ...(cached || { data: [] }),
         data: uniqueById([reconciled, ...(cached?.data || []).filter((item) => item.id !== response.data.id)]),
       }));
     },
-    onError: (error, _value, context) => {
+    onError: (_error, _value, context) => {
       if (context) {
         if (context.previousConversation) client.setQueryData(context.conversationKey, context.previousConversation);
         else client.removeQueries({ queryKey: context.conversationKey, exact: true });
@@ -190,29 +251,67 @@ export function InboxPage() {
         else client.removeQueries({ queryKey: context.targetKey, exact: true });
         if (context.previousCounts) client.setQueryData(context.countsKey, context.previousCounts);
         else client.removeQueries({ queryKey: context.countsKey, exact: true });
+        if (closingWithoutFilterChangeRef.current === context.previousSelectedId) closingWithoutFilterChangeRef.current = null;
         setFilter(context.previousFilter);
+        if (context.clearedSelection) navigate(`/inbox/${context.previousSelectedId}`, { replace: true });
       }
-      setStatusError(apiErrorMessage(error, 'Não foi possível atualizar o atendimento'));
     },
-    onSettled: () => {
+    onSettled: (_data, _error, variables) => {
       void client.invalidateQueries({ queryKey: ['conversations'], refetchType: 'active' });
       void client.invalidateQueries({ queryKey: ['conversation-counts'], refetchType: 'active' });
-      void client.invalidateQueries({ queryKey: ['conversation', selectedId], refetchType: 'active' });
-      void client.invalidateQueries({ queryKey: ['conversation-messages', selectedId], refetchType: 'active' });
+      void client.invalidateQueries({ queryKey: ['conversation', variables.conversationId], refetchType: 'active' });
+      void client.invalidateQueries({ queryKey: ['conversation-messages', variables.conversationId], refetchType: 'active' });
     },
   });
-  useEffect(() => {
-    if (!statusError) return;
-    const timer = window.setTimeout(() => setStatusError(''), 4200);
-    return () => window.clearTimeout(timer);
-  }, [statusError]);
   const changeFilter = (next: InboxFilter) => {
     setFilter(next);
     navigate('/inbox', { replace: true });
   };
   const toggleAll = () => {
-    setShowAll((current) => !current);
+    const nextShowAll = !showAll;
+    setShowAll(nextShowAll);
+    if (!nextShowAll && appliedListFilters.assigneeId && !['unassigned', user?.userId].includes(appliedListFilters.assigneeId)) {
+      setAppliedListFilters((current) => ({ ...current, assigneeId: '' }));
+      setDraftListFilters((current) => ({ ...current, assigneeId: '' }));
+    }
     navigate('/inbox', { replace: true });
+  };
+  const toggleFilterPanel = () => {
+    setFilterPanelOpen((open) => {
+      if (!open) setDraftListFilters({ ...appliedListFilters });
+      return !open;
+    });
+  };
+  const clearListFilters = () => {
+    setDraftListFilters({ ...EMPTY_CONVERSATION_FILTERS });
+    setAppliedListFilters({ ...EMPTY_CONVERSATION_FILTERS });
+    setFilterPanelOpen(false);
+  };
+  const applyListFilters = () => {
+    if (isAdmin && draftListFilters.assigneeId && !['unassigned', user?.userId].includes(draftListFilters.assigneeId)) {
+      setShowAll(true);
+    }
+    setAppliedListFilters({ ...draftListFilters });
+    setFilterPanelOpen(false);
+  };
+  const invalidFilterDateRange = Boolean(
+    draftListFilters.lastInteractionFrom
+    && draftListFilters.lastInteractionTo
+    && draftListFilters.lastInteractionFrom > draftListFilters.lastInteractionTo,
+  );
+  const openTicketMenu = (event: React.MouseEvent<HTMLButtonElement>, item: Conversation) => {
+    event.preventDefault();
+    event.stopPropagation();
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = 252;
+    const height = 294;
+    const pointerX = event.clientX || rect.left + Math.min(rect.width - 12, 90);
+    const pointerY = event.clientY || rect.top + 18;
+    setTicketMenu({
+      conversation: item,
+      top: Math.max(8, Math.min(pointerY, window.innerHeight - height - 8)),
+      left: Math.max(8, Math.min(pointerX, window.innerWidth - width - 8)),
+    });
   };
   if (conversations.isLoading) return <PageLoading />;
   const emptyText = filter === 'waiting'
@@ -228,13 +327,39 @@ export function InboxPage() {
         <button className={filter === 'open' ? 'active' : ''} onClick={() => changeFilter('open')}>Abertas <span>{counts.data?.data.open || 0}</span></button>
         <button className={filter === 'closed' ? 'active' : ''} onClick={() => changeFilter('closed')}>Encerradas <span>{counts.data?.data.closed || 0}</span></button>
       </div>
-      <div className="conversation-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar conversa…" /><button aria-label="Filtrar conversas"><Filter size={14} /></button></div>
-      <div className="conversation-list">{shown.map((item) => <button key={item.id} className={item.id === selectedId ? 'active' : ''} onClick={() => navigate(`/inbox/${item.id}`)}><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></div><p>{item.messages[0]?.text || 'Mídia ou nova conversa'}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>)}</div>
+      <div className="conversation-search">
+        <Search size={15} />
+        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar conversa…" />
+        <button type="button" className={activeListFilterCount ? 'active' : ''} onClick={toggleFilterPanel} aria-label="Filtrar conversas" aria-expanded={filterPanelOpen} title={activeListFilterCount ? `${activeListFilterCount} filtro(s) ativo(s)` : 'Filtrar conversas'}><Filter size={14} />{activeListFilterCount > 0 && <b>{activeListFilterCount}</b>}</button>
+        {filterPanelOpen && <div className="conversation-filter-panel">
+          <header><div><strong>Filtrar conversas</strong><span>Refine os tickets desta aba</span></div><button type="button" onClick={() => setFilterPanelOpen(false)} aria-label="Fechar filtros"><X size={16} /></button></header>
+          <div className="conversation-filter-section">
+            <label>Última interação</label>
+            <div className="conversation-filter-dates">
+              <span><small>De</small><input type="date" value={draftListFilters.lastInteractionFrom} max={draftListFilters.lastInteractionTo || undefined} onChange={(event) => setDraftListFilters((current) => ({ ...current, lastInteractionFrom: event.target.value }))} /></span>
+              <span><small>Até</small><input type="date" value={draftListFilters.lastInteractionTo} min={draftListFilters.lastInteractionFrom || undefined} onChange={(event) => setDraftListFilters((current) => ({ ...current, lastInteractionTo: event.target.value }))} /></span>
+            </div>
+            {invalidFilterDateRange && <p>A data final deve ser igual ou posterior à inicial.</p>}
+          </div>
+          <label className="conversation-filter-field"><span>Conexão Evolution</span><select value={draftListFilters.instanceId} onChange={(event) => setDraftListFilters((current) => ({ ...current, instanceId: event.target.value }))}><option value="">Todas as conexões</option>{filterOptions.isLoading && <option disabled>Carregando conexões…</option>}{(filterOptions.data?.data.instances || []).map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''} · {instance.status === 'CONNECTED' ? 'Conectada' : 'Desconectada'}</option>)}</select></label>
+          <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draftListFilters.assigneeId} onChange={(event) => setDraftListFilters((current) => ({ ...current, assigneeId: event.target.value }))}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{filterOptions.isLoading && <option disabled>Carregando usuários…</option>}{(filterOptions.data?.data.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
+          {filterOptions.isError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
+          <footer><button type="button" className="conversation-filter-clear" onClick={clearListFilters} disabled={!activeListFilterCount && !Object.values(draftListFilters).some(Boolean)}>Limpar</button><Button type="button" onClick={applyListFilters} disabled={invalidFilterDateRange}>Aplicar filtros</Button></footer>
+        </div>}
+      </div>
+      <div className="conversation-list">{shown.length ? shown.map((item) => <button
+        key={item.id}
+        className={`${item.id === selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
+        onClick={() => { setTicketMenu(null); navigate(`/inbox/${item.id}`); }}
+        onContextMenu={(event) => openTicketMenu(event, item)}
+      ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{item.messages[0]?.text || 'Mídia ou nova conversa'}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>) : <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{activeListFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.'}</span>{activeListFilterCount > 0 && <button type="button" onClick={clearListFilters}>Limpar filtros</button>}</div>}</div>
     </aside>
-    {selectedId && (conversation.isLoading || history.isLoading)
-      ? <PageLoading />
-      : selectedConversation
-        ? <ConversationView
+    {!selectedId
+      ? <div className="conversation-empty"><Empty icon={<Inbox />} title="Nenhum atendimento selecionado" description="Selecione uma conversa para conseguir enviar mensagens." /></div>
+      : conversation.isLoading || history.isLoading
+        ? <PageLoading />
+        : selectedConversation
+          ? <ConversationView
             key={selectedConversation.id}
             conversation={selectedConversation}
             hasOlderMessages={Boolean(history.hasNextPage)}
@@ -256,9 +381,28 @@ export function InboxPage() {
               moveToConversationStatus(response.data);
             }}
             statusChanging={status.isPending}
-            onClose={() => { if (!status.isPending) status.mutate(selectedConversation.status === 'CLOSED' ? 'OPEN' : 'CLOSED'); }}
-          />
-        : <div className="conversation-empty"><Empty icon={<Inbox />} title={emptyText[0]} description={emptyText[1]} /></div>}
+            onClose={() => {
+              if (!status.isPending) {
+                status.mutate({
+                  conversationId: selectedConversation.id,
+                  value: selectedConversation.status === 'CLOSED' ? 'OPEN' : 'CLOSED',
+                });
+              }
+            }}
+            />
+          : <div className="conversation-empty"><Empty icon={<Inbox />} title={emptyText[0]} description={emptyText[1]} /></div>}
+    <TicketContextActions
+      menu={ticketMenu}
+      onClose={() => setTicketMenu(null)}
+      onUpdated={invalidate}
+      onFinalized={(conversationId) => {
+        if (conversationId === selectedId) {
+          closingWithoutFilterChangeRef.current = conversationId;
+          navigate('/inbox', { replace: true });
+        }
+        invalidate();
+      }}
+    />
     {startingConversation && <NewConversationModal onClose={() => setStartingConversation(false)} onStarted={(id) => {
       setStartingConversation(false);
       setFilter('open');
@@ -266,8 +410,121 @@ export function InboxPage() {
       void client.invalidateQueries({ queryKey: ['conversation-counts'] });
       navigate(`/inbox/${id}`);
     }} />}
-    {statusError && createPortal(<div className="message-action-toast error" role="alert">{statusError}</div>, document.body)}
   </div>;
+}
+
+function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: {
+  menu: TicketContextMenuState | null;
+  onClose(): void;
+  onUpdated(): void;
+  onFinalized(conversationId: string): void;
+}) {
+  const { user } = useAuth();
+  const [opportunityContact, setOpportunityContact] = useState<Contact | null>(null);
+  const [transferConversation, setTransferConversation] = useState<Conversation | null>(null);
+  const [transferTarget, setTransferTarget] = useState('');
+  const canCreateOpportunity = Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
+    (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
+  const assignees = useQuery({
+    queryKey: ['conversation-assignees'],
+    queryFn: () => api<Envelope<ConversationAssignee[]>>('/conversations/assignees'),
+    enabled: Boolean(transferConversation),
+    staleTime: 60_000,
+  });
+  const transferTargets = useMemo(
+    () => (assignees.data?.data || []).filter((assignee) => assignee.id !== transferConversation?.assignee?.id),
+    [assignees.data?.data, transferConversation?.assignee?.id],
+  );
+  const pin = useMutation({
+    mutationFn: (conversation: Conversation) => api<Envelope<{ id: string; isPinned: boolean }>>(`/conversations/${conversation.id}/pin`, {
+      method: 'PATCH',
+      body: JSON.stringify({ pinned: !conversation.isPinned }),
+    }),
+    onSuccess: (response) => {
+      toast.success(response.data.isPinned ? 'Conversa fixada.' : 'Conversa desafixada.');
+      onUpdated();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível alterar a fixação')),
+  });
+  const finalize = useMutation({
+    mutationFn: (conversation: Conversation) => api<Envelope<Conversation>>(`/conversations/${conversation.id}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ status: 'CLOSED' }),
+    }),
+    onSuccess: (_response, conversation) => {
+      toast.success('Atendimento finalizado.');
+      onFinalized(conversation.id);
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível finalizar o atendimento')),
+  });
+  const transfer = useMutation({
+    mutationFn: ({ conversationId, assigneeId }: { conversationId: string; assigneeId: string }) => api<Envelope<Conversation>>(`/conversations/${conversationId}/assign`, {
+      method: 'PATCH',
+      body: JSON.stringify({ assigneeId }),
+    }),
+    onSuccess: () => {
+      setTransferConversation(null);
+      setTransferTarget('');
+      toast.success('Atendimento transferido.');
+      onUpdated();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível transferir o atendimento')),
+  });
+  const exportPdf = useMutation({
+    mutationFn: async (conversation: Conversation) => {
+      const response = await apiFetch(`/conversations/${conversation.id}/export/pdf`);
+      if (!response.ok) {
+        const body = await response.json().catch(() => null) as { message?: string } | null;
+        throw new Error(body?.message || 'Não foi possível exportar a conversa');
+      }
+      return { blob: await response.blob(), conversation };
+    },
+    onSuccess: ({ blob, conversation }) => {
+      const href = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      const safeName = conversation.contact.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'contato';
+      link.href = href;
+      link.download = `conversa-${safeName}.pdf`;
+      document.body.appendChild(link);
+      link.click();
+      link.remove();
+      window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
+      toast.success('Conversa exportada em PDF.');
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível exportar a conversa')),
+  });
+
+  return <>
+    {menu && createPortal(<>
+      <button type="button" className="message-menu-scrim" onClick={onClose} aria-label="Fechar ações do ticket" />
+      <div className="conversation-action-menu ticket-context-menu" role="menu" style={{ top: menu.top, left: menu.left }}>
+        {menu.conversation.status === 'OPEN' && <button type="button" role="menuitem" disabled={pin.isPending} onClick={() => { const item = menu.conversation; onClose(); pin.mutate(item); }}>{menu.conversation.isPinned ? <PinOff size={17} /> : <Pin size={17} />}<span>{menu.conversation.isPinned ? 'Desafixar' : 'Fixar'}</span></button>}
+        <button type="button" role="menuitem" className="danger" disabled={menu.conversation.status === 'CLOSED' || finalize.isPending} title={menu.conversation.status === 'CLOSED' ? 'Este atendimento já está finalizado' : undefined} onClick={() => { const item = menu.conversation; onClose(); finalize.mutate(item); }}><Archive size={17} /><span>Finalizar</span></button>
+        {menu.conversation.contact.phone
+          ? <a role="menuitem" href={`tel:${menu.conversation.contact.phone}`} onClick={onClose}><Phone size={17} /><span>Ligar</span></a>
+          : <button type="button" role="menuitem" disabled title="O contato não possui telefone cadastrado"><Phone size={17} /><span>Ligar</span></button>}
+        <button type="button" role="menuitem" disabled={!canCreateOpportunity} title={!canCreateOpportunity ? 'Você não possui permissão para criar oportunidades' : undefined} onClick={() => { const contact = menu.conversation.contact; onClose(); setOpportunityContact(contact); }}><BriefcaseBusiness size={17} /><span>Criar oportunidade</span></button>
+        <button type="button" role="menuitem" disabled={menu.conversation.status === 'CLOSED'} title={menu.conversation.status === 'CLOSED' ? 'Reabra a conversa antes de transferir' : undefined} onClick={() => { const item = menu.conversation; onClose(); setTransferTarget(''); setTransferConversation(item); }}><ArrowRightLeft size={17} /><span>Transferir</span></button>
+        <button type="button" role="menuitem" disabled={exportPdf.isPending} onClick={() => { const item = menu.conversation; onClose(); exportPdf.mutate(item); }}><Download size={17} /><span>{exportPdf.isPending ? 'Exportando PDF…' : 'Exportar para PDF'}</span></button>
+      </div>
+    </>, document.body)}
+    {opportunityContact && <ContactOpportunityModal
+      contact={opportunityContact}
+      onClose={() => setOpportunityContact(null)}
+      onCreated={() => {
+        setOpportunityContact(null);
+        toast.success('Oportunidade criada.');
+        onUpdated();
+      }}
+    />}
+    {transferConversation && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferConversation(null); setTransferTarget(''); } }} width={540}>
+      <div className="conversation-transfer">
+        <div className="conversation-transfer-intro"><ArrowRightLeft size={20} /><div><strong>Escolha o novo atendente</strong><p>A conversa será removida da sua fila e o novo responsável receberá uma notificação.</p></div></div>
+        {assignees.isLoading ? <PageLoading /> : assignees.isError ? null : transferTargets.length ? <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div> : <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>}
+      </div>
+      <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferConversation(null); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate({ conversationId: transferConversation.id, assigneeId: transferTarget })} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
+    </Modal>}
+  </>;
 }
 
 function NewConversationModal({ onClose, onStarted }: { onClose(): void; onStarted(id: string): void }) {
@@ -285,21 +542,82 @@ function NewConversationModal({ onClose, onStarted }: { onClose(): void; onStart
   }, [instanceId, instances.data]);
   const start = useMutation({
     mutationFn: () => api<Envelope<{ id: string }>>('/conversations/start', { method: 'POST', body: JSON.stringify({ contactId, instanceId }) }),
-    onSuccess: (result) => onStarted(result.data.id),
+    onSuccess: (result) => {
+      toast.success('Conversa iniciada.');
+      onStarted(result.data.id);
+    },
   });
   const selectedContact = contacts.data?.data.find((contact) => contact.id === contactId);
   return <Modal title="Nova conversa" onClose={onClose} width={620}>
     <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId) start.mutate(); }}>
       <label className="conversation-contact-search"><span>Selecionar contato</span><div><Search size={16} /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, telefone ou e-mail…" /></div></label>
       <div className="conversation-contact-list">
-        {contacts.isLoading ? <PageLoading /> : contacts.error ? <div className="form-error">{contacts.error.message}</div> : contacts.data?.data.length ? contacts.data.data.map((contact) => <button type="button" key={contact.id} className={contact.id === contactId ? 'selected' : ''} disabled={!contact.phone} onClick={() => setContactId(contact.id)}>
+        {contacts.isLoading ? <PageLoading /> : contacts.error ? null : contacts.data?.data.length ? contacts.data.data.map((contact) => <button type="button" key={contact.id} className={contact.id === contactId ? 'selected' : ''} disabled={!contact.phone} onClick={() => setContactId(contact.id)}>
           <span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong><small>{formatPhone(contact.phone) || 'Sem telefone'}{contact.email ? ` · ${contact.email}` : ''}</small></div>{contact.id === contactId && <Check size={17} />}
         </button>) : <div className="conversation-contact-empty"><strong>Nenhum contato encontrado</strong><span>Tente buscar usando outro nome, telefone ou e-mail.</span></div>}
       </div>
       {selectedContact && <div className="conversation-selected-contact"><Check size={15} /><span><strong>{selectedContact.name}</strong> será aberto em um novo ticket.</span></div>}
-      {instances.isLoading ? <PageLoading /> : instances.data?.data.length ? <SelectField label="Número do WhatsApp" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>{instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}</option>)}</SelectField> : <div className="form-error">Nenhuma conexão do WhatsApp está ativa.</div>}
-      {start.error && <div className="form-error">{start.error.message}</div>}
+      {instances.isLoading ? <PageLoading /> : instances.data?.data.length ? <SelectField label="Número do WhatsApp" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>{instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}</option>)}</SelectField> : <div className="form-hint">Nenhuma conexão do WhatsApp está ativa.</div>}
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={start.isPending} disabled={!contactId || !instanceId}><MessageCircle size={16} />Abrir ticket</Button></div>
+    </form>
+  </Modal>;
+}
+
+function SharedContactConversationModal({ contact, preferredInstanceId, onClose, onStarted }: {
+  contact: SharedWhatsappContact;
+  preferredInstanceId?: string;
+  onClose(): void;
+  onStarted(id: string): void;
+}) {
+  const client = useQueryClient();
+  const [instanceId, setInstanceId] = useState('');
+  const instances = useQuery({
+    queryKey: ['conversation-instances'],
+    queryFn: () => api<Envelope<WhatsappInstance[]>>('/conversations/instances'),
+    staleTime: 30_000,
+  });
+  useEffect(() => {
+    if (instanceId || !instances.data?.data.length) return;
+    const preferred = instances.data.data.find((instance) => instance.id === preferredInstanceId);
+    setInstanceId(preferred?.id || instances.data.data[0].id);
+  }, [instanceId, instances.data, preferredInstanceId]);
+  const start = useMutation({
+    mutationFn: async () => {
+      const saved = await api<Envelope<Contact>>('/contacts/shared', {
+        method: 'POST',
+        body: JSON.stringify({ name: contact.name, phone: contact.phone }),
+      });
+      return api<Envelope<{ id: string }>>('/conversations/start', {
+        method: 'POST',
+        body: JSON.stringify({ contactId: saved.data.id, instanceId }),
+      });
+    },
+    onSuccess: (response) => {
+      void client.invalidateQueries({ queryKey: ['contacts'] });
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+      void client.invalidateQueries({ queryKey: ['conversation-counts'] });
+      toast.success('Contato salvo e conversa iniciada.');
+      onStarted(response.data.id);
+    },
+  });
+  return <Modal title="Iniciar conversa" onClose={() => { if (!start.isPending) onClose(); }} width={520}>
+    <form className="shared-contact-start-form" onSubmit={(event) => { event.preventDefault(); if (instanceId) start.mutate(); }}>
+      <div className="shared-contact-start-person">
+        <span>{initials(contact.name)}</span>
+        <div><strong>{contact.name}</strong><small>{formatPhone(contact.phone)}</small></div>
+      </div>
+      <p>O contato será salvo automaticamente na agenda e o atendimento ficará atribuído a você.</p>
+      {instances.isLoading
+        ? <PageLoading />
+        : instances.data?.data.length
+          ? <SelectField label="Enviar pelo número" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>
+              {instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
+            </SelectField>
+          : <div className="form-hint">Nenhuma conexão do WhatsApp está ativa para iniciar a conversa.</div>}
+      <div className="modal-actions">
+        <Button type="button" variant="secondary" onClick={onClose} disabled={start.isPending}>Cancelar</Button>
+        <Button type="submit" loading={start.isPending} disabled={!instanceId}><MessageCircle size={16} />Salvar e iniciar</Button>
+      </div>
     </form>
   </Modal>;
 }
@@ -351,9 +669,7 @@ function ContactOpportunityModal({ contact, onClose, onCreated }: { contact: Con
         </SelectField>
       </div>
       <Field label="Valor estimado (R$)" type="number" min="0" step="0.01" value={value} onChange={(event) => setValue(event.target.value)} placeholder="0,00" />
-      {pipelines.isError && <div className="form-error">Não foi possível carregar os funis disponíveis.</div>}
-      {!pipelines.isError && !pipelines.data?.data.length && <div className="form-error">Nenhum funil está configurado.</div>}
-      {create.error && <div className="form-error">{create.error.message}</div>}
+      {!pipelines.isError && !pipelines.data?.data.length && <div className="form-hint">Nenhum funil está configurado.</div>}
       <div className="modal-actions">
         <Button type="button" variant="secondary" onClick={onClose} disabled={create.isPending}>Cancelar</Button>
         <Button type="submit" loading={create.isPending} disabled={!activePipelineId || !activeStageId}><BriefcaseBusiness size={16} />Criar oportunidade</Button>
@@ -400,6 +716,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   onClose(): void;
 }) {
   const { user, refresh } = useAuth();
+  const navigate = useNavigate();
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
   const [filePreviewUrl, setFilePreviewUrl] = useState<string | null>(null);
@@ -407,12 +724,14 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [contactOpen, setContactOpen] = useState(false);
   const [replyingTo, setReplyingTo] = useState<Message | null>(null);
   const [editingMessage, setEditingMessage] = useState<Message | null>(null);
+  const [editHistoryMessage, setEditHistoryMessage] = useState<Message | null>(null);
   const [deletingMessage, setDeletingMessage] = useState<Message | null>(null);
   const [messageMenu, setMessageMenu] = useState<MessageMenuState | null>(null);
   const [conversationMenu, setConversationMenu] = useState<{ top: number; left: number } | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState('');
   const [opportunityOpen, setOpportunityOpen] = useState(false);
+  const [sharedContactToStart, setSharedContactToStart] = useState<SharedWhatsappContact | null>(null);
   const [actionNotice, setActionNotice] = useState('');
   const [actionError, setActionError] = useState('');
   const [downloadingMediaId, setDownloadingMediaId] = useState<string | null>(null);
@@ -451,6 +770,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const sendRecordingRef = useRef(false);
   const recordingDraftRef = useRef<{ replyToMessageId?: string; signatureEnabled: boolean }>({ signatureEnabled: false });
   const messagesById = useMemo(() => new Map(conversation.messages.map((message) => [message.id, message])), [conversation.messages]);
+  const messagesByProviderId = useMemo(() => new Map(conversation.messages.map((message) => [message.providerMessageId, message])), [conversation.messages]);
   const newestMessageId = conversation.messages.at(-1)?.id;
   const newestEventId = conversation.events?.at(-1)?.id;
   const canReply = conversation.status === 'OPEN' && Boolean(conversation.assignee);
@@ -483,7 +803,6 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         : `Este contato já está na versão publicada de “${workflow.name}”`);
       onSend();
     },
-    onError: (error) => setActionError(apiErrorMessage(error, 'Não foi possível iniciar a automação')),
   });
   const send = useMutation({
     mutationFn: async (draft: OutgoingDraft) => {
@@ -496,6 +815,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       return api(`/conversations/${conversation.id}/messages`, { method: 'POST', body: JSON.stringify({ type, text: draft.text || undefined, mediaKey: created.data.key, replyToMessageId: draft.replyToMessageId, signatureEnabled: draft.signatureEnabled }) });
     },
     onSuccess: () => { setText(''); setFile(null); setAttachmentError(''); setReplyingTo(null); onSend(); },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível enviar a mensagem')),
   });
   const releaseRecordingResources = useCallback(() => {
     if (recordingTimerRef.current !== null) window.clearInterval(recordingTimerRef.current);
@@ -718,14 +1038,19 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     return () => window.cancelAnimationFrame(frame);
   }, [conversation.id, canReply]);
   useEffect(() => {
+    if (!attachmentError) return;
+    toast.warning(attachmentError);
+    setAttachmentError('');
+  }, [attachmentError]);
+  useEffect(() => {
     if (!actionNotice) return;
-    const timer = window.setTimeout(() => setActionNotice(''), 2200);
-    return () => window.clearTimeout(timer);
+    toast.success(actionNotice);
+    setActionNotice('');
   }, [actionNotice]);
   useEffect(() => {
     if (!actionError) return;
-    const timer = window.setTimeout(() => setActionError(''), 4200);
-    return () => window.clearTimeout(timer);
+    toast.error(actionError);
+    setActionError('');
   }, [actionError]);
   useEffect(() => () => {
     if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
@@ -1142,7 +1467,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         : <MessageBubble
             key={item.message.id}
             message={item.message}
-            replyTo={messageReplyTarget(item.message, messagesById)}
+            replyTo={messageReplyTarget(item.message, messagesById, messagesByProviderId)}
+            replyFallback={messageQuotedPreview(item.message)}
             contactName={conversation.contact.name}
             menuOpen={messageMenu?.message.id === item.message.id}
             onMenu={openMessageMenu}
@@ -1152,6 +1478,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
             onRetry={retryMessage}
             retrying={retry.isPending && retry.variables === item.message.id}
             canRetry={canReply}
+            onStartSharedContact={setSharedContactToStart}
             onMediaReady={keepLatestVisible}
             audioPlaybackRate={audioPlaybackRate}
             onCycleAudioPlaybackRate={cycleAudioPlaybackRate}
@@ -1185,7 +1512,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
               : workflows.isLoading
                 ? <div className="automation-command-empty"><i />Carregando automações…</div>
                 : workflows.isError
-                  ? <div className="automation-command-empty error"><AlertCircle size={17} />Não foi possível carregar as automações.</div>
+                  ? null
                   : workflowOptions.length
                     ? workflowOptions.map((workflow, index) => <button
                         type="button"
@@ -1206,12 +1533,6 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
         {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
         <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleAutomationKeyDown} onChange={(value) => { setText(value); setAutomationMenuOpen(canReply && !editingMessage && !file && value.startsWith('/') && !value.includes('\n')); setAttachmentError(''); if (send.isError) send.reset(); if (edit.isError) edit.reset(); }} placeholder={composerPlaceholder} onSubmit={() => { if (!send.isPending && !edit.isPending && !startWorkflow.isPending) submitCurrentMessage(); }} />
-        {attachmentError && <span className="composer-error"><AlertCircle size={14} />{attachmentError}</span>}
-        {send.isError && <span className="composer-error"><AlertCircle size={14} />{send.error instanceof Error ? send.error.message : 'Não foi possível enviar a mensagem'}</span>}
-        {edit.isError && <span className="composer-error"><AlertCircle size={14} />{apiErrorMessage(edit.error, 'Não foi possível editar a mensagem')}</span>}
-        {retry.isError && <span className="composer-error"><AlertCircle size={14} />{retry.error instanceof Error ? retry.error.message : 'Não foi possível reenviar a mensagem'}</span>}
-        {react.isError && <span className="composer-error"><AlertCircle size={14} />{react.error instanceof Error ? react.error.message : 'Não foi possível enviar a reação'}</span>}
-        {signaturePreference.isError && <span className="composer-error"><AlertCircle size={14} />Não foi possível salvar a preferência de assinatura</span>}
           </div>
           {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending} aria-label={editingMessage ? 'Salvar edição' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'} title={editingMessage ? 'Salvar edição' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'}>{editingMessage ? <Check size={18} /> : automationMenuOpen ? <Workflow size={18} /> : <Send size={19} />}</Button></div>}
           {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={() => void startVoiceRecording()} disabled={send.isPending || startWorkflow.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
@@ -1232,6 +1553,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       onReply={() => startReply(messageMenu.message)}
       onReact={(emoji) => toggleReaction(messageMenu.message, emoji)}
       onEdit={() => startEdit(messageMenu.message)}
+      onEditHistory={() => { setEditHistoryMessage(messageMenu.message); setMessageMenu(null); }}
       onDelete={() => { setDeletingMessage(messageMenu.message); setMessageMenu(null); }}
     />, document.body)}
     {conversationMenu && createPortal(<>
@@ -1254,23 +1576,71 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         onSend();
       }}
     />}
-    {actionNotice && createPortal(<div className="message-action-toast" role="status">{actionNotice}</div>, document.body)}
-    {actionError && createPortal(<div className="message-action-toast error" role="alert">{actionError}</div>, document.body)}
+    {sharedContactToStart && <SharedContactConversationModal
+      contact={sharedContactToStart}
+      preferredInstanceId={conversation.instance.id}
+      onClose={() => setSharedContactToStart(null)}
+      onStarted={(conversationId) => {
+        setSharedContactToStart(null);
+        onSend();
+        navigate(`/inbox/${conversationId}`);
+      }}
+    />}
     {contactOpen && <ContactDrawer conversation={conversation} onClose={() => setContactOpen(false)} onUpdated={onSend} />}
+    {editHistoryMessage && <MessageEditHistoryModal message={editHistoryMessage} onClose={() => setEditHistoryMessage(null)} />}
     {deletingMessage && <Modal title="Apagar mensagem?" onClose={() => { if (!remove.isPending) setDeletingMessage(null); }} width={470}>
       <div className="delete-message-confirmation"><div className="delete-message-icon"><Trash2 size={22} /></div><div><strong>Apagar para todos</strong><p>A mensagem será removida desta conversa e também do WhatsApp do contato.</p><blockquote>{messagePreview(deletingMessage)}</blockquote></div></div>
-      {remove.isError && <div className="form-error">{remove.error instanceof Error ? remove.error.message : 'Não foi possível apagar a mensagem'}</div>}
       <div className="modal-actions"><Button variant="secondary" onClick={() => setDeletingMessage(null)} disabled={remove.isPending}>Cancelar</Button><Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate(deletingMessage.id)}><Trash2 size={16} />Apagar para todos</Button></div>
     </Modal>}
     {transferOpen && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferOpen(false); setTransferTarget(''); } }} width={540}>
       <div className="conversation-transfer">
         <div className="conversation-transfer-intro"><ArrowRightLeft size={20} /><div><strong>Escolha o novo atendente</strong><p>A conversa será removida da sua fila e o novo responsável receberá uma notificação.</p></div></div>
-        {assignees.isLoading ? <PageLoading /> : assignees.isError ? <div className="form-error">{assignees.error instanceof Error ? assignees.error.message : 'Não foi possível carregar os atendentes'}</div> : transferTargets.length ? <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div> : <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>}
-        {transfer.isError && <div className="form-error">{transfer.error instanceof Error ? transfer.error.message : 'Não foi possível transferir o atendimento'}</div>}
+        {assignees.isLoading ? <PageLoading /> : assignees.isError ? null : transferTargets.length ? <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div> : <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>}
       </div>
       <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferOpen(false); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate(transferTarget)} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
     </Modal>}
   </section>;
+}
+
+function MessageEditHistoryModal({ message, onClose }: { message: Message; onClose(): void }) {
+  const previousVersions = messageEditHistory(message)
+    .map((version, index) => ({ ...version, original: index === 0 }))
+    .reverse();
+  const editedAt = messageEditedAt(message);
+  const currentText = message.text
+    || (typeof message.payload?.originalText === 'string' ? message.payload.originalText : '')
+    || 'Conteúdo indisponível';
+
+  return <Modal title="Histórico de edições" onClose={onClose} width={620}>
+    <div className="message-edit-history">
+      <div className="message-edit-history-intro">
+        <History size={20} />
+        <div>
+          <strong>Versões desta mensagem</strong>
+          <p>O histórico é interno e não envia nenhuma informação adicional ao contato.</p>
+        </div>
+      </div>
+      <div className="message-edit-history-list">
+        <article className="current">
+          <header>
+            <strong>Versão atual</strong>
+            <span>{editedAt ? `Editada em ${dateTime(editedAt)}` : 'Versão atual'}</span>
+          </header>
+          <div><WhatsappText text={currentText} /></div>
+        </article>
+        {previousVersions.map((version, index) => <article key={`${version.editedAt || 'version'}-${index}`}>
+          <header>
+            <strong>{version.original ? 'Mensagem original' : 'Versão anterior'}</strong>
+            <span>{version.editedAt ? `Substituída em ${dateTime(version.editedAt)}` : 'Data não informada'}</span>
+          </header>
+          <div><WhatsappText text={version.text || 'Conteúdo vazio'} /></div>
+        </article>)}
+      </div>
+    </div>
+    <div className="modal-actions message-edit-history-actions">
+      <Button variant="secondary" onClick={onClose}>Fechar</Button>
+    </div>
+  </Modal>;
 }
 
 function ContactDrawer({ conversation, onClose, onUpdated }: { conversation: Conversation; onClose(): void; onUpdated(): void }) {
@@ -1354,8 +1724,6 @@ function ContactDrawer({ conversation, onClose, onUpdated }: { conversation: Con
             <button type="submit" className="icon-button contact-inline-save" disabled={inlineSaveDisabled} aria-label={`Salvar ${label.toLowerCase()}`} title="Salvar"><Check size={15} /></button>
             <button type="button" className="icon-button" onClick={cancelInlineEdit} disabled={inlineUpdate.isPending} aria-label="Cancelar edição" title="Cancelar"><X size={15} /></button>
           </div>
-          {companies.isError && field === 'companyId' && <small className="contact-inline-error">Não foi possível carregar as empresas.</small>}
-          {inlineUpdate.error && <small className="contact-inline-error">{inlineUpdate.error.message}</small>}
         </div>
       </form>;
     }
@@ -1414,9 +1782,51 @@ const ConversationEventLog = memo(function ConversationEventLog({ event }: { eve
   return <div className={`conversation-event conversation-event-${event.type}`}><span><History size={13} /><strong>{event.text}</strong><time>{dateTime(event.createdAt).split(' ')[1]}</time></span></div>;
 });
 
-const MessageBubble = memo(function MessageBubble({ message, replyTo, contactName, menuOpen, onMenu, onReactionMenu, onJumpToReply, onReply, onRetry, retrying, canRetry, onMediaReady, audioPlaybackRate, onCycleAudioPlaybackRate }: {
+const SharedContactCard = memo(function SharedContactCard({ contact, onStart }: { contact: SharedWhatsappContact; onStart(): void }) {
+  return <div className="shared-contact-card">
+    <div className="shared-contact-card-person">
+      <span>{initials(contact.name)}</span>
+      <div><strong>{contact.name}</strong><small>{formatPhone(contact.phone)}</small></div>
+    </div>
+    <button type="button" onClick={onStart}><MessageCircle size={16} />Iniciar conversa</button>
+  </div>;
+});
+
+function ExpandableText({ text, whatsapp = false }: { text: string; whatsapp?: boolean }) {
+  const contentRef = useRef<HTMLParagraphElement>(null);
+  const [expanded, setExpanded] = useState(false);
+  const [overflowing, setOverflowing] = useState(false);
+
+  useEffect(() => setExpanded(false), [text]);
+  useLayoutEffect(() => {
+    const content = contentRef.current;
+    if (!content || expanded) return;
+    const updateOverflow = () => setOverflowing(content.scrollHeight > content.clientHeight + 1);
+    updateOverflow();
+    const observer = new ResizeObserver(updateOverflow);
+    observer.observe(content);
+    return () => observer.disconnect();
+  }, [expanded, text]);
+
+  return <>
+    <p ref={contentRef} className={`expandable-message-text${expanded ? ' expanded' : ' collapsed'}`}>
+      {whatsapp ? <WhatsappText text={text} /> : text}
+    </p>
+    {(overflowing || expanded) && <button
+      type="button"
+      className="expandable-message-toggle"
+      aria-expanded={expanded}
+      onClick={() => setExpanded((current) => !current)}
+    >
+      {expanded ? 'Ver menos' : 'Ver mais...'}
+    </button>}
+  </>;
+}
+
+const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallback, contactName, menuOpen, onMenu, onReactionMenu, onJumpToReply, onReply, onRetry, retrying, canRetry, onStartSharedContact, onMediaReady, audioPlaybackRate, onCycleAudioPlaybackRate }: {
   message: Message;
   replyTo?: Message;
+  replyFallback?: string;
   contactName: string;
   menuOpen: boolean;
   onMenu(message: Message, clientX: number, clientY: number): void;
@@ -1426,6 +1836,7 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, contactNam
   onRetry(messageId: string): void;
   retrying: boolean;
   canRetry: boolean;
+  onStartSharedContact(contact: SharedWhatsappContact): void;
   onMediaReady(): void;
   audioPlaybackRate: number;
   onCycleAudioPlaybackRate(): void;
@@ -1433,18 +1844,21 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, contactNam
   const outbound = message.direction === 'OUTBOUND';
   const failure = message.status === 'FAILED' ? describeMessageFailure(message.payload) : undefined;
   const reactions = messageReactions(message);
+  const edited = isMessageEdited(message);
   const deleted = message.type === 'deleted' || message.payload?.deleted === true;
   const originalType = typeof message.payload?.originalType === 'string' ? message.payload.originalType : message.type;
   const originalText = typeof message.payload?.originalText === 'string' ? message.payload.originalText : undefined;
+  const sharedContacts = extractSharedWhatsappContacts(message.payload);
+  const sharedContactMessage = sharedContacts.length > 0;
   const sticker = originalType === 'sticker';
   const visualMedia = Boolean(message.media?.length) && (originalType === 'image' || originalType === 'video');
   const documentMedia = Boolean(message.media?.length) && originalType === 'document';
-  const messageText = message.text || originalText || (deleted ? 'Conteúdo original indisponível' : sticker && !message.media?.length ? 'Figurinha indisponível' : message.media?.length ? '' : `[${message.type}]`);
+  const messageText = sharedContactMessage ? '' : message.text || originalText || (deleted ? 'Conteúdo original indisponível' : sticker && !message.media?.length ? 'Figurinha indisponível' : message.media?.length ? '' : `[${message.type}]`);
   const quickReactionButton = canRetry && !deleted && <button type="button" className="message-quick-reaction" aria-label="Reagir à mensagem" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onReactionMenu(message, rect.left, rect.bottom + 4); }}><SmilePlus size={18} /></button>;
   return <div className={`message-row ${outbound ? 'outbound' : 'inbound'}${menuOpen ? ' menu-open' : ''}`} data-message-id={message.id} data-message-kind={isAudioMessage(message) ? 'audio' : originalType}>
     {outbound && quickReactionButton}
     <div
-      className={`message-bubble${sticker ? ' sticker' : ''}${visualMedia ? ' visual-media' : ''}${documentMedia ? ' document-media' : ''}${deleted ? ' deleted-message' : ''}${message.status === 'FAILED' ? ' failed' : ''}`}
+      className={`message-bubble${sticker ? ' sticker' : ''}${visualMedia ? ' visual-media' : ''}${documentMedia ? ' document-media' : ''}${sharedContactMessage ? ' contact-message' : ''}${deleted ? ' deleted-message' : ''}${message.status === 'FAILED' ? ' failed' : ''}`}
       onContextMenu={(event) => { event.preventDefault(); onMenu(message, event.clientX, event.clientY); }}
       onDoubleClick={(event) => {
         if (!canRetry || deleted || (event.target as HTMLElement).closest('button, a, audio, video')) return;
@@ -1455,9 +1869,12 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, contactNam
       <button type="button" className="message-menu-trigger" aria-label="Abrir opções da mensagem" aria-expanded={menuOpen} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(message, rect.right, rect.bottom + 4); }}><ChevronDown size={17} /></button>
       {deleted && <div className="message-deleted-notice" role="note" title="Esta mensagem foi apagada"><Trash2 size={13} /><strong>Mensagem apagada</strong></div>}
       {replyTo && <button type="button" className="message-reply-quote" onClick={() => onJumpToReply(replyTo.id)} aria-label={`Ir para a mensagem: ${messagePreview(replyTo)}`}><strong>{replyTo.direction === 'OUTBOUND' ? 'Você' : contactName}</strong><span>{messagePreview(replyTo)}</span></button>}
+      {!replyTo && replyFallback && <div className="message-reply-quote message-reply-static" role="note"><strong>Mensagem respondida</strong><span>{replyFallback}</span></div>}
       {(message.media?.[0] ? <MediaAttachment media={message.media[0]} sticker={sticker} onReady={onMediaReady} audioPlaybackRate={audioPlaybackRate} onCycleAudioPlaybackRate={onCycleAudioPlaybackRate} /> : originalType === 'document' && <span className="message-file"><FileText size={18} />Documento</span>)}
-      {messageText && <p><WhatsappText text={messageText} /></p>}
-      <small>{dateTime(message.createdAt).split(' ')[1]} {outbound && <MessageDelivery status={message.status} failure={failure} onRetry={() => onRetry(message.id)} retrying={retrying} canRetry={canRetry} />}</small>
+      {isAudioMessage(message) && <AudioTranscription message={message} />}
+      {sharedContacts.map((contact) => <SharedContactCard key={contact.phone} contact={contact} onStart={() => onStartSharedContact(contact)} />)}
+      {messageText && <ExpandableText text={messageText} whatsapp />}
+      <small>{edited && <span className="message-edited-label">Editada</span>}{dateTime(message.createdAt).split(' ')[1]} {outbound && <MessageDelivery status={message.status} failure={failure} onRetry={() => onRetry(message.id)} retrying={retrying} canRetry={canRetry} />}</small>
       {reactions.length > 0 && <div className="message-reactions" aria-label="Reações">{reactions.map((reaction, index) => <span key={`${reaction.userId || reaction.userName || 'reaction'}-${index}`} title={reaction.userName || 'Reação'}>{reaction.emoji}</span>)}</div>}
     </div>
     {!outbound && quickReactionButton}
@@ -1466,7 +1883,7 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, contactNam
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, onCopy, onDownload, downloading, onReply, onReact, onEdit, onDelete }: {
+function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, onCopy, onDownload, downloading, onReply, onReact, onEdit, onEditHistory, onDelete }: {
   menu: MessageMenuState;
   canInteract: boolean;
   reacting: boolean;
@@ -1478,6 +1895,7 @@ function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, 
   onReply(): void;
   onReact(emoji: string): void;
   onEdit(): void;
+  onEditHistory(): void;
   onDelete(): void;
 }) {
   const [showReactions, setShowReactions] = useState(menu.mode === 'reactions');
@@ -1486,6 +1904,7 @@ function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, 
   const deleted = menu.message.type === 'deleted' || menu.message.payload?.deleted === true;
   const audioMedia = messageAudioMedia(menu.message);
   const audio = isAudioMessage(menu.message);
+  const hasEditHistory = messageEditHistory(menu.message).length > 0;
   const canReference = canInteract && providerReady && !deleted;
   const canEdit = canInteract && providerReady && !deleted && menu.message.type === 'text';
   const canDelete = canInteract && providerReady && !deleted;
@@ -1498,6 +1917,7 @@ function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, 
         {audio && <button type="button" role="menuitem" disabled={!audioMedia || downloading} title={!audioMedia ? 'O arquivo deste áudio não está disponível' : undefined} onClick={onDownload}><Download size={17} /><span>{downloading ? 'Baixando áudio…' : 'Baixar áudio'}</span></button>}
         <button type="button" role="menuitem" disabled={!canReference || reacting} title={!canInteract ? 'Assuma e abra o atendimento para reagir' : !providerReady ? 'Aguarde a mensagem ser enviada' : deleted ? 'A mensagem foi apagada' : undefined} onClick={() => setShowReactions((current) => !current)}><SmilePlus size={17} /><span>Reagir</span></button>
         <button type="button" role="menuitem" disabled={!canReference} title={!canInteract ? 'Assuma e abra o atendimento para responder' : !providerReady ? 'Aguarde a mensagem ser enviada' : deleted ? 'A mensagem foi apagada' : undefined} onClick={onReply}><Reply size={17} /><span>Responder</span></button>
+        {hasEditHistory && <button type="button" role="menuitem" onClick={onEditHistory}><History size={17} /><span>Ver histórico de edições</span></button>}
         {outbound && <button type="button" role="menuitem" disabled={!canEdit} title={!canInteract ? 'Assuma e abra o atendimento para editar' : !providerReady ? 'Aguarde a mensagem ser enviada' : menu.message.type !== 'text' ? 'Somente mensagens de texto podem ser editadas' : undefined} onClick={onEdit}><Pencil size={17} /><span>Editar mensagem</span></button>}
         {outbound && <button type="button" role="menuitem" className="danger" disabled={!canDelete} title={!canInteract ? 'Assuma e abra o atendimento para apagar' : !providerReady ? 'Aguarde a mensagem ser enviada' : undefined} onClick={onDelete}><Trash2 size={17} /><span>Apagar para todos</span></button>}
       </>}
@@ -1513,12 +1933,59 @@ function messageReactions(message: Message): MessageReaction[] {
   return reactions.filter((item): item is MessageReaction => Boolean(item && typeof item === 'object' && typeof (item as MessageReaction).emoji === 'string'));
 }
 
-function messageReplyTarget(message: Message, messages: Map<string, Message>) {
+function messageReplyContext(message: Message) {
+  const payload = message.payload as Record<string, any> | undefined;
+  const content = payload?.message || payload?.Message || payload;
+  return payload?.contextInfo
+    || content?.extendedTextMessage?.contextInfo
+    || content?.imageMessage?.contextInfo
+    || content?.videoMessage?.contextInfo
+    || content?.documentMessage?.contextInfo
+    || content?.audioMessage?.contextInfo
+    || content?.contactMessage?.contextInfo
+    || content?.contextInfo;
+}
+
+function messageReplyProviderId(message: Message) {
+  const payload = message.payload as Record<string, any> | undefined;
+  const context = messageReplyContext(message);
+  const providerMessageId = payload?.replyToProviderMessageId || context?.stanzaId || context?.key?.id || context?.key?.ID;
+  return typeof providerMessageId === 'string' ? providerMessageId : undefined;
+}
+
+function messageQuotedPreview(message: Message) {
+  const quoted = messageReplyContext(message)?.quotedMessage;
+  if (!quoted || typeof quoted !== 'object') return undefined;
+  const text = quoted.conversation
+    || quoted.extendedTextMessage?.text
+    || quoted.imageMessage?.caption
+    || quoted.videoMessage?.caption
+    || quoted.documentMessage?.caption
+    || quoted.contactMessage?.displayName;
+  if (typeof text === 'string' && text.trim()) return text.trim();
+  if (quoted.imageMessage) return 'Imagem';
+  if (quoted.videoMessage) return 'Vídeo';
+  if (quoted.audioMessage) return 'Áudio';
+  if (quoted.documentMessage) return quoted.documentMessage.fileName || 'Documento';
+  if (quoted.stickerMessage) return 'Figurinha';
+  return 'Mensagem';
+}
+
+function messageReplyTarget(message: Message, messages: Map<string, Message>, messagesByProviderId: Map<string, Message>) {
   const replyToMessageId = message.payload?.replyToMessageId;
-  return typeof replyToMessageId === 'string' ? messages.get(replyToMessageId) : undefined;
+  if (typeof replyToMessageId === 'string') {
+    const target = messages.get(replyToMessageId);
+    if (target) return target;
+  }
+  const providerMessageId = messageReplyProviderId(message);
+  return providerMessageId ? messagesByProviderId.get(providerMessageId) : undefined;
 }
 
 function messagePreview(message: Message) {
+  const sharedContacts = extractSharedWhatsappContacts(message.payload);
+  if (sharedContacts.length) return sharedContacts.length === 1
+    ? `Contato: ${sharedContacts[0].name}`
+    : `${sharedContacts.length} contatos compartilhados`;
   const text = message.text?.trim();
   if (text) return text.length > 120 ? `${text.slice(0, 117)}…` : text;
   const filename = message.media?.[0]?.filename;
@@ -1538,6 +2005,72 @@ function messageAudioMedia(message: Message) {
 function isAudioMessage(message: Message) {
   const originalType = typeof message.payload?.originalType === 'string' ? message.payload.originalType : message.type;
   return originalType === 'audio' || Boolean(messageAudioMedia(message));
+}
+
+type AudioTranscriptionData = {
+  messageId: string;
+  status: string;
+  text: string | null;
+  error: string | null;
+  provider: string | null;
+  transcribedAt: string | null;
+};
+
+function AudioTranscription({ message }: { message: Message }) {
+  const client = useQueryClient();
+  const queryKey = ['message-transcription', message.id] as const;
+  const [started, setStarted] = useState(message.transcriptionStatus === 'PROCESSING');
+  const [expanded, setExpanded] = useState(Boolean(message.transcriptionText));
+  const transcription = useQuery({
+    queryKey,
+    queryFn: () => api<Envelope<AudioTranscriptionData>>(`/conversations/${message.conversationId}/messages/${message.id}/transcription`),
+    enabled: started && Boolean(message.conversationId),
+    refetchInterval: (query) => query.state.data?.data.status === 'PROCESSING' ? 1_500 : false,
+    refetchIntervalInBackground: false,
+  });
+  const request = useMutation({
+    mutationFn: () => api<Envelope<AudioTranscriptionData>>(`/conversations/${message.conversationId}/messages/${message.id}/transcription`, { method: 'POST' }),
+    onSuccess: (result) => {
+      client.setQueryData(queryKey, result);
+      setStarted(true);
+      setExpanded(true);
+    },
+  });
+  const state = transcription.data?.data || {
+    messageId: message.id,
+    status: message.transcriptionStatus || 'IDLE',
+    text: message.transcriptionText || null,
+    error: message.transcriptionError || null,
+    provider: message.transcriptionProvider || null,
+    transcribedAt: message.transcribedAt || null,
+  };
+
+  useEffect(() => {
+    if (state.status === 'COMPLETED' && state.text) setExpanded(true);
+  }, [state.status, state.text]);
+
+  if (!message.conversationId) return null;
+  if (state.status === 'PROCESSING' || request.isPending) {
+    return <div className="audio-transcription">
+      <button type="button" className="audio-transcription-button processing" disabled>
+        <Clock size={14} className="spin" />Transcrevendo áudio…
+      </button>
+    </div>;
+  }
+  if (state.status === 'COMPLETED' && state.text) {
+    return <div className="audio-transcription completed">
+      <button type="button" className="audio-transcription-button" onClick={() => setExpanded((current) => !current)} aria-expanded={expanded}>
+        <FileText size={14} />{expanded ? 'Ocultar transcrição' : 'Mostrar transcrição'}
+      </button>
+      {expanded && <div className="audio-transcription-text"><strong>Transcrição</strong><ExpandableText text={state.text} /></div>}
+    </div>;
+  }
+  return <div className={`audio-transcription${state.status === 'FAILED' ? ' failed' : ''}`}>
+    <button type="button" className="audio-transcription-button" disabled={request.isPending} onClick={() => request.mutate()}>
+      <FileText size={14} />{state.status === 'FAILED' ? 'Tentar transcrever novamente' : 'Transcrever áudio'}
+    </button>
+    {state.status === 'FAILED' && state.error && <span className="audio-transcription-error" title={state.error}>{state.error}</span>}
+  </div>;
 }
 
 function MessageDelivery({ status, failure, onRetry, retrying, canRetry }: { status: string; failure?: MessageFailure; onRetry(): void; retrying: boolean; canRetry: boolean }) {

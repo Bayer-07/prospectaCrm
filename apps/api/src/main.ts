@@ -27,14 +27,14 @@ async function bootstrap() {
 
   const config = new DocumentBuilder()
     .setTitle('BZS One · API de Integração')
-    .setDescription('Endpoints destinados a integrações externas. Gere uma chave em Configurações → API e webhooks e informe-a no botão Authorize.')
+    .setDescription('Endpoints destinados a integrações externas. Gere uma chave em Integrações → API e informe-a no botão Authorize.')
     .setVersion('1.0')
     .addServer('/', 'Servidor atual')
     .addBearerAuth({
       type: 'http',
       scheme: 'bearer',
       bearerFormat: 'API Key',
-      description: 'Informe a chave gerada em Configurações → API e webhooks.',
+      description: 'Informe a chave gerada em Integrações → API.',
     }, 'api-key')
     .addSecurityRequirements('api-key')
     .build();

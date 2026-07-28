@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
-import { ArrowRight, Building2, ContactRound, KanbanSquare, LoaderCircle, Search, X } from 'lucide-react';
+import { ArrowRight, Building2, ContactRound, KanbanSquare, LoaderCircle, MessageCircle, Search, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { api, money, type Envelope } from '../lib/api';
@@ -32,9 +32,17 @@ type SearchOpportunity = {
   stage?: { name: string };
 };
 
+type SearchConversation = {
+  id: string;
+  status: 'WAITING' | 'OPEN';
+  contact: { id: string; name: string };
+  assignee?: { id: string; name: string } | null;
+  instance: { id: string; name: string; phone?: string };
+};
+
 type SearchResult = {
   id: string;
-  type: 'company' | 'contact' | 'opportunity';
+  type: 'conversation' | 'company' | 'contact' | 'opportunity';
   section: string;
   title: string;
   subtitle: string;
@@ -42,6 +50,7 @@ type SearchResult = {
 };
 
 const resultIcons = {
+  conversation: MessageCircle,
   company: Building2,
   contact: ContactRound,
   opportunity: KanbanSquare,
@@ -80,8 +89,24 @@ export function GlobalSearch() {
     enabled: ready && canRead('opportunities'),
     staleTime: 30_000,
   });
+  const conversations = useQuery({
+    queryKey: ['global-search', 'conversations', term],
+    queryFn: () => api<Envelope<SearchConversation[]>>(`/conversations?status=active&limit=5&search=${encodeURIComponent(term)}`),
+    enabled: ready && canRead('conversations'),
+    staleTime: 15_000,
+  });
 
   const results = useMemo<SearchResult[]>(() => [
+    ...(conversations.data?.data || []).map((conversation) => ({
+      id: conversation.id,
+      type: 'conversation' as const,
+      section: 'Atendimentos',
+      title: conversation.contact.name,
+      subtitle: conversation.status === 'WAITING'
+        ? `Aguardando atendimento · ${conversation.instance.name}`
+        : `Aberto · ${conversation.assignee?.name || 'Sem atendente'} · ${conversation.instance.name}`,
+      target: `/inbox/${encodeURIComponent(conversation.id)}`,
+    })),
     ...(companies.data?.data || []).map((company) => ({
       id: company.id,
       type: 'company' as const,
@@ -110,9 +135,9 @@ export function GlobalSearch() {
       ].filter(Boolean).join(' · '),
       target: `/pipeline?opportunity=${encodeURIComponent(opportunity.id)}${opportunity.pipeline?.id ? `&pipeline=${encodeURIComponent(opportunity.pipeline.id)}` : ''}`,
     })),
-  ], [companies.data, contacts.data, opportunities.data]);
-  const loading = ready && (companies.isFetching || contacts.isFetching || opportunities.isFetching);
-  const failed = ready && (companies.isError || contacts.isError || opportunities.isError);
+  ], [companies.data, contacts.data, opportunities.data, conversations.data]);
+  const loading = ready && (companies.isFetching || contacts.isFetching || opportunities.isFetching || conversations.isFetching);
+  const failed = ready && (companies.isError || contacts.isError || opportunities.isError || conversations.isError);
 
   const openResult = (result: SearchResult) => {
     setOpen(false);
@@ -175,7 +200,7 @@ export function GlobalSearch() {
           inputRef.current?.blur();
         }
       }}
-      placeholder="Buscar empresas, contatos ou oportunidades…"
+      placeholder="Buscar atendimentos, empresas, contatos ou oportunidades…"
       role="combobox"
       aria-expanded={open}
       aria-controls="global-search-results"
@@ -201,7 +226,7 @@ export function GlobalSearch() {
         : loading && !results.length
           ? <div className="global-search-state"><LoaderCircle className="spin" size={18} /><span>Buscando no CRM…</span></div>
           : failed && !results.length
-            ? <div className="global-search-state error"><span>Não foi possível realizar a busca.</span></div>
+            ? null
             : !results.length
               ? <div className="global-search-state"><span>Nenhum resultado encontrado para “{term}”.</span></div>
               : <div className="global-search-list">
