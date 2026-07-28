@@ -532,6 +532,171 @@ describe('responsabilidade ao abrir um atendimento', () => {
   });
 });
 
+describe('troca da conexão de uma conversa', () => {
+  it('troca somente a conexão da conversa, registra o histórico e preserva as mensagens existentes', async () => {
+    const currentConversation = {
+      id: 'conversation-1',
+      instanceId: 'instance-old',
+      contactId: 'contact-1',
+      remoteJid: '83953759293475@lid',
+      phoneJid: null,
+      instance: {
+        id: 'instance-old',
+        name: 'Comercial',
+        status: 'DISCONNECTED',
+        archivedAt: null,
+      },
+      contact: { phone: '+55 (45) 99922-5389' },
+    };
+    const targetInstance = {
+      id: 'instance-new',
+      name: 'Atendimento',
+      phone: '+55 (45) 99999-0000',
+      status: 'CONNECTED',
+    };
+    const updatedConversation = {
+      id: currentConversation.id,
+      instanceId: targetInstance.id,
+      remoteJid: '5545999225389@s.whatsapp.net',
+      phoneJid: '5545999225389@s.whatsapp.net',
+      instance: targetInstance,
+    };
+    const findConversation = vi.fn()
+      .mockResolvedValueOnce(currentConversation)
+      .mockResolvedValueOnce(null);
+    const updateConversation = vi.fn().mockResolvedValue(updatedConversation);
+    const createEvent = vi.fn().mockResolvedValue({ id: 'event-1' });
+    const createAudit = vi.fn().mockResolvedValue({ id: 'audit-1' });
+    const db = {
+      conversation: {
+        findFirst: findConversation,
+        update: updateConversation,
+      },
+      whatsappInstance: { findFirst: vi.fn().mockResolvedValue(targetInstance) },
+      conversationEvent: { create: createEvent },
+      auditLog: { create: createAudit },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const realtime = { notifyOrganization: vi.fn() };
+    const service = new EvolutionService(db as never, {} as never, {} as never, realtime as never);
+
+    await expect(service.changeConversationInstance(auth, currentConversation.id, targetInstance.id))
+      .resolves.toEqual(updatedConversation);
+
+    expect(updateConversation).toHaveBeenCalledWith({
+      where: { id: currentConversation.id },
+      data: {
+        instanceId: targetInstance.id,
+        remoteJid: '5545999225389@s.whatsapp.net',
+        phoneJid: '5545999225389@s.whatsapp.net',
+      },
+      include: {
+        instance: { select: { id: true, name: true, phone: true, status: true, archivedAt: true } },
+        assignee: { select: { id: true, name: true } },
+      },
+    });
+    expect(createEvent).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        conversationId: currentConversation.id,
+        type: 'instance_changed',
+        text: 'Gabriel alterou a conexão de “Comercial” para “Atendimento”',
+        metadata: {
+          previousInstanceId: 'instance-old',
+          previousInstanceName: 'Comercial',
+          instanceId: 'instance-new',
+          instanceName: 'Atendimento',
+        },
+      }),
+    });
+    expect(createAudit).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        action: 'conversation.instance_changed',
+        entityId: currentConversation.id,
+        before: expect.objectContaining({ instanceId: 'instance-old' }),
+        after: expect.objectContaining({ instanceId: 'instance-new' }),
+      }),
+    });
+    expect(realtime.notifyOrganization).toHaveBeenCalledWith(auth.organizationId, 'inbox.updated', {
+      conversationId: currentConversation.id,
+      previousInstanceId: 'instance-old',
+      instanceId: 'instance-new',
+    });
+    expect(db).not.toHaveProperty('message');
+  });
+
+  it.each(['CONNECTED', 'CONNECTING', 'ERROR', 'PAUSED'])('recusa a troca enquanto a conexão atual está em %s', async (status) => {
+    const targetFindFirst = vi.fn();
+    const updateConversation = vi.fn();
+    const service = new EvolutionService({
+      conversation: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'conversation-1',
+          instanceId: 'instance-current',
+          contactId: 'contact-1',
+          remoteJid: '5545999225389@s.whatsapp.net',
+          phoneJid: '5545999225389@s.whatsapp.net',
+          instance: {
+            id: 'instance-current',
+            name: 'Comercial',
+            status,
+            archivedAt: null,
+          },
+          contact: { phone: '+5545999225389' },
+        }),
+        update: updateConversation,
+      },
+      whatsappInstance: { findFirst: targetFindFirst },
+    } as never, {} as never, {} as never, {} as never);
+
+    await expect(service.changeConversationInstance(auth, 'conversation-1', 'instance-new'))
+      .rejects.toThrow('A conexão atual precisa estar desconectada ou excluída para ser substituída');
+    expect(targetFindFirst).not.toHaveBeenCalled();
+    expect(updateConversation).not.toHaveBeenCalled();
+  });
+
+  it('reenvia uma mensagem que falhou usando a nova conexão da conversa', async () => {
+    const updateMessage = vi.fn().mockResolvedValue({ id: 'message-1', instanceId: 'instance-new', status: 'QUEUED' });
+    const outboundQueue = { add: vi.fn().mockResolvedValue(undefined) };
+    const service = new EvolutionService({
+      conversation: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'conversation-1',
+          instanceId: 'instance-new',
+          status: 'OPEN',
+          assigneeId: 'user-1',
+        }),
+      },
+      message: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'message-1',
+          conversationId: 'conversation-1',
+          instanceId: 'instance-old',
+          direction: 'OUTBOUND',
+          status: 'FAILED',
+          payload: {},
+        }),
+        update: updateMessage,
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    } as never, {} as never, outboundQueue as never, { notifyOrganization: vi.fn() } as never);
+
+    await service.retryMessage(auth, 'conversation-1', 'message-1');
+
+    expect(updateMessage).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'message-1' },
+      data: expect.objectContaining({
+        instanceId: 'instance-new',
+        status: 'QUEUED',
+      }),
+    }));
+    expect(outboundQueue.add).toHaveBeenCalledWith(
+      'send-message',
+      { messageId: 'message-1' },
+      expect.objectContaining({ attempts: 5 }),
+    );
+  });
+});
+
 describe('verificação de números no WhatsApp', () => {
   it('consulta a Evolution e marca respostas ausentes como inexistentes', async () => {
     const service = new EvolutionService({} as never, {} as never, {} as never, {} as never);

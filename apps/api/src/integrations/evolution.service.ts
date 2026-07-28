@@ -685,6 +685,132 @@ export class EvolutionService {
     return updated;
   }
 
+  async changeConversationInstance(auth: AuthContext, id: string, instanceId: string) {
+    const requestedInstanceId = String(instanceId || '').trim();
+    if (!requestedInstanceId) throw new BadRequestException('Selecione a nova conexão');
+
+    const conversation = await this.db.conversation.findFirst({
+      where: {
+        id,
+        organizationId: auth.organizationId,
+        ...this.conversationScope(auth, 'write'),
+      },
+      select: {
+        id: true,
+        instanceId: true,
+        contactId: true,
+        remoteJid: true,
+        phoneJid: true,
+        instance: {
+          select: {
+            id: true,
+            name: true,
+            status: true,
+            archivedAt: true,
+          },
+        },
+        contact: { select: { phone: true } },
+      },
+    });
+    if (!conversation) throw new NotFoundException('Conversa não encontrada');
+    if (conversation.instance.status !== 'DISCONNECTED' && !conversation.instance.archivedAt) {
+      throw new BadRequestException('A conexão atual precisa estar desconectada ou excluída para ser substituída');
+    }
+    if (conversation.instanceId === requestedInstanceId) {
+      throw new BadRequestException('Selecione uma conexão diferente da atual');
+    }
+
+    const target = await this.db.whatsappInstance.findFirst({
+      where: {
+        id: requestedInstanceId,
+        ...this.conversationInstanceWhere(auth),
+      },
+      select: { id: true, name: true, phone: true, status: true },
+    });
+    if (!target) throw new BadRequestException('Selecione uma conexão do WhatsApp ativa');
+
+    const contactNumber = conversation.contact.phone?.replace(/\D/g, '') || '';
+    const phoneJid = contactNumber
+      ? `${contactNumber}@s.whatsapp.net`
+      : conversation.phoneJid || (conversation.remoteJid.endsWith('@s.whatsapp.net') ? conversation.remoteJid : '');
+    if (!phoneJid) {
+      throw new BadRequestException('O contato precisa ter um telefone válido para trocar a conexão');
+    }
+
+    const conflictingConversation = await this.db.conversation.findFirst({
+      where: {
+        id: { not: conversation.id },
+        instanceId: target.id,
+        OR: [
+          { contactId: conversation.contactId },
+          { remoteJid: phoneJid },
+          { phoneJid },
+        ],
+      },
+      select: { id: true },
+    });
+    if (conflictingConversation) {
+      throw new BadRequestException({
+        message: 'Já existe uma conversa com este contato na conexão selecionada',
+        conversationId: conflictingConversation.id,
+      });
+    }
+
+    const [updated] = await this.db.$transaction([
+      this.db.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          instanceId: target.id,
+          remoteJid: phoneJid,
+          phoneJid,
+        },
+        include: {
+          instance: { select: { id: true, name: true, phone: true, status: true, archivedAt: true } },
+          assignee: { select: { id: true, name: true } },
+        },
+      }),
+      this.conversationEvent(
+        auth,
+        conversation.id,
+        'instance_changed',
+        `${auth.name} alterou a conexão de “${conversation.instance.name}” para “${target.name}”`,
+        {
+          previousInstanceId: conversation.instanceId,
+          previousInstanceName: conversation.instance.name,
+          instanceId: target.id,
+          instanceName: target.name,
+        },
+      ),
+      this.db.auditLog.create({
+        data: {
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          action: 'conversation.instance_changed',
+          entityType: 'Conversation',
+          entityId: conversation.id,
+          before: {
+            instanceId: conversation.instanceId,
+            instanceName: conversation.instance.name,
+            remoteJid: conversation.remoteJid,
+            phoneJid: conversation.phoneJid,
+          },
+          after: {
+            instanceId: target.id,
+            instanceName: target.name,
+            remoteJid: phoneJid,
+            phoneJid,
+          },
+        },
+      }),
+    ]);
+    this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', {
+      conversationId: conversation.id,
+      previousInstanceId: conversation.instanceId,
+      instanceId: target.id,
+    });
+    return updated;
+  }
+
   async setConversationStatus(auth: AuthContext, id: string, status: 'OPEN' | 'CLOSED') {
     const conversation = await this.assertConversation(auth, id);
     const nextAssigneeId = status === 'OPEN'
@@ -924,6 +1050,7 @@ export class EvolutionService {
     const updated = await this.db.message.update({
       where: { id: message.id },
       data: {
+        instanceId: conversation.instanceId,
         providerMessageId: `local:${retryId}`,
         status: 'QUEUED',
         sentAt: null,

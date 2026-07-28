@@ -12,7 +12,7 @@ export type Contact = { id: string; name: string; email?: string; phone?: string
 export type Opportunity = { id: string; title: string; valueCents: number; probability: number; stageId: string; updatedAt: string; company?: Company; owner?: { id: string; name: string } };
 export type Stage = { id: string; name: string; color: string; position: number; opportunities: Opportunity[] };
 export type Pipeline = { id: string; name: string; stages: Stage[] };
-export type Conversation = { id: string; unreadCount: number; status: string; lastMessageAt?: string; isPinned?: boolean; contact: Contact; assignee?: { id: string; name: string }; instance: { id: string; name: string; phone?: string; status: string }; messages: Array<Message>; events?: Array<ConversationEvent> };
+export type Conversation = { id: string; unreadCount: number; status: string; lastMessageAt?: string; isPinned?: boolean; contact: Contact; assignee?: { id: string; name: string }; instance: { id: string; name: string; phone?: string; status: string; archivedAt?: string | null }; messages: Array<Message>; events?: Array<ConversationEvent> };
 export type Message = {
   id: string;
   conversationId: string;

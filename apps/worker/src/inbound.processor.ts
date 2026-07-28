@@ -126,6 +126,8 @@ export const evolutionReplyProviderMessageId = (data: AnyObject) => {
     || content.documentMessage?.contextInfo
     || content.audioMessage?.contextInfo
     || content.contactMessage?.contextInfo
+    || content.locationMessage?.contextInfo
+    || content.liveLocationMessage?.contextInfo
     || content.contextInfo;
   const providerMessageId = context?.stanzaId || context?.key?.id || context?.key?.ID;
   return typeof providerMessageId === 'string' && providerMessageId.trim() ? providerMessageId : null;
@@ -154,6 +156,9 @@ export const evolutionMessageText = (input: AnyObject): string | null => {
     || message.imageMessage?.caption
     || message.videoMessage?.caption
     || message.documentMessage?.caption
+    || message.locationMessage?.name
+    || message.locationMessage?.address
+    || message.liveLocationMessage?.caption
     || message.caption
     || message.text
     || message.body;
@@ -168,6 +173,7 @@ export const evolutionMessageType = (input: AnyObject) => {
   if (message.audioMessage) return 'audio';
   if (message.videoMessage) return 'video';
   if (message.documentMessage) return 'document';
+  if (message.locationMessage || message.liveLocationMessage) return 'location';
   if (message.reactionMessage) return 'reaction';
   return 'text';
 };
@@ -189,7 +195,7 @@ export const isSynchronizableEvolutionMessage = (data: AnyObject, since: Date) =
   const type = evolutionMessageType(content);
   if (type === 'reaction') return Boolean(evolutionReaction(data));
   if (type === 'text') return Boolean(evolutionMessageText(content));
-  return ['sticker', 'image', 'audio', 'video', 'document', 'contact'].includes(type);
+  return ['sticker', 'image', 'audio', 'video', 'document', 'contact', 'location'].includes(type);
 };
 
 const mediaNode = (record: AnyObject, type: string) => {

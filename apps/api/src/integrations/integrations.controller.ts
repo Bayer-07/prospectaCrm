@@ -142,6 +142,16 @@ export class IntegrationsController {
   }
 
   @RequirePermission('conversations', 'write')
+  @Patch('conversations/:id/instance')
+  async changeConversationInstance(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+    @Body() body: { instanceId: string },
+  ) {
+    return { data: await this.evolution.changeConversationInstance(auth, id, body.instanceId) };
+  }
+
+  @RequirePermission('conversations', 'write')
   @Patch('conversations/:id/status')
   async status(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { status: 'OPEN' | 'CLOSED' }) { return { data: await this.evolution.setConversationStatus(auth, id, body.status) }; }
 

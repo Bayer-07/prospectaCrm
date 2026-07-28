@@ -330,10 +330,6 @@ function McpSettings() {
       <div><h2>Servidor MCP</h2><p>Conecte LLMs ao BZS One com acesso controlado às informações do CRM.</p></div>
       <Button onClick={() => createKey.mutate()} loading={createKey.isPending}><KeyRound size={16} />Gerar chave MCP</Button>
     </div>
-    <div className="mcp-security-note">
-      <LockKeyhole size={20} />
-      <div><strong>Sem operações destrutivas</strong><span>O servidor oferece somente leitura, criação e edição. Não existem ferramentas para excluir, arquivar ou cancelar registros.</span></div>
-    </div>
     <div className="settings-card mcp-endpoint-card">
       <div className="settings-card-icon"><Network /></div>
       <div><h3>Endpoint Streamable HTTP</h3><p>Use uma chave exclusiva para cada cliente de IA.</p><code className="secret-output">{endpoint}</code></div>

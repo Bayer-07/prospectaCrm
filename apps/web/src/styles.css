@@ -934,6 +934,20 @@ body { font-size: 16px; line-height: 1.45; }
 .message-bubble.document-media > p { margin: 8px 5px 1px; }
 .message-bubble.document-media > small { margin-right: 4px; }
 .message-bubble.contact-message { width: min(330px, 75%); max-width: min(330px, 75%); padding: 7px 7px 6px; }
+.message-bubble.location-message { width: min(330px, 75%); max-width: min(330px, 75%); padding: 6px 6px 5px; }
+.message-location-card { overflow: hidden; border: 1px solid color-mix(in srgb, var(--line-strong) 72%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--surface-soft) 88%, transparent); color: var(--ink); display: block; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
+.message-location-card:hover { border-color: color-mix(in srgb, var(--violet) 48%, var(--line)); transform: translateY(-1px); box-shadow: 0 5px 14px rgba(18, 25, 34, .12); }
+.message-location-card:focus-visible { outline: 0; border-color: var(--violet); box-shadow: 0 0 0 3px var(--focus-ring); }
+.message-location-map { position: relative; width: 100%; height: 154px; overflow: hidden; background: var(--surface-soft); display: grid; place-items: center; }
+.message-location-map img { width: 100%; height: 100%; display: block; object-fit: cover; }
+.message-location-map.fallback { color: var(--red); background-color: color-mix(in srgb, var(--surface-soft) 88%, var(--blue-soft)); background-image: linear-gradient(color-mix(in srgb, var(--line) 70%, transparent) 1px, transparent 1px), linear-gradient(90deg, color-mix(in srgb, var(--line) 70%, transparent) 1px, transparent 1px); background-size: 28px 28px; }
+.message-location-map.fallback > svg { padding: 9px; width: 50px; height: 50px; border-radius: 50%; background: var(--red); color: #fff; box-shadow: 0 7px 18px color-mix(in srgb, var(--red) 35%, transparent); }
+.message-location-info { min-width: 0; min-height: 58px; padding: 9px 10px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.message-location-info > span { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.message-location-info strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.message-location-info small { overflow: hidden; color: var(--muted); font-size: 11px; text-overflow: ellipsis; white-space: nowrap; }
+.message-location-info b { flex: none; color: var(--violet); display: inline-flex; align-items: center; gap: 4px; font-size: 11px; white-space: nowrap; }
+.message-bubble.location-message > small { margin-right: 4px; }
 .shared-contact-card { overflow: hidden; border: 1px solid color-mix(in srgb, var(--line-strong) 72%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--surface-soft) 88%, transparent); }
 .shared-contact-card + .shared-contact-card { margin-top: 6px; }
 .shared-contact-card-person { min-height: 70px; padding: 11px 12px; display: flex; align-items: center; gap: 11px; }
@@ -1084,6 +1098,22 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 .conversation-transfer-empty svg { color: var(--subtle); }
 .conversation-transfer-empty strong { color: var(--ink); font-size: 13px; }
 .conversation-transfer-empty span { max-width: 330px; font-size: 12px; }
+.conversation-change-instance-button { border-color: color-mix(in srgb, var(--amber) 46%, var(--line)); color: var(--amber); }
+.conversation-change-instance-button:hover:not(:disabled) { border-color: color-mix(in srgb, var(--amber) 68%, var(--line)); background: color-mix(in srgb, var(--amber-soft) 72%, var(--surface)); }
+.conversation-instance-change { padding: 18px 20px 4px; display: flex; flex-direction: column; gap: 12px; }
+.conversation-instance-warning { padding: 12px; border: 1px solid color-mix(in srgb, var(--amber) 42%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--amber-soft) 62%, var(--surface)); display: flex; align-items: flex-start; gap: 10px; }
+.conversation-instance-warning > svg { flex: none; margin-top: 1px; color: var(--amber); }
+.conversation-instance-warning strong { color: var(--ink); font-size: 14px; }
+.conversation-instance-warning p { margin-top: 3px; color: var(--muted); font-size: 12px; line-height: 1.5; }
+.conversation-instance-current { padding: 11px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); display: grid; grid-template-columns: minmax(0, 1fr) auto; align-items: center; gap: 3px 12px; }
+.conversation-instance-current span { grid-column: 1 / -1; color: var(--muted); font-size: 11px; }
+.conversation-instance-current strong { min-width: 0; overflow: hidden; color: var(--ink); font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.conversation-instance-current small { color: var(--amber); font-size: 11px; text-align: right; }
+.conversation-instance-change > .field { margin: 0; }
+.conversation-instance-change + .modal-actions { padding: 12px 20px 20px; }
+.conversation-instance-confirmation { padding: 10px 12px; border-radius: 9px; background: color-mix(in srgb, var(--violet-soft) 72%, var(--surface)); color: var(--muted); display: flex; align-items: center; gap: 9px; font-size: 12px; line-height: 1.45; }
+.conversation-instance-confirmation > svg { color: var(--violet); }
+.conversation-instance-confirmation strong { color: var(--ink); }
 .message-file, .composer-file { font-size: 12px; }
 .composer-file.has-preview { min-height: 56px; padding: 5px; }
 .composer-file > img { width: 46px; height: 46px; flex: 0 0 auto; border-radius: 6px; object-fit: cover; }
@@ -1165,6 +1195,7 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
   .message-bubble.visual-media { max-width: 90%; }
   .message-bubble.document-media { width: min(360px, 90%); max-width: min(360px, 90%); }
   .message-bubble.contact-message { width: min(330px, 90%); max-width: min(330px, 90%); }
+  .message-bubble.location-message { width: min(330px, 90%); max-width: min(330px, 90%); }
   .composer { grid-template-columns: auto minmax(0, 1fr); padding: 9px 10px; }
   .composer-signature { min-width: 42px; padding: 0 3px; }
   .composer-tools button { width: 36px; height: 40px; flex-basis: 36px; }
@@ -1340,11 +1371,10 @@ td { font-size: var(--font-body); }
 
 /* Servidor MCP */
 .mcp-settings { min-width: 0; }
-.mcp-security-note, .mcp-key-warning, .mcp-config-card { margin-bottom: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
-.mcp-security-note { display: grid; grid-template-columns: 28px minmax(0, 1fr); gap: 10px; border-color: color-mix(in srgb, var(--green) 32%, var(--line)); background: color-mix(in srgb, var(--green-soft) 58%, var(--surface)); color: var(--green); }
-.mcp-security-note > div, .mcp-key-warning > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
-.mcp-security-note strong, .mcp-key-warning strong, .mcp-config-card h3 { color: var(--ink); font-size: var(--font-emphasis); }
-.mcp-security-note span, .mcp-key-warning span, .mcp-config-card p { color: var(--muted); font-size: var(--font-secondary); line-height: 1.45; }
+.mcp-key-warning, .mcp-config-card { margin-bottom: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.mcp-key-warning > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mcp-key-warning strong, .mcp-config-card h3 { color: var(--ink); font-size: var(--font-emphasis); }
+.mcp-key-warning span, .mcp-config-card p { color: var(--muted); font-size: var(--font-secondary); line-height: 1.45; }
 .mcp-endpoint-card .secret-output { max-width: min(680px, 72vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .mcp-key-warning { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 10px; border-color: color-mix(in srgb, var(--amber) 42%, var(--line)); background: color-mix(in srgb, var(--amber-soft) 55%, var(--surface)); color: var(--amber); }
 .mcp-key-warning .secret-output { max-width: min(760px, 70vw); overflow-wrap: anywhere; white-space: pre-wrap; }

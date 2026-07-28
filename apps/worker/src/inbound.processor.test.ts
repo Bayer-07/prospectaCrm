@@ -220,6 +220,32 @@ describe('mensagens editadas no WhatsApp', () => {
 });
 
 describe('tipos de mensagem da Evolution', () => {
+  it('identifica e sincroniza uma localização mesmo sem texto', () => {
+    const message = {
+      locationMessage: {
+        degreesLatitude: -24.5588903,
+        degreesLongitude: -54.0577961,
+        jpegThumbnail: { 0: 255, 1: 216, 2: 255 },
+      },
+    };
+    expect(evolutionMessageType(message)).toBe('location');
+    expect(isSynchronizableEvolutionMessage({
+      key: { id: 'location-1', remoteJid: '554588433153@s.whatsapp.net', fromMe: false },
+      messageTimestamp: 1785262532,
+      message,
+    }, new Date('2026-07-28T00:00:00.000Z'))).toBe(true);
+  });
+
+  it('usa nome ou endereço de uma localização como prévia quando disponível', () => {
+    expect(evolutionMessageText({
+      locationMessage: {
+        degreesLatitude: -24.55,
+        degreesLongitude: -54.05,
+        name: 'Escritório BZS',
+      },
+    })).toBe('Escritório BZS');
+  });
+
   it('identifica um contato compartilhado e usa o nome como prévia', () => {
     const message = {
       contactMessage: {

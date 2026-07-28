@@ -3,8 +3,9 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Check, CheckCheck, ChevronDown, Copy, Clock, Download, Eye, FileText, Filter, History, Inbox, Mail, MessageCircle, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Mail, MapPin, MessageCircle, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
+import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
@@ -16,6 +17,7 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { isMessageEdited, messageEditedAt, messageEditHistory } from '../lib/message-edit-history';
 import { toast } from '../lib/toast';
 import { inboxFilterForStatus, shouldSyncInboxFilter, type InboxFilter } from '../lib/inbox-navigation';
+import { extractWhatsappLocation, type WhatsappLocation } from '../lib/whatsapp-location';
 
 type WhatsappInstance = { id: string; name: string; phone?: string; status: string };
 type ConversationHistoryPage = { messages: Message[]; events: ConversationEvent[]; nextCursor: string | null };
@@ -352,7 +354,7 @@ export function InboxPage() {
         className={`${item.id === selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
         onClick={() => { setTicketMenu(null); navigate(`/inbox/${item.id}`); }}
         onContextMenu={(event) => openTicketMenu(event, item)}
-      ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{item.messages[0]?.text || 'Mídia ou nova conversa'}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>) : <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{activeListFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.'}</span>{activeListFilterCount > 0 && <button type="button" onClick={clearListFilters}>Limpar filtros</button>}</div>}</div>
+      ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{item.messages[0]?.text || (item.messages[0]?.type === 'location' ? 'Localização compartilhada' : 'Mídia ou nova conversa')}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>) : <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{activeListFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.'}</span>{activeListFilterCount > 0 && <button type="button" onClick={clearListFilters}>Limpar filtros</button>}</div>}</div>
     </aside>
     {!selectedId
       ? <div className="conversation-empty"><Empty icon={<Inbox />} title="Nenhum atendimento selecionado" description="Selecione uma conversa para conseguir enviar mensagens." /></div>
@@ -730,6 +732,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [conversationMenu, setConversationMenu] = useState<{ top: number; left: number } | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState('');
+  const [instanceChangeOpen, setInstanceChangeOpen] = useState(false);
+  const [instanceTarget, setInstanceTarget] = useState('');
   const [opportunityOpen, setOpportunityOpen] = useState(false);
   const [sharedContactToStart, setSharedContactToStart] = useState<SharedWhatsappContact | null>(null);
   const [actionNotice, setActionNotice] = useState('');
@@ -773,7 +777,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const messagesByProviderId = useMemo(() => new Map(conversation.messages.map((message) => [message.providerMessageId, message])), [conversation.messages]);
   const newestMessageId = conversation.messages.at(-1)?.id;
   const newestEventId = conversation.events?.at(-1)?.id;
-  const canReply = conversation.status === 'OPEN' && Boolean(conversation.assignee);
+  const connectionUnavailable = canChangeConversationInstance(conversation.instance);
+  const canReply = conversation.status === 'OPEN' && Boolean(conversation.assignee) && !connectionUnavailable;
   const canStartAutomations = Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
     (permission.resource === '*' || permission.resource === 'workflows') && (permission.action === '*' || permission.action === 'write')));
   const canCreateOpportunity = Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
@@ -929,6 +934,31 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       setActionNotice('Atendimento transferido');
       onSend();
     },
+  });
+  const availableInstances = useQuery({
+    queryKey: ['conversation-instances'],
+    queryFn: () => api<Envelope<WhatsappInstance[]>>('/conversations/instances'),
+    enabled: instanceChangeOpen,
+    staleTime: 30_000,
+  });
+  const instanceOptions = useMemo(
+    () => (availableInstances.data?.data || []).filter((instance) => instance.id !== conversation.instance.id),
+    [availableInstances.data?.data, conversation.instance.id],
+  );
+  const selectedInstanceTarget = instanceOptions.find((instance) => instance.id === instanceTarget);
+  const changeInstance = useMutation({
+    mutationFn: (nextInstanceId: string) => api<Envelope<Conversation>>(`/conversations/${conversation.id}/instance`, {
+      method: 'PATCH',
+      body: JSON.stringify({ instanceId: nextInstanceId }),
+    }),
+    onSuccess: (_response, nextInstanceId) => {
+      const selected = instanceOptions.find((instance) => instance.id === nextInstanceId);
+      setInstanceChangeOpen(false);
+      setInstanceTarget('');
+      toast.success(selected ? `Conexão alterada para ${selected.name}.` : 'Conexão da conversa alterada.');
+      onSend();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível trocar a conexão')),
   });
   const exportPdf = useMutation({
     mutationFn: async () => {
@@ -1439,7 +1469,17 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const grouped = useMemo(() => groupTimeline(conversation.messages, conversation.events || []), [conversation.messages, conversation.events]);
   const transferTargets = useMemo(() => (assignees.data?.data || []).filter((assignee) => assignee.id !== conversation.assignee?.id), [assignees.data?.data, conversation.assignee?.id]);
   const retryMessage = useCallback((messageId: string) => retry.mutate(messageId), [retry.mutate]);
-  const composerPlaceholder = conversation.status === 'CLOSED' ? 'Reabra a conversa para responder' : !canReply ? 'Assuma a conversa para responder' : editingMessage ? 'Edite sua mensagem…' : file ? 'Adicione uma legenda…' : 'Escreva uma mensagem ou cole uma imagem…';
+  const composerPlaceholder = connectionUnavailable
+    ? 'Troque a conexão para voltar a enviar mensagens'
+    : conversation.status === 'CLOSED'
+      ? 'Reabra a conversa para responder'
+      : !canReply
+        ? 'Assuma a conversa para responder'
+        : editingMessage
+          ? 'Edite sua mensagem…'
+          : file
+            ? 'Adicione uma legenda…'
+            : 'Escreva uma mensagem ou cole uma imagem…';
 
   return <section className="conversation-view" onDragEnter={handleAttachmentDragEnter} onDragOver={handleAttachmentDragOver} onDragLeave={handleAttachmentDragLeave} onDrop={handleAttachmentDrop}>
     {draggingAttachment && <div className={`conversation-file-drop${canReply && !editingMessage ? '' : ' unavailable'}`} aria-hidden="true"><div><span><Upload size={28} /></span><strong>{canReply && !editingMessage ? 'Solte o arquivo para anexar' : editingMessage ? 'Conclua a edição para anexar' : 'Assuma a conversa para anexar'}</strong><small>{canReply && !editingMessage ? 'Imagens, vídeos, áudios e documentos de até 25 MB' : 'O envio de arquivos está indisponível neste momento'}</small></div></div>}
@@ -1449,6 +1489,16 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         <div><strong>{conversation.contact.name}</strong><span><i /> {formatPhone(conversation.contact.phone) || 'Sem telefone'} · {conversation.instance.name}</span></div>
       </button>
       <div className="conversation-actions">
+        {connectionUnavailable && <button
+          type="button"
+          className="button button-secondary conversation-change-instance-button"
+          onClick={() => {
+            setInstanceTarget('');
+            changeInstance.reset();
+            setInstanceChangeOpen(true);
+          }}
+          title="Escolher outra conexão para as próximas mensagens"
+        ><Cable size={15} /><span>Trocar conexão</span></button>}
         <button type="button" className="button button-secondary" onClick={onAssign} disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa para alterar o responsável' : undefined}>{conversation.assignee ? <><UserCheck size={15} />{conversation.assignee.name}</> : <><UserPlus size={15} />Assumir</>}</button>
         <button type="button" className={`conversation-status-button ${conversation.status === 'CLOSED' ? 'reopen' : 'finish'}`} onClick={onClose} disabled={statusChanging} aria-busy={statusChanging} title={statusChanging ? 'Atualizando atendimento em segundo plano' : conversation.status === 'CLOSED' ? 'Reabrir atendimento' : 'Finalizar atendimento'} aria-label={conversation.status === 'CLOSED' ? 'Reabrir atendimento' : 'Finalizar atendimento'}>{conversation.status === 'CLOSED' ? <><RotateCcw size={16} /><span>Reabrir</span></> : <><Archive size={16} /><span>Finalizar</span></>}</button>
         <button type="button" className="icon-button" onClick={openConversationMenu} aria-label="Mais ações da conversa" aria-expanded={Boolean(conversationMenu)} title="Mais ações"><MoreHorizontal size={18} /></button>
@@ -1598,6 +1648,55 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         {assignees.isLoading ? <PageLoading /> : assignees.isError ? null : transferTargets.length ? <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div> : <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>}
       </div>
       <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferOpen(false); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate(transferTarget)} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
+    </Modal>}
+    {instanceChangeOpen && <Modal title="Trocar conexão da conversa" onClose={() => {
+      if (!changeInstance.isPending) {
+        setInstanceChangeOpen(false);
+        setInstanceTarget('');
+      }
+    }} width={560}>
+      <div className="conversation-instance-change">
+        <div className="conversation-instance-warning">
+          <AlertCircle size={21} />
+          <div>
+            <strong>Esta ação mudará o número usado com este cliente</strong>
+            <p>O histórico continuará nesta conversa, mas todas as próximas mensagens serão enviadas pela nova conexão.</p>
+          </div>
+        </div>
+        <div className="conversation-instance-current">
+          <span>Conexão indisponível</span>
+          <strong>{conversation.instance.name}</strong>
+          <small>{conversation.instance.phone ? formatPhone(conversation.instance.phone) : 'Número não informado'} · {conversation.instance.archivedAt ? 'Excluída' : 'Desconectada'}</small>
+        </div>
+        {availableInstances.isLoading
+          ? <PageLoading />
+          : availableInstances.isError
+            ? <div className="conversation-transfer-empty"><Cable size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>
+            : instanceOptions.length
+              ? <SelectField label="Nova conexão" value={instanceTarget} onChange={(event) => {
+                setInstanceTarget(event.target.value);
+                changeInstance.reset();
+              }}>
+                <option value="">Selecione uma conexão ativa</option>
+                {instanceOptions.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
+              </SelectField>
+              : <div className="conversation-transfer-empty"><Cable size={22} /><strong>Nenhuma conexão ativa disponível</strong><span>Conecte outro número para conseguir continuar esta conversa.</span></div>}
+        {selectedInstanceTarget && <div className="conversation-instance-confirmation">
+          <Cable size={18} />
+          <span>As próximas mensagens serão enviadas por <strong>{selectedInstanceTarget.name}</strong>{selectedInstanceTarget.phone ? ` (${formatPhone(selectedInstanceTarget.phone)})` : ''}.</span>
+        </div>}
+      </div>
+      <div className="modal-actions">
+        <Button variant="secondary" onClick={() => {
+          setInstanceChangeOpen(false);
+          setInstanceTarget('');
+        }} disabled={changeInstance.isPending}>Cancelar</Button>
+        <Button
+          onClick={() => instanceTarget && changeInstance.mutate(instanceTarget)}
+          loading={changeInstance.isPending}
+          disabled={!instanceTarget || availableInstances.isLoading}
+        ><ArrowRightLeft size={16} />Confirmar troca</Button>
+      </div>
     </Modal>}
   </section>;
 }
@@ -1792,6 +1891,27 @@ const SharedContactCard = memo(function SharedContactCard({ contact, onStart }: 
   </div>;
 });
 
+const LocationCard = memo(function LocationCard({ location }: { location: WhatsappLocation }) {
+  const title = location.name || 'Localização compartilhada';
+  return <a
+    className="message-location-card"
+    href={location.mapsUrl}
+    target="_blank"
+    rel="noreferrer"
+    aria-label={`Abrir ${title} no mapa`}
+  >
+    <span className={`message-location-map${location.thumbnailUrl ? '' : ' fallback'}`}>
+      {location.thumbnailUrl
+        ? <img src={location.thumbnailUrl} alt={`Mapa de ${title}`} loading="lazy" decoding="async" />
+        : <MapPin size={34} />}
+    </span>
+    <span className="message-location-info">
+      <span><strong>{title}</strong>{location.address && <small>{location.address}</small>}</span>
+      <b><ExternalLink size={13} />Abrir no mapa</b>
+    </span>
+  </a>;
+});
+
 function ExpandableText({ text, whatsapp = false }: { text: string; whatsapp?: boolean }) {
   const contentRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
@@ -1850,15 +1970,17 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
   const originalText = typeof message.payload?.originalText === 'string' ? message.payload.originalText : undefined;
   const sharedContacts = extractSharedWhatsappContacts(message.payload);
   const sharedContactMessage = sharedContacts.length > 0;
+  const location = useMemo(() => extractWhatsappLocation(message.payload), [message.payload]);
+  const locationMessage = Boolean(location);
   const sticker = originalType === 'sticker';
   const visualMedia = Boolean(message.media?.length) && (originalType === 'image' || originalType === 'video');
   const documentMedia = Boolean(message.media?.length) && originalType === 'document';
-  const messageText = sharedContactMessage ? '' : message.text || originalText || (deleted ? 'Conteúdo original indisponível' : sticker && !message.media?.length ? 'Figurinha indisponível' : message.media?.length ? '' : `[${message.type}]`);
+  const messageText = sharedContactMessage || locationMessage ? '' : message.text || originalText || (deleted ? 'Conteúdo original indisponível' : sticker && !message.media?.length ? 'Figurinha indisponível' : message.media?.length ? '' : `[${message.type}]`);
   const quickReactionButton = canRetry && !deleted && <button type="button" className="message-quick-reaction" aria-label="Reagir à mensagem" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onReactionMenu(message, rect.left, rect.bottom + 4); }}><SmilePlus size={18} /></button>;
   return <div className={`message-row ${outbound ? 'outbound' : 'inbound'}${menuOpen ? ' menu-open' : ''}`} data-message-id={message.id} data-message-kind={isAudioMessage(message) ? 'audio' : originalType}>
     {outbound && quickReactionButton}
     <div
-      className={`message-bubble${sticker ? ' sticker' : ''}${visualMedia ? ' visual-media' : ''}${documentMedia ? ' document-media' : ''}${sharedContactMessage ? ' contact-message' : ''}${deleted ? ' deleted-message' : ''}${message.status === 'FAILED' ? ' failed' : ''}`}
+      className={`message-bubble${sticker ? ' sticker' : ''}${visualMedia ? ' visual-media' : ''}${documentMedia ? ' document-media' : ''}${sharedContactMessage ? ' contact-message' : ''}${locationMessage ? ' location-message' : ''}${deleted ? ' deleted-message' : ''}${message.status === 'FAILED' ? ' failed' : ''}`}
       onContextMenu={(event) => { event.preventDefault(); onMenu(message, event.clientX, event.clientY); }}
       onDoubleClick={(event) => {
         if (!canRetry || deleted || (event.target as HTMLElement).closest('button, a, audio, video')) return;
@@ -1873,6 +1995,7 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
       {(message.media?.[0] ? <MediaAttachment media={message.media[0]} sticker={sticker} onReady={onMediaReady} audioPlaybackRate={audioPlaybackRate} onCycleAudioPlaybackRate={onCycleAudioPlaybackRate} /> : originalType === 'document' && <span className="message-file"><FileText size={18} />Documento</span>)}
       {isAudioMessage(message) && <AudioTranscription message={message} />}
       {sharedContacts.map((contact) => <SharedContactCard key={contact.phone} contact={contact} onStart={() => onStartSharedContact(contact)} />)}
+      {location && <LocationCard location={location} />}
       {messageText && <ExpandableText text={messageText} whatsapp />}
       <small>{edited && <span className="message-edited-label">Editada</span>}{dateTime(message.createdAt).split(' ')[1]} {outbound && <MessageDelivery status={message.status} failure={failure} onRetry={() => onRetry(message.id)} retrying={retrying} canRetry={canRetry} />}</small>
       {reactions.length > 0 && <div className="message-reactions" aria-label="Reações">{reactions.map((reaction, index) => <span key={`${reaction.userId || reaction.userName || 'reaction'}-${index}`} title={reaction.userName || 'Reação'}>{reaction.emoji}</span>)}</div>}
@@ -1968,6 +2091,7 @@ function messageQuotedPreview(message: Message) {
   if (quoted.audioMessage) return 'Áudio';
   if (quoted.documentMessage) return quoted.documentMessage.fileName || 'Documento';
   if (quoted.stickerMessage) return 'Figurinha';
+  if (quoted.locationMessage || quoted.liveLocationMessage) return 'Localização compartilhada';
   return 'Mensagem';
 }
 
@@ -1982,6 +2106,8 @@ function messageReplyTarget(message: Message, messages: Map<string, Message>, me
 }
 
 function messagePreview(message: Message) {
+  const location = extractWhatsappLocation(message.payload);
+  if (location) return location.name || location.address || 'Localização compartilhada';
   const sharedContacts = extractSharedWhatsappContacts(message.payload);
   if (sharedContacts.length) return sharedContacts.length === 1
     ? `Contato: ${sharedContacts[0].name}`
@@ -1995,6 +2121,8 @@ function messagePreview(message: Message) {
 }
 
 function messageCopyText(message: Message) {
+  const location = extractWhatsappLocation(message.payload);
+  if (location) return location.mapsUrl;
   return message.text?.trim() || message.media?.[0]?.filename || messagePreview(message);
 }
 
