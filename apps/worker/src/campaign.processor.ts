@@ -2,7 +2,8 @@ import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
-import { MailgunClient, MailgunRequestError, normalizeMailgunMessageId } from './mailgun-client.js';
+import { GmailCampaignClient, GmailCampaignError } from './gmail-campaign-client.js';
+import { normalizeMailgunMessageId } from './mailgun-client.js';
 import { signedMediaUrl, storedMediaBase64 } from './storage.js';
 
 const randomBetween = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1) + min);
@@ -55,7 +56,7 @@ export class CampaignProcessor {
     private readonly db: PrismaClient,
     private readonly queue: Queue,
     private readonly evolution: EvolutionClient,
-    private readonly mailgun = new MailgunClient(),
+    private readonly campaignEmail = new GmailCampaignClient(),
   ) {}
 
   async process(job: Job<{ campaignId?: string; recipientId?: string; position?: number; eventData?: MailgunEventData }>) {
@@ -173,10 +174,15 @@ export class CampaignProcessor {
     if (!recipient || recipient.campaign.channel !== 'EMAIL' || recipient.campaign.status !== 'RUNNING' || recipient.status !== 'QUEUED') return;
 
     const { campaign, contact } = recipient;
-    if (!contact.email || contact.suppressions.length) {
+    if (contact.campaignsBlocked || !contact.email || contact.suppressions.length) {
       await this.db.campaignRecipient.update({
         where: { id: recipientId },
-        data: { status: 'SKIPPED', exclusionReason: 'Contato sem e-mail ou descadastrado' },
+        data: {
+          status: 'SKIPPED',
+          exclusionReason: contact.campaignsBlocked
+            ? 'Campanhas bloqueadas para este contato'
+            : 'Contato sem e-mail ou descadastrado',
+        },
       });
       return this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
     }
@@ -197,7 +203,7 @@ export class CampaignProcessor {
     const text = this.withUnsubscribeText(this.htmlToText(renderedHtml));
 
     try {
-      const result = await this.mailgun.send({
+      const result = await this.campaignEmail.send({
         to: contact.email,
         subject,
         html,
@@ -234,9 +240,7 @@ export class CampaignProcessor {
         batchPause ? campaign.batchPauseMaxSeconds : campaign.contactDelayMaxSeconds,
       );
     } catch (error) {
-      const retryable = !(error instanceof MailgunRequestError)
-        || error.status === 429
-        || error.status >= 500;
+      const retryable = !(error instanceof GmailCampaignError) || error.retryable;
       const maximumAttempts = Number(job.opts.attempts || 1);
       if (retryable && job.attemptsMade + 1 < maximumAttempts) throw error;
       await this.db.campaignRecipient.update({
@@ -244,7 +248,7 @@ export class CampaignProcessor {
         data: {
           status: 'FAILED',
           failedAt: new Date(),
-          exclusionReason: error instanceof Error ? error.message.slice(0, 500) : 'Falha de envio pelo Mailgun',
+          exclusionReason: error instanceof Error ? error.message.slice(0, 500) : 'Falha de envio pelo Gmail',
         },
       });
       await this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
@@ -289,8 +293,16 @@ export class CampaignProcessor {
       ]);
       return;
     }
-    if (contact.suppressions.some((item) => item.channel === 'WHATSAPP') || !contact.phone) {
-      await this.db.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'SKIPPED', exclusionReason: 'Contato bloqueado, descadastrado ou sem telefone' } });
+    if (contact.campaignsBlocked || contact.suppressions.some((item) => item.channel === 'WHATSAPP') || !contact.phone) {
+      await this.db.campaignRecipient.update({
+        where: { id: recipientId },
+        data: {
+          status: 'SKIPPED',
+          exclusionReason: contact.campaignsBlocked
+            ? 'Campanhas bloqueadas para este contato'
+            : 'Contato bloqueado, descadastrado ou sem telefone',
+        },
+      });
       return this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
     }
     const sequence = campaignMessageSequence(recipient.messages, campaign.bubbles);

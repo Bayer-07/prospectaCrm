@@ -14,11 +14,8 @@ import {
 
 type Template = { id: string; name: string; subject: string; html: string; text?: string; updatedAt: string };
 type Provider = {
-  provider: 'mailgun';
+  provider: 'gmail';
   configured: boolean;
-  webhookConfigured: boolean;
-  region: 'US' | 'EU';
-  domain: string | null;
   fromEmail: string | null;
   fromName: string;
   missing: string[];
@@ -132,7 +129,7 @@ export function EmailPage() {
           <div className="campaign-info"><div><strong>{campaign.name}</strong><Status value={campaign.status} /></div><p>{campaign.emailSubject || 'Sem assunto'}</p><small>Criada em {dateTime(campaign.createdAt)}</small></div>
           <div className="campaign-numbers"><div><span>Destinatários</span><strong>{campaign.stats?.audience ?? campaign._count?.recipients ?? 0}</strong></div><div><span>Elegíveis</span><strong>{campaign.stats?.eligible ?? 0}</strong></div><div><span>Enviados</span><strong>{campaign.sentRecipientCount || 0}</strong></div></div>
           <div className="campaign-actions">
-            {campaign.status === 'DRAFT' && <button className="campaign-start-button" title={providerData?.configured ? 'Validar e iniciar' : 'Configure o Mailgun para iniciar'} disabled={!providerData?.configured || schedule.isPending} onClick={() => schedule.mutate(campaign.id)}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
+            {campaign.status === 'DRAFT' && <button className="campaign-start-button" title={providerData?.configured ? 'Validar e iniciar' : 'Configure o Gmail para iniciar'} disabled={!providerData?.configured || schedule.isPending} onClick={() => schedule.mutate(campaign.id)}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
             {campaign.status === 'RUNNING' && <button title="Pausar" onClick={() => status.mutate({ id: campaign.id, action: 'pause' })}><Pause size={16} /></button>}
             {campaign.status === 'PAUSED' && <button title="Retomar" disabled={!providerData?.configured} onClick={() => status.mutate({ id: campaign.id, action: 'resume' })}><Play size={16} /></button>}
             <button type="button" className="campaign-delete-button" title="Excluir campanha" aria-label={`Excluir campanha ${campaign.name}`} onClick={() => setDeleting({ type: 'campaign', id: campaign.id, name: campaign.name, status: campaign.status })}><Trash2 size={16} /></button>
@@ -359,7 +356,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
       <Field label="Intervalo mínimo entre contatos (s)" type="number" min={1} value={form.contactMin} onChange={(event) => setForm({ ...form, contactMin: Number(event.target.value) })} />
       <Field label="Intervalo máximo entre contatos (s)" type="number" min={1} value={form.contactMax} onChange={(event) => setForm({ ...form, contactMax: Number(event.target.value) })} />
     </div>
-    <div className="campaign-validation-note"><Mail size={18} /><div><strong>Rastreamento de e-mail</strong><p>O Mailgun atualizará entrega, abertura, clique, falha e descadastro pelo webhook configurado.</p></div></div>
+    <div className="campaign-validation-note"><Mail size={18} /><div><strong>Envio pelo Gmail</strong><p>As campanhas serão enviadas pelo endereço configurado no Gmail. O SMTP confirma o envio, mas não informa abertura ou cliques.</p></div></div>
     <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={create.isPending} disabled={!form.name.trim() || !form.subject.trim() || !form.html.trim() || (!selected.length && !selectedSearches.length)}><Send size={15} />Criar campanha</Button></div>
   </form></Modal>;
 }

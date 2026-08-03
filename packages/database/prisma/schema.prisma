@@ -361,6 +361,7 @@ model Contact {
   consentEvidence     String?
   consentGrantedAt    DateTime?
   consentRevokedAt    DateTime?
+  campaignsBlocked    Boolean              @default(false)
   customFields        Json                 @default("{}")
   archivedAt          DateTime?
   createdAt           DateTime             @default(now())

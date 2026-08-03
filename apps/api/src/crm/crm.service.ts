@@ -298,6 +298,7 @@ export class CrmService {
           consentEvidence: input.consentEvidence,
           consentGrantedAt: input.consentStatus === 'granted' ? new Date() : undefined,
           consentRevokedAt: input.consentStatus === 'revoked' ? new Date() : undefined,
+          campaignsBlocked: input.campaignsBlocked ?? false,
           customFields: input.customFields as Prisma.InputJsonValue,
         } });
         if (input.companyId) await tx.contactCompany.create({ data: { contactId: created.id, companyId: input.companyId, isPrimary: true } });

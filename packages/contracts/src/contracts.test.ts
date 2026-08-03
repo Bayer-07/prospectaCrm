@@ -89,6 +89,11 @@ describe('contratos', () => {
     expect(canSendWhatsapp({ phone: '+5511999999999', consentStatus: 'GRANTED' })).toEqual({ allowed: true });
   });
 
+  it('preserva a preferência de campanhas quando uma atualização não informa o campo', () => {
+    expect(contactInputSchema.partial().parse({ name: 'Maria' })).not.toHaveProperty('campaignsBlocked');
+    expect(contactInputSchema.partial().parse({ campaignsBlocked: true })).toMatchObject({ campaignsBlocked: true });
+  });
+
   it('reconhece palavras de descadastro somente no início', () => {
     expect(isOptOutMessage('SAIR por favor')).toBe(true);
     expect(isOptOutMessage('quero SAIR')).toBe(false);

@@ -122,6 +122,7 @@ export const contactInputSchema = z.object({
   consentStatus: z.enum(consentStatuses).default('unknown'),
   consentSource: z.string().trim().max(160).optional(),
   consentEvidence: z.string().trim().max(500).optional(),
+  campaignsBlocked: z.boolean().optional(),
   customFields: z.record(z.string(), z.unknown()).default({}),
 });
 export type ContactInput = z.infer<typeof contactInputSchema>;

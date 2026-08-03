@@ -261,6 +261,13 @@ svg { flex: none; }
 .eyebrow { color: var(--violet); font-size: 8px; font-weight: 750; letter-spacing: .9px; text-transform: uppercase; }
 .modal-form { padding: 18px 20px 20px; display: flex; flex-direction: column; gap: 14px; }
 .modal-actions { padding-top: 5px; display: flex; justify-content: flex-end; gap: 8px; }
+.contact-campaign-block { min-height: 58px; padding: 11px 12px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); color: var(--ink); display: flex; align-items: flex-start; gap: 10px; cursor: pointer; transition: border-color .15s, background .15s, box-shadow .15s; }
+.contact-campaign-block:hover { border-color: var(--line-strong); }
+.contact-campaign-block.active { border-color: color-mix(in srgb, var(--red) 42%, var(--line)); background: color-mix(in srgb, var(--red-soft) 62%, var(--surface)); box-shadow: inset 3px 0 0 var(--red); }
+.contact-campaign-block input { width: 17px; height: 17px; margin: 2px 0 0; flex: 0 0 auto; accent-color: var(--red); cursor: pointer; }
+.contact-campaign-block > span { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.contact-campaign-block strong { font-size: var(--font-body); }
+.contact-campaign-block small { color: var(--muted); font-size: var(--font-secondary) !important; font-weight: 450; line-height: 1.4; }
 .empty-state { min-height: 260px; padding: 42px 20px; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; }
 .empty-icon { width: 48px; height: 48px; margin-bottom: 13px; border-radius: 14px; background: var(--violet-soft); color: var(--violet); display: grid; place-items: center; }
 .empty-state h3 { font-size: 13px; }

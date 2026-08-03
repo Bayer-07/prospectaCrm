@@ -78,7 +78,7 @@ const pageInfo: Record<string, { title: string; description: string }> = {
   '/chatbots': { title: 'Chatbots', description: 'Atendimento automático por regras em um mapa visual.' },
   '/automacoes': { title: 'Automações', description: 'Jornadas visuais de WhatsApp e CRM.' },
   '/relatorios': { title: 'Relatórios', description: 'Indicadores comerciais e operacionais.' },
-  '/email': { title: 'E-mail', description: 'Modelos, campanhas e acompanhamento de envios pelo Mailgun.' },
+  '/email': { title: 'E-mail', description: 'Modelos, campanhas e acompanhamento dos envios de e-mail.' },
   '/conexoes': { title: 'Conexões', description: 'Números e sessões conectadas ao WhatsApp.' },
   '/configuracoes': { title: 'Configurações', description: 'Equipe, papéis e permissões.' },
   '/integracoes': { title: 'Integrações', description: 'API, webhooks e documentação técnica.' },

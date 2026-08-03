@@ -229,7 +229,36 @@ Maria;(45) 99922-5389;Olá Maria, tudo bem?;Posso te apresentar nossa solução?
 
 Ao carregar o arquivo, o sistema consulta a Evolution API e mostra separadamente os números com e sem WhatsApp. Antes do envio, a pré-validação repete essa consulta e ignora números sem WhatsApp, contatos duplicados, bloqueados ou descadastrados.
 
-## Configurar campanhas de e-mail com Mailgun
+## Configurar campanhas de e-mail com Gmail
+
+As campanhas de e-mail criadas manualmente no BZS One usam uma conta Gmail separada via SMTP. Convites de usuários, recuperação de senha e resumos de tarefas continuam sendo enviados pelo Mailgun.
+
+Na conta Google que será usada nas campanhas:
+
+1. ative a verificação em duas etapas;
+2. abra [Senhas de app](https://myaccount.google.com/apppasswords);
+3. crie uma senha para o BZS One e copie o código de 16 caracteres;
+4. preencha o `.env` da raiz:
+
+```dotenv
+CAMPAIGN_GMAIL_USER=seu-email@gmail.com
+CAMPAIGN_GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
+CAMPAIGN_GMAIL_FROM_NAME=BZS Tecnologia
+```
+
+O sistema remove automaticamente os espaços exibidos pelo Google. A conta autenticada será sempre o remetente, pois o Gmail reescreve o campo `From` para o endereço conectado.
+
+Valide a autenticação sem enviar uma mensagem real:
+
+```powershell
+corepack pnpm gmail:verify
+```
+
+Depois de alterar o `.env`, reinicie a API e o worker. O SMTP do Gmail confirma a aceitação da mensagem, mas não fornece ao BZS One eventos de abertura, clique ou entrega. O Gmail também possui limites de envio e não é indicado para disparos de alto volume.
+
+Referências: [senhas de app do Google](https://support.google.com/accounts/answer/185833) e [configuração oficial do SMTP do Gmail](https://support.google.com/a/answer/176600).
+
+## Configurar envios internos com Mailgun
 
 O provedor é configurado no arquivo `.env` da raiz do projeto. No painel do Mailgun, valide primeiro um domínio de envio e crie preferencialmente uma **Domain Sending Key**, que fica limitada ao envio daquele domínio.
 
@@ -266,13 +295,13 @@ https://SEU_DOMINIO/webhooks/mailgun
 
 Habilite os eventos `accepted`, `delivered`, `opened`, `clicked`, `temporary_fail`, `permanent_fail`, `unsubscribed` e `complained`. Em desenvolvimento, `localhost` não é acessível pelo Mailgun; para testar webhooks, exponha temporariamente a API com um túnel HTTPS e use a URL pública terminada em `/webhooks/mailgun`.
 
-Depois da configuração, abra **E-mail** no menu do BZS One. O aviso superior mostrará “Envio por Mailgun ativado”. Crie um modelo, abra a aba **Campanhas**, selecione os contatos com e-mail e inicie o envio.
+O Mailgun permanece responsável pelos e-mails internos do sistema: convites de usuários, recuperação de senha e resumos diários de tarefas. As campanhas manuais não usam essas credenciais.
 
 Referências oficiais: [envio pela HTTP API](https://documentation.mailgun.com/docs/mailgun/user-manual/sending-messages/send-http), [autenticação](https://documentation.mailgun.com/docs/mailgun/api-reference/mg-auth), [webhooks](https://documentation.mailgun.com/docs/mailgun/user-manual/webhooks/webhooks) e [assinatura dos webhooks](https://documentation.mailgun.com/docs/mailgun/user-manual/webhooks/securing-webhooks).
 
 ### Resumo diário de tarefas
 
-O mesmo provedor Mailgun envia, todos os dias às **08:00**, um resumo individual para o e-mail de cada usuário responsável por tarefas abertas naquele dia. O horário usa o fuso `America/Sao_Paulo`.
+O Mailgun envia, todos os dias às **08:00**, um resumo individual para o e-mail de cada usuário responsável por tarefas abertas naquele dia. O horário usa o fuso `America/Sao_Paulo`.
 
 - tarefas sem responsável não geram e-mail;
 - cada responsável recebe um único e-mail com todas as tarefas do dia, ordenadas por horário;

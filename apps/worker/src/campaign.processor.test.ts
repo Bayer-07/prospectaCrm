@@ -35,7 +35,7 @@ describe('mensagens personalizadas de campanhas', () => {
 });
 
 describe('campanhas de e-mail', () => {
-  it('renderiza o modelo e envia pelo Mailgun', async () => {
+  it('renderiza o modelo e envia pelo Gmail configurado para campanhas', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const campaignUpdate = vi.fn().mockResolvedValue({ sentRecipientCount: 1 });
     const tx = { campaignRecipient: { updateMany }, campaign: { update: campaignUpdate } };
@@ -75,7 +75,7 @@ describe('campanhas de e-mail', () => {
       $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
     };
     const add = vi.fn().mockResolvedValue({});
-    const send = vi.fn().mockResolvedValue({ id: 'mailgun-message-id' });
+    const send = vi.fn().mockResolvedValue({ id: 'gmail-message-id' });
     const processor = new CampaignProcessor(db as never, { add } as never, {} as never, { send } as never);
 
     await processor.process({ name: 'send-campaign-email', data: { recipientId: 'recipient-1' } } as never);
@@ -89,9 +89,78 @@ describe('campanhas de e-mail', () => {
     expect(send.mock.calls[0]?.[0]?.text).not.toContain('.hidden');
     expect(send.mock.calls[0]?.[0]?.text).not.toContain('Prévia invisível');
     expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'SENT', providerMessageId: 'mailgun-message-id' }),
+      data: expect.objectContaining({ status: 'SENT', providerMessageId: 'gmail-message-id' }),
     }));
     expect(add).toHaveBeenCalledWith('dispatch-campaign', { campaignId: 'campaign-1' }, expect.any(Object));
+  });
+
+  it.each([
+    { channel: 'EMAIL', jobName: 'send-campaign-email' },
+    { channel: 'WHATSAPP', jobName: 'send-campaign-bubble' },
+  ])('ignora contato bloqueado durante o processamento de campanha $channel', async ({ channel, jobName }) => {
+    const recipientUpdate = vi.fn().mockResolvedValue({});
+    const campaignUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const db = {
+      campaignRecipient: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'recipient-1',
+          status: 'QUEUED',
+          messages: [],
+          whatsappVerifiedAt: new Date(),
+          contact: {
+            id: 'contact-1',
+            name: 'Contato bloqueado',
+            email: 'bloqueado@example.com',
+            phone: '+5545999999999',
+            campaignsBlocked: true,
+            suppressions: [],
+            companies: [],
+          },
+          campaign: {
+            id: 'campaign-1',
+            channel,
+            organizationId: 'organization-1',
+            instanceId: 'instance-1',
+            status: 'RUNNING',
+            emailSubject: 'Assunto',
+            contactDelayMinSeconds: 5,
+            contactDelayMaxSeconds: 10,
+            bubbles: [{ id: 'bubble-1', type: 'text', content: 'Olá' }],
+            instance: { instanceKey: 'instance-key', status: 'CONNECTED' },
+          },
+        }),
+        update: recipientUpdate,
+        count: vi.fn().mockResolvedValue(0),
+      },
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING' }),
+        updateMany: campaignUpdateMany,
+      },
+    };
+    const queue = { add: vi.fn() };
+    const evolution = { send: vi.fn() };
+    const mailgun = { send: vi.fn() };
+    const processor = new CampaignProcessor(db as never, queue as never, evolution as never, mailgun as never);
+
+    await processor.process({
+      name: jobName,
+      data: { recipientId: 'recipient-1', position: 0 },
+      opts: { attempts: 3 },
+      attemptsMade: 0,
+    } as never);
+
+    expect(recipientUpdate).toHaveBeenCalledWith({
+      where: { id: 'recipient-1' },
+      data: {
+        status: 'SKIPPED',
+        exclusionReason: 'Campanhas bloqueadas para este contato',
+      },
+    });
+    expect(evolution.send).not.toHaveBeenCalled();
+    expect(mailgun.send).not.toHaveBeenCalled();
+    expect(campaignUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'COMPLETED' }),
+    }));
   });
 
   it('conclui imediatamente a campanha quando o último destinatário é ignorado', async () => {

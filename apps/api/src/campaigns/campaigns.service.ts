@@ -6,7 +6,7 @@ import { campaignCadenceSchema, normalizePhoneKey } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
 import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { EvolutionService } from '../integrations/evolution.service.js';
-import { mailgunConfigurationStatus } from '../email/mailgun-config.js';
+import { campaignEmailConfigurationStatus } from '../email/campaign-email-config.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { CAMPAIGN_QUEUE } from '../queue/queue.module.js';
 import { parseCampaignCsv, type CampaignCsvRow } from './campaign-csv.js';
@@ -402,6 +402,7 @@ export class CampaignsService {
             phone: true,
             email: true,
             consentStatus: true,
+            campaignsBlocked: true,
             suppressions: { select: { channel: true } },
           },
         },
@@ -417,7 +418,9 @@ export class CampaignsService {
     const reasons: Record<string, number> = {};
     for (const { recipientId, contact } of recipients) {
       let reason: string | undefined;
-      if (campaign.channel === 'WHATSAPP') {
+      if (contact.campaignsBlocked) {
+        reason = 'Campanhas bloqueadas para este contato';
+      } else if (campaign.channel === 'WHATSAPP') {
         if (!contact.phone) reason = 'Telefone ausente';
         else if (contact.suppressions.some((item) => item.channel === 'WHATSAPP')) reason = 'Contato bloqueado ou descadastrado';
         else if (seen.has(contact.phone!)) reason = 'Telefone duplicado';
@@ -500,9 +503,9 @@ export class CampaignsService {
   async schedule(auth: AuthContext, id: string, scheduledAt?: string) {
     const campaign = await this.getForAction(auth, id);
     if (campaign.channel === 'EMAIL') {
-      const provider = mailgunConfigurationStatus();
+      const provider = campaignEmailConfigurationStatus();
       if (!provider.configured) {
-        throw new BadRequestException(`Mailgun não configurado. Preencha: ${provider.missing.join(', ')}`);
+        throw new BadRequestException(`Gmail de campanhas não configurado. Preencha: ${provider.missing.join(', ')}`);
       }
     }
     if (!['DRAFT', 'PAUSED'].includes(campaign.status)) throw new BadRequestException('Estado inválido para iniciar campanha');
@@ -524,8 +527,8 @@ export class CampaignsService {
   async setStatus(auth: AuthContext, id: string, action: 'pause' | 'resume' | 'cancel') {
     const campaign = await this.getForAction(auth, id);
     const map = { pause: 'PAUSED', resume: 'RUNNING', cancel: 'CANCELLED' } as const;
-    if (action === 'resume' && campaign.channel === 'EMAIL' && !mailgunConfigurationStatus().configured) {
-      throw new BadRequestException('Mailgun não configurado');
+    if (action === 'resume' && campaign.channel === 'EMAIL' && !campaignEmailConfigurationStatus().configured) {
+      throw new BadRequestException('Gmail de campanhas não configurado');
     }
     const updated = await this.db.campaign.update({ where: { id }, data: { status: map[action] } });
     if (action === 'resume') await this.queue.add('dispatch-campaign', { campaignId: id }, { jobId: `campaign-${id}-resume-${Date.now()}`, removeOnComplete: 1000 });
@@ -668,6 +671,7 @@ export class CampaignsService {
         phone: true,
         email: true,
         consentStatus: true,
+        campaignsBlocked: true,
         suppressions: { select: { channel: true } },
       },
       take: 50_000,

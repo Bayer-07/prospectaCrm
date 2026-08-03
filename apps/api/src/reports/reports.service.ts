@@ -6,7 +6,7 @@ import type { AuthContext } from '../auth/types.js';
 import { scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { encryptSecret } from '../common/encryption.js';
-import { mailgunConfigurationStatus } from '../email/mailgun-config.js';
+import { campaignEmailConfigurationStatus } from '../email/campaign-email-config.js';
 import { buildReportPdf } from './report-pdf.js';
 import { isOutboundWebhookAction, OUTBOUND_WEBHOOK_ACTIONS, type OutboundWebhookAction } from './webhook-actions.js';
 
@@ -126,7 +126,7 @@ export class ReportsService {
   }
 
   emailProvider() {
-    return mailgunConfigurationStatus();
+    return campaignEmailConfigurationStatus();
   }
 
   createEmailTemplate(auth: AuthContext, input: { name: string; subject: string; html: string; text?: string }) {

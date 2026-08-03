@@ -15,6 +15,7 @@ export function ContactModal({ contact, onClose, onSaved }: { contact?: Contact;
     jobTitle: contact?.jobTitle || '',
     companyId: contact?.companies?.find((item) => item.isPrimary)?.company.id || contact?.companies?.[0]?.company.id || '',
     consentStatus: contact?.consentStatus.toLowerCase() || 'unknown',
+    campaignsBlocked: contact?.campaignsBlocked || false,
   });
   const mutation = useMutation({
     mutationFn: () => {
@@ -26,6 +27,7 @@ export function ContactModal({ contact, onClose, onSaved }: { contact?: Contact;
         jobTitle: optional(form.jobTitle),
         companyId: form.companyId || null,
         consentStatus: form.consentStatus,
+        ...(contact ? { campaignsBlocked: form.campaignsBlocked } : {}),
       };
       return api(contact ? `/contacts/${contact.id}` : '/contacts', { method: contact ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
     },
@@ -46,6 +48,14 @@ export function ContactModal({ contact, onClose, onSaved }: { contact?: Contact;
         <SelectField label="Empresa" value={form.companyId} onChange={set('companyId')} disabled={companies.isLoading || companies.isError}><option value="">{companies.isLoading ? 'Carregando empresas…' : 'Sem empresa'}</option>{sortedCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</SelectField>
       </div>
       <SelectField label="Consentimento WhatsApp" value={form.consentStatus} onChange={set('consentStatus')}><option value="unknown">Não informado</option><option value="granted">Consentido</option><option value="revoked">Revogado</option></SelectField>
+      {contact && <label className={`contact-campaign-block${form.campaignsBlocked ? ' active' : ''}`}>
+        <input
+          type="checkbox"
+          checked={form.campaignsBlocked}
+          onChange={(event) => setForm({ ...form, campaignsBlocked: event.target.checked })}
+        />
+        <span><strong>Não enviar campanhas</strong><small>Impede campanhas de WhatsApp e de e-mail para este contato.</small></span>
+      </label>}
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>{contact ? 'Salvar alterações' : 'Salvar contato'}</Button></div>
     </form>
   </Modal>;

@@ -140,6 +140,13 @@ export class ContactCreateRequest {
   consentEvidence?: string;
 
   @ApiPropertyOptional({
+    description: 'Quando verdadeiro, impede o contato de receber campanhas de WhatsApp e de e-mail.',
+    default: false,
+    example: false,
+  })
+  campaignsBlocked?: boolean;
+
+  @ApiPropertyOptional({
     description: 'Valores dos campos personalizados.',
     type: 'object',
     additionalProperties: true,
@@ -453,6 +460,9 @@ export class ContactResponse {
 
   @ApiPropertyOptional({ type: String, nullable: true, example: 'Checkbox aceito em 2026-07-28' })
   consentEvidence?: string | null;
+
+  @ApiProperty({ description: 'Indica se o contato está bloqueado para campanhas.', example: false })
+  campaignsBlocked: boolean;
 
   @ApiProperty({ type: 'object', additionalProperties: true, example: { produtoInteresse: 'SGA' } })
   customFields: Record<string, unknown>;

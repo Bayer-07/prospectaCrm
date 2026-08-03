@@ -260,6 +260,58 @@ describe('pré-validação de campanhas', () => {
     });
   });
 
+  it('não consulta nem envia WhatsApp para contato bloqueado para campanhas', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const tx = { campaignRecipient: { updateMany }, campaign: { update: vi.fn() } };
+    const db = {
+      campaign: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'campaign-1',
+          channel: 'WHATSAPP',
+          status: 'DRAFT',
+          segmentId: null,
+          stats: {},
+          instance: { instanceKey: 'comercial', status: 'CONNECTED' },
+        }),
+      },
+      campaignRecipient: {
+        count: vi.fn().mockResolvedValue(1),
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'recipient-1',
+          contact: {
+            id: 'contact-1',
+            phone: '+5511999999999',
+            email: 'contato@example.com',
+            consentStatus: 'GRANTED',
+            campaignsBlocked: true,
+            suppressions: [],
+          },
+        }]),
+      },
+      $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
+    };
+    const evolution = { checkWhatsappNumbers: vi.fn() };
+    const service = new CampaignsService(db as never, {} as never, evolution as never);
+
+    const result = await service.preflight(auth, 'campaign-1');
+
+    expect(evolution.checkWhatsappNumbers).not.toHaveBeenCalled();
+    expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: { in: ['recipient-1'] } },
+      data: {
+        status: 'SKIPPED',
+        exclusionReason: 'Campanhas bloqueadas para este contato',
+        whatsappVerifiedAt: null,
+      },
+    }));
+    expect(result).toEqual({
+      audience: 1,
+      eligible: 0,
+      skipped: 1,
+      reasons: { 'Campanhas bloqueadas para este contato': 1 },
+    });
+  });
+
   it('executa a pré-validação automaticamente ao iniciar', async () => {
     const db = {
       campaign: {
@@ -328,11 +380,12 @@ describe('pré-validação de campanhas', () => {
         }),
       },
       campaignRecipient: {
-        count: vi.fn().mockResolvedValue(3),
+        count: vi.fn().mockResolvedValue(4),
         findMany: vi.fn().mockResolvedValue([
           { id: 'recipient-1', contact: { id: 'contact-1', phone: null, email: 'valido@example.com', consentStatus: 'UNKNOWN', suppressions: [] } },
           { id: 'recipient-2', contact: { id: 'contact-2', phone: null, email: null, consentStatus: 'UNKNOWN', suppressions: [] } },
           { id: 'recipient-3', contact: { id: 'contact-3', phone: null, email: 'saiu@example.com', consentStatus: 'UNKNOWN', suppressions: [{ channel: 'EMAIL' }] } },
+          { id: 'recipient-4', contact: { id: 'contact-4', phone: null, email: 'bloqueado@example.com', consentStatus: 'UNKNOWN', campaignsBlocked: true, suppressions: [] } },
         ]),
       },
       $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
@@ -342,12 +395,13 @@ describe('pré-validação de campanhas', () => {
     const result = await service.preflight(auth, 'campaign-email');
 
     expect(result).toEqual({
-      audience: 3,
+      audience: 4,
       eligible: 1,
-      skipped: 2,
+      skipped: 3,
       reasons: {
         'E-mail ausente': 1,
         'Contato descadastrado do e-mail': 1,
+        'Campanhas bloqueadas para este contato': 1,
       },
     });
   });

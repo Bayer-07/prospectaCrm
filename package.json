@@ -12,6 +12,7 @@
     "db:migrate": "pnpm --filter @prospecta/database db:migrate",
     "db:seed": "pnpm --filter @prospecta/database db:seed",
     "mailgun:verify": "pnpm --filter @prospecta/worker verify:mailgun",
+    "gmail:verify": "pnpm --filter @prospecta/worker verify:gmail",
     "bootstrap:admin": "pnpm --filter @prospecta/api bootstrap:admin"
   }
 }
