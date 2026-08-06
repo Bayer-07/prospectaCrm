@@ -1,4 +1,4 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
 import type { Queue } from 'bullmq';
 import { Prisma, type Contact } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
@@ -7,6 +7,7 @@ import type { AuthContext } from '../auth/types.js';
 import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EXTERNAL_WEBHOOK_QUEUE } from '../queue/queue.module.js';
+import { MediaService } from '../media/media.service.js';
 
 function csvSeparatorCount(line: string, separator: string) {
   let quoted = false;
@@ -52,7 +53,11 @@ function csvImportError(error: unknown) {
 
 @Injectable()
 export class CrmService {
-  constructor(private readonly db: PrismaService, @Inject(EXTERNAL_WEBHOOK_QUEUE) private readonly externalWebhooks: Queue) {}
+  constructor(
+    private readonly db: PrismaService,
+    @Inject(EXTERNAL_WEBHOOK_QUEUE) private readonly externalWebhooks: Queue,
+    private readonly media?: MediaService,
+  ) {}
 
   async dashboard(auth: AuthContext) {
     const opportunityScope = scopedWhere(auth, 'opportunities');
@@ -180,7 +185,7 @@ export class CrmService {
     const company = await this.db.company.create({ data: {
       organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId: input.teamId || auth.teamId,
       externalId: input.externalId, name: input.name, legalName: input.legalName,
-      cnpj: input.cnpj ? this.normalizeCnpj(input.cnpj) : undefined, domain: input.domain,
+      cnpj: input.cnpj ? this.normalizeCnpj(input.cnpj) : undefined, domain: input.domain, linkedinUrl: input.linkedinUrl,
       sector: input.sector, size: input.size, phone: input.phone, address: input.address as Prisma.InputJsonValue,
       customFields: input.customFields as Prisma.InputJsonValue,
     } });
@@ -201,6 +206,47 @@ export class CrmService {
     } as Prisma.CompanyUncheckedUpdateInput });
     await this.audit(auth, 'company.updated', 'Company', id, before, company);
     return company;
+  }
+
+  async setCompanyLogo(auth: AuthContext, id: string, mediaAssetId: string) {
+    if (!this.media) throw new ServiceUnavailableException('Armazenamento de logos indisponível');
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(mediaAssetId || '')) {
+      throw new BadRequestException('Logo da empresa inválida');
+    }
+    const current = await this.db.company.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'companies', 'write') },
+      select: { id: true, logoId: true },
+    });
+    if (!current) throw new NotFoundException('Empresa não encontrada');
+    const asset = await this.media.confirmCompanyLogoAsset(auth, mediaAssetId, id);
+    if (current.logoId === asset.id) return this.db.company.findUniqueOrThrow({ where: { id } });
+    const company = await this.db.company.update({ where: { id }, data: { logoId: asset.id } });
+    await this.audit(auth, 'company.logo_updated', 'Company', id, { logoId: current.logoId }, { logoId: asset.id });
+    if (current.logoId) await this.media.deleteAsset(auth, current.logoId).catch(() => undefined);
+    return company;
+  }
+
+  async removeCompanyLogo(auth: AuthContext, id: string) {
+    const current = await this.db.company.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'companies', 'write') },
+      select: { id: true, logoId: true },
+    });
+    if (!current) throw new NotFoundException('Empresa não encontrada');
+    if (!current.logoId) return this.db.company.findUniqueOrThrow({ where: { id } });
+    const company = await this.db.company.update({ where: { id }, data: { logoId: null } });
+    await this.audit(auth, 'company.logo_removed', 'Company', id, { logoId: current.logoId }, { logoId: null });
+    await this.media?.deleteAsset(auth, current.logoId).catch(() => undefined);
+    return company;
+  }
+
+  async companyLogoUrl(auth: AuthContext, id: string) {
+    const company = await this.db.company.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'companies') },
+      select: { logoId: true },
+    });
+    if (!company?.logoId) throw new NotFoundException('Logo da empresa não encontrada');
+    if (!this.media) throw new ServiceUnavailableException('Armazenamento de logos indisponível');
+    return this.media.downloadUrl(auth, company.logoId);
   }
 
   async archiveCompany(auth: AuthContext, id: string) {

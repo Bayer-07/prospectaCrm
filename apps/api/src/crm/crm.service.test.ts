@@ -67,6 +67,47 @@ describe('filtros da listagem de empresas', () => {
   });
 });
 
+describe('dados visuais e sociais da empresa', () => {
+  it('salva o link normalizado do LinkedIn no cadastro', async () => {
+    const create = vi.fn().mockImplementation(({ data }) => ({ id: 'company-1', ...data }));
+    const service = new CrmService({
+      company: { findFirst: vi.fn().mockResolvedValue(null), create },
+      activity: { create: vi.fn().mockResolvedValue({ id: 'activity-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+      outboundWebhook: { findMany: vi.fn().mockResolvedValue([]) },
+    } as never, { add: vi.fn() } as never);
+
+    await service.createCompany(auth, {
+      name: 'BZS Tecnologia',
+      linkedinUrl: 'www.linkedin.com/company/bzs-tecnologia',
+    });
+
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ linkedinUrl: 'https://www.linkedin.com/company/bzs-tecnologia' }),
+    });
+  });
+
+  it('confirma e vincula a logo enviada à empresa', async () => {
+    const logoId = '14ee3455-a854-40ab-92dc-01d71c3dbef8';
+    const update = vi.fn().mockResolvedValue({ id: 'company-1', logoId });
+    const media = {
+      confirmCompanyLogoAsset: vi.fn().mockResolvedValue({ id: logoId }),
+      deleteAsset: vi.fn(),
+    };
+    const service = new CrmService({
+      company: { findFirst: vi.fn().mockResolvedValue({ id: 'company-1', logoId: null }), update },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+      outboundWebhook: { findMany: vi.fn().mockResolvedValue([]) },
+    } as never, { add: vi.fn() } as never, media as never);
+
+    await expect(service.setCompanyLogo(auth, 'company-1', logoId))
+      .resolves.toEqual({ id: 'company-1', logoId });
+
+    expect(media.confirmCompanyLogoAsset).toHaveBeenCalledWith(auth, logoId, 'company-1');
+    expect(update).toHaveBeenCalledWith({ where: { id: 'company-1' }, data: { logoId } });
+  });
+});
+
 describe('filtros da listagem de contatos', () => {
   it('combina filtros comerciais sem substituir o escopo de acesso', async () => {
     const findMany = vi.fn().mockResolvedValue([]);

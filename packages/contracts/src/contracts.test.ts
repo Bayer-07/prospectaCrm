@@ -3,9 +3,22 @@ import { campaignCadenceSchema, canSendWhatsapp, companyInputSchema, contactInpu
 
 describe('contratos', () => {
   it('normaliza e valida empresa', () => {
-    const result = companyInputSchema.parse({ name: ' Acme Brasil ', domain: 'ACME.COM.BR' });
+    const result = companyInputSchema.parse({
+      name: ' Acme Brasil ',
+      domain: 'ACME.COM.BR',
+      linkedinUrl: 'www.linkedin.com/company/acme-brasil',
+    });
     expect(result.name).toBe('Acme Brasil');
     expect(result.domain).toBe('acme.com.br');
+    expect(result.linkedinUrl).toBe('https://www.linkedin.com/company/acme-brasil');
+  });
+
+  it('rejeita um link externo no campo do LinkedIn', () => {
+    expect(companyInputSchema.safeParse({ name: 'Empresa', linkedinUrl: 'https://example.com/company/acme' }).success).toBe(false);
+  });
+
+  it('permite remover o link do LinkedIn ao limpar o campo', () => {
+    expect(companyInputSchema.partial().parse({ linkedinUrl: '' }).linkedinUrl).toBeNull();
   });
 
   it('formata o CNPJ e valida seus dígitos verificadores', () => {

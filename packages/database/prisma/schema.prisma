@@ -308,11 +308,13 @@ model Company {
   organizationId String           @db.Uuid
   teamId         String?          @db.Uuid
   ownerId        String?          @db.Uuid
+  logoId         String?          @unique @db.Uuid
   externalId     String?
   name           String
   legalName      String?
   cnpj           String?
   domain         String?
+  linkedinUrl    String?
   sector         String?
   size           String?
   phone          String?
@@ -324,6 +326,7 @@ model Company {
   organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   team           Team?            @relation(fields: [teamId], references: [id], onDelete: SetNull)
   owner          User?            @relation("CompanyOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  logo           MediaAsset?      @relation("CompanyLogo", fields: [logoId], references: [id], onDelete: SetNull)
   contacts       ContactCompany[]
   opportunities  Opportunity[]
   tasks          Task[]
@@ -839,6 +842,7 @@ model MediaAsset {
   createdAt   DateTime  @default(now())
   message     Message?  @relation(fields: [messageId], references: [id], onDelete: Cascade)
   profilePhotoFor User? @relation("UserProfilePhoto")
+  companyLogoFor Company? @relation("CompanyLogo")
 
   @@index([messageId])
 }

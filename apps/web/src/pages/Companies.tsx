@@ -8,6 +8,8 @@ import {
   Eye,
   Filter,
   Globe2,
+  ImagePlus,
+  Linkedin,
   Mail,
   MessageCircle,
   MoreHorizontal,
@@ -22,7 +24,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatCnpj, isValidCnpj, normalizeCnpj } from '@prospecta/contracts';
-import { api, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
+import { api, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import type { Company } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
@@ -79,16 +81,57 @@ type CompanyCnpjLookup = {
   registrationStatus?: string;
   address?: Record<string, string>;
 };
+type CompanyLogoLookup = {
+  domain: string;
+  contentType: 'image/jpeg' | 'image/png' | 'image/webp' | 'image/x-icon';
+  dataUrl: string;
+  filename: string;
+  sourceUrl: string;
+};
 type CompanyForm = {
   name: string;
   legalName: string;
   cnpj: string;
   domain: string;
+  linkedinUrl: string;
   sector: string;
   size: string;
   phone: string;
   address: string;
 };
+
+function CompanyLogo({ company, large = false }: { company: Pick<Company, 'id' | 'name' | 'logoId'>; large?: boolean }) {
+  const src = company.logoId
+    ? apiUrl(`/companies/${company.id}/logo?v=${encodeURIComponent(company.logoId)}`)
+    : '';
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [src]);
+  return <span className={`company-avatar ${large ? 'large' : ''} ${src && !failed ? 'has-image' : ''}`}>
+    {src && !failed
+      ? <img src={src} alt={`Logo de ${company.name}`} onError={() => setFailed(true)} />
+      : initials(company.name)}
+  </span>;
+}
+
+function companyDomainHostname(value: string) {
+  const raw = value.trim().toLowerCase();
+  if (!raw || /\s/.test(raw)) return '';
+  try {
+    const url = new URL(/^https?:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return url.hostname.includes('.') ? url.hostname.replace(/\.$/, '') : '';
+  } catch {
+    return '';
+  }
+}
+
+function fileFromLogoLookup(logo: CompanyLogoLookup) {
+  const encoded = logo.dataUrl.split(',', 2)[1];
+  if (!encoded) throw new Error('Logo automática inválida');
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  return new File([bytes], logo.filename, { type: logo.contentType });
+}
 
 function companyAddressText(address?: Record<string, unknown>) {
   if (!address) return '';
@@ -249,7 +292,7 @@ export function CompaniesPage() {
       ? <div className="table-card"><table>
         <thead><tr><th>Empresa</th><th>Setor</th><th>Responsável</th><th>Equipe</th><th>Relacionamentos</th><th>Atualizada</th><th /></tr></thead>
         <tbody>{companies.map((company) => <tr key={company.id}>
-          <td><div className="entity-cell"><span className="company-avatar">{initials(company.name)}</span><div><strong>{company.name}</strong><small><Globe2 size={12} />{company.domain || (company.cnpj ? formatCnpj(company.cnpj) : '') || 'Sem domínio'}</small></div></div></td>
+          <td><div className="entity-cell"><CompanyLogo company={company} /><div><strong>{company.name}</strong><small><Globe2 size={12} />{company.domain || (company.cnpj ? formatCnpj(company.cnpj) : '') || 'Sem domínio'}</small></div></div></td>
           <td><span className="neutral-pill">{company.sector || 'Não informado'}</span></td>
           <td>{company.owner?.name || 'Sem responsável'}</td>
           <td>{company.team ? <span className="team-label"><i style={{ background: company.team.color }} />{company.team.name}</span> : 'Sem equipe'}</td>
@@ -305,6 +348,7 @@ function CompanyModal({ company, onClose, onSaved }: {
     legalName: company?.legalName || '',
     cnpj: formatCnpj(company?.cnpj || ''),
     domain: company?.domain || '',
+    linkedinUrl: company?.linkedinUrl || '',
     sector: company?.sector || '',
     size: company?.size || '',
     phone: company?.phone ? formatPhone(company.phone) : '',
@@ -313,6 +357,68 @@ function CompanyModal({ company, onClose, onSaved }: {
   const [addressDetails, setAddressDetails] = useState<Record<string, string> | undefined>(
     company?.address as Record<string, string> | undefined,
   );
+  const [logoFile, setLogoFile] = useState<File | null>(null);
+  const [removeLogo, setRemoveLogo] = useState(false);
+  const [logoPreview, setLogoPreview] = useState('');
+  const [logoOrigin, setLogoOrigin] = useState<'manual' | 'auto' | null>(null);
+  const [autoLogoDomain, setAutoLogoDomain] = useState('');
+  const [suppressedAutoDomain, setSuppressedAutoDomain] = useState('');
+  const logoInputRef = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (!logoFile) {
+      setLogoPreview('');
+      return;
+    }
+    const preview = URL.createObjectURL(logoFile);
+    setLogoPreview(preview);
+    return () => URL.revokeObjectURL(preview);
+  }, [logoFile]);
+  const debouncedLogoDomain = useDebouncedValue(form.domain, 700);
+  const logoLookupDomain = companyDomainHostname(debouncedLogoDomain);
+  const hasPersistedLogo = Boolean(company?.logoId && !removeLogo);
+  const logoLookup = useQuery({
+    queryKey: ['company-domain-logo', logoLookupDomain],
+    queryFn: () => api<Envelope<CompanyLogoLookup | null>>(`/companies/lookup/logo?domain=${encodeURIComponent(logoLookupDomain)}`),
+    enabled: Boolean(
+      logoLookupDomain
+      && !hasPersistedLogo
+      && logoOrigin !== 'manual'
+      && suppressedAutoDomain !== logoLookupDomain
+    ),
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+  useEffect(() => {
+    if (!logoLookupDomain) {
+      if (logoOrigin === 'auto') {
+        setLogoFile(null);
+        setLogoOrigin(null);
+        setAutoLogoDomain('');
+      }
+      return;
+    }
+    if (!logoLookup.isSuccess || logoOrigin === 'manual') return;
+    const found = logoLookup.data?.data;
+    if (!found) {
+      if (logoOrigin === 'auto' && autoLogoDomain !== logoLookupDomain) {
+        setLogoFile(null);
+        setLogoOrigin(null);
+        setAutoLogoDomain('');
+      }
+      return;
+    }
+    if (logoOrigin === 'auto' && autoLogoDomain === found.domain) return;
+    try {
+      setLogoFile(fileFromLogoLookup(found));
+      setLogoOrigin('auto');
+      setAutoLogoDomain(found.domain);
+      setRemoveLogo(false);
+    } catch {
+      setLogoFile(null);
+      setLogoOrigin(null);
+      setAutoLogoDomain('');
+    }
+  }, [autoLogoDomain, logoLookup.data, logoLookup.isSuccess, logoLookupDomain, logoOrigin]);
   const lastAutomaticValues = useRef<Partial<CompanyForm>>({});
   const cnpjDigits = normalizeCnpj(form.cnpj);
   const validCnpj = cnpjDigits.length === 14 && isValidCnpj(cnpjDigits);
@@ -350,18 +456,43 @@ function CompanyModal({ company, onClose, onSaved }: {
     lastAutomaticValues.current = automatic;
   }, [lookup.data]);
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const { address, ...fields } = form;
-      return api(company ? `/companies/${company.id}` : '/companies', {
+      const saved = await api<Envelope<Company>>(company ? `/companies/${company.id}` : '/companies', {
         method: company ? 'PATCH' : 'POST',
         body: JSON.stringify({
           ...fields,
           address: address.trim() ? { ...addressDetails, formatted: address.trim() } : undefined,
         }),
       });
+      let logoFailed = false;
+      try {
+        if (logoFile) {
+          const created = await api<Envelope<{ id: string; uploadUrl: string }>>('/media/uploads', {
+            method: 'POST',
+            body: JSON.stringify({ filename: logoFile.name, contentType: logoFile.type, sizeBytes: logoFile.size }),
+          });
+          const uploaded = await fetch(created.data.uploadUrl, {
+            method: 'PUT',
+            headers: { 'Content-Type': logoFile.type },
+            body: logoFile,
+          });
+          if (!uploaded.ok) throw new Error('Falha no envio da logo para o armazenamento');
+          await api(`/companies/${saved.data.id}/logo`, {
+            method: 'PATCH',
+            body: JSON.stringify({ mediaAssetId: created.data.id }),
+          });
+        } else if (removeLogo && company?.logoId) {
+          await api(`/companies/${saved.data.id}/logo`, { method: 'DELETE' });
+        }
+      } catch {
+        logoFailed = true;
+      }
+      return { logoFailed };
     },
-    onSuccess: () => {
-      toast.success(company ? 'Empresa atualizada.' : 'Empresa cadastrada.');
+    onSuccess: ({ logoFailed }) => {
+      if (logoFailed) toast.warning('A empresa foi salva, mas não foi possível atualizar a logo. Tente novamente pela edição.');
+      else toast.success(company ? 'Empresa atualizada.' : 'Empresa cadastrada.');
       onSaved();
     },
   });
@@ -374,9 +505,62 @@ function CompanyModal({ company, onClose, onSaved }: {
   const setCnpj = (event: React.ChangeEvent<HTMLInputElement>) => {
     setForm((current) => ({ ...current, cnpj: formatCnpj(event.target.value) }));
   };
+  const chooseLogo = (file?: File) => {
+    if (!file) return;
+    if (!['image/jpeg', 'image/png', 'image/webp'].includes(file.type)) {
+      toast.error('Selecione uma logo JPG, PNG ou WebP.');
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      toast.error('A logo deve ter no máximo 5 MB.');
+      return;
+    }
+    setLogoFile(file);
+    setLogoOrigin('manual');
+    setAutoLogoDomain('');
+    setRemoveLogo(false);
+  };
+  const clearLogo = () => {
+    setLogoFile(null);
+    setLogoOrigin(null);
+    setAutoLogoDomain('');
+    setSuppressedAutoDomain(companyDomainHostname(form.domain));
+    setRemoveLogo(Boolean(company?.logoId));
+    if (logoInputRef.current) logoInputRef.current.value = '';
+  };
 
-  return <Modal title={company ? 'Editar empresa' : 'Cadastrar empresa'} onClose={onClose}>
+  return <Modal title={company ? 'Editar empresa' : 'Cadastrar empresa'} onClose={onClose} width={640}>
     <form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); if (!cnpjError) mutation.mutate(); }}>
+      <div className="company-logo-picker">
+        <div className={`company-logo-preview ${logoPreview || (company?.logoId && !removeLogo) ? 'has-image' : ''}`}>
+          {logoPreview
+            ? <img src={logoPreview} alt="Prévia da logo" />
+            : company?.logoId && !removeLogo
+              ? <CompanyLogo company={company} large />
+              : <span>{initials(form.name || 'Empresa')}</span>}
+        </div>
+        <div>
+          <strong>Logo da empresa</strong>
+          <small>{logoLookup.isFetching
+            ? 'Buscando a logo pelo domínio…'
+            : logoOrigin === 'auto'
+              ? 'Logo encontrada automaticamente pelo domínio.'
+              : logoLookup.isSuccess && logoLookupDomain && !logoLookup.data?.data
+                ? 'Nenhuma logo foi encontrada. Você pode selecionar uma imagem.'
+                : 'Informe o domínio ou selecione JPG, PNG ou WebP de até 5 MB.'}</small>
+          <span className="company-logo-actions">
+            <Button type="button" variant="secondary" onClick={() => logoInputRef.current?.click()}><ImagePlus size={15} />Selecionar logo</Button>
+            {(logoFile || (company?.logoId && !removeLogo)) && <Button type="button" variant="secondary" onClick={clearLogo}>Remover</Button>}
+          </span>
+        </div>
+        <input
+          ref={logoInputRef}
+          className="company-logo-input"
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          onChange={(event) => chooseLogo(event.target.files?.[0])}
+        />
+      </div>
       <Field label="Nome da empresa" value={form.name} onChange={set('name')} required autoFocus />
       <Field label="Razão social" value={form.legalName} onChange={set('legalName')} />
       <div className="form-grid">
@@ -404,6 +588,7 @@ function CompanyModal({ company, onClose, onSaved }: {
         <Field label="Domínio" value={form.domain} onChange={set('domain')} placeholder="empresa.com.br" />
         <Field label="Porte" value={form.size} onChange={set('size')} />
       </div>
+      <Field label="LinkedIn" value={form.linkedinUrl} onChange={set('linkedinUrl')} placeholder="linkedin.com/company/empresa" inputMode="url" />
       <Field label="Setor" value={form.sector} onChange={set('sector')} title={form.sector} />
       <Field label="Endereço" value={form.address} onChange={set('address')} placeholder="Rua, número, cidade e estado" title={form.address} />
       <div className="modal-actions">
@@ -482,7 +667,7 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose(): void
     <button className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes da empresa" />
     <aside className="opportunity-drawer company-detail-drawer" aria-label="Detalhes da empresa">
       <header>
-        <div><span className="eyebrow">Empresa</span><h2>{data?.name || company.name}</h2></div>
+        <div className="company-drawer-title"><CompanyLogo company={data || company} large /><div><span className="eyebrow">Empresa</span><h2>{data?.name || company.name}</h2></div></div>
         <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
       </header>
       {details.isLoading
@@ -498,6 +683,7 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose(): void
 
             <section className="drawer-grid">
               <div><h3><Globe2 size={17} />Domínio</h3><p>{data.domain || 'Não informado'}</p></div>
+              <div><h3><Linkedin size={17} />LinkedIn</h3>{data.linkedinUrl ? <a href={data.linkedinUrl} target="_blank" rel="noreferrer">Abrir perfil</a> : <p>Não informado</p>}</div>
               <div><h3><Building2 size={17} />CNPJ</h3><p>{data.cnpj ? formatCnpj(data.cnpj) : 'Não informado'}</p></div>
               <div><h3><BriefcaseBusiness size={17} />Setor</h3><p>{data.sector || 'Não informado'}</p></div>
               <div><h3><Building2 size={17} />Porte</h3><p>{data.size || 'Não informado'}</p></div>

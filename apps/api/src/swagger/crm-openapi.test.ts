@@ -78,6 +78,7 @@ describe('documentação OpenAPI do CRM', () => {
       'legalName',
       'cnpj',
       'domain',
+      'linkedinUrl',
       'sector',
       'size',
       'phone',

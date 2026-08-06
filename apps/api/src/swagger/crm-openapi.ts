@@ -41,6 +41,9 @@ export class CompanyCreateRequest {
   @ApiPropertyOptional({ description: 'Domínio principal, sem protocolo.', maxLength: 160, example: 'bzs.com.br' })
   domain?: string;
 
+  @ApiPropertyOptional({ type: String, description: 'Página da empresa no LinkedIn. Envie null para remover.', format: 'uri', nullable: true, maxLength: 300, example: 'https://www.linkedin.com/company/bzs-tecnologia' })
+  linkedinUrl?: string | null;
+
   @ApiPropertyOptional({ description: 'Setor de atuação.', maxLength: 100, example: 'Tecnologia' })
   sector?: string;
 
@@ -376,6 +379,12 @@ export class CompanyResponse {
 
   @ApiPropertyOptional({ type: String, nullable: true, example: 'bzs.com.br' })
   domain?: string | null;
+
+  @ApiPropertyOptional({ type: String, format: 'uri', nullable: true, example: 'https://www.linkedin.com/company/bzs-tecnologia' })
+  linkedinUrl?: string | null;
+
+  @ApiPropertyOptional({ type: String, format: 'uuid', nullable: true, description: 'Mídia vinculada como logo da empresa.' })
+  logoId?: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true, example: 'Tecnologia' })
   sector?: string | null;

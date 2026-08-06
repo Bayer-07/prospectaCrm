@@ -16,8 +16,9 @@ import { PrismaService } from '../prisma/prisma.service.js';
 const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 const PROFILE_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
+const COMPANY_LOGO_TYPES = new Set([...PROFILE_PHOTO_TYPES, 'image/x-icon']);
 const ALLOWED_TYPES = new Set([
-  'image/jpeg', 'image/png', 'image/webp', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm',
+  'image/jpeg', 'image/png', 'image/webp', 'image/x-icon', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm',
   'video/mp4', 'application/pdf', 'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
 ]);
@@ -83,13 +84,17 @@ export class MediaService implements OnModuleInit {
   async confirmProfilePhotoAsset(auth: AuthContext, id: string) {
     const asset = await this.db.mediaAsset.findUnique({
       where: { id },
-      include: { profilePhotoFor: { select: { id: true } } },
+      include: {
+        profilePhotoFor: { select: { id: true } },
+        companyLogoFor: { select: { id: true } },
+      },
     });
     if (
       !asset
       || !asset.key.startsWith(`${auth.organizationId}/`)
       || asset.messageId
       || (asset.profilePhotoFor && asset.profilePhotoFor.id !== auth.userId)
+      || asset.companyLogoFor
       || !PROFILE_PHOTO_TYPES.has(asset.contentType)
       || asset.sizeBytes < 1
       || asset.sizeBytes > MAX_PROFILE_PHOTO_BYTES
@@ -112,13 +117,53 @@ export class MediaService implements OnModuleInit {
     return asset;
   }
 
+  async confirmCompanyLogoAsset(auth: AuthContext, id: string, companyId: string) {
+    const asset = await this.db.mediaAsset.findUnique({
+      where: { id },
+      include: {
+        profilePhotoFor: { select: { id: true } },
+        companyLogoFor: { select: { id: true } },
+      },
+    });
+    if (
+      !asset
+      || !asset.key.startsWith(`${auth.organizationId}/`)
+      || asset.messageId
+      || asset.profilePhotoFor
+      || (asset.companyLogoFor && asset.companyLogoFor.id !== companyId)
+      || !COMPANY_LOGO_TYPES.has(asset.contentType)
+      || asset.sizeBytes < 1
+      || asset.sizeBytes > MAX_PROFILE_PHOTO_BYTES
+    ) {
+      throw new BadRequestException('Selecione uma logo JPG, PNG ou WebP de até 5 MB');
+    }
+    try {
+      const stored = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: asset.key }));
+      if (
+        !stored.ContentLength
+        || stored.ContentLength !== asset.sizeBytes
+        || (stored.ContentType && stored.ContentType.split(';', 1)[0].toLowerCase() !== asset.contentType)
+      ) {
+        throw new BadRequestException('O arquivo enviado não corresponde à logo selecionada');
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Conclua o envio da logo antes de salvá-la');
+    }
+    return asset;
+  }
+
   async deleteAsset(auth: AuthContext, id: string) {
     const asset = await this.db.mediaAsset.findUnique({
       where: { id },
-      include: { profilePhotoFor: { select: { id: true } } },
+      include: {
+        profilePhotoFor: { select: { id: true } },
+        companyLogoFor: { select: { id: true } },
+      },
     });
     if (!asset || !asset.key.startsWith(`${auth.organizationId}/`)) return;
     if (asset.profilePhotoFor) throw new BadRequestException('A foto ainda está vinculada a um usuário');
+    if (asset.companyLogoFor) throw new BadRequestException('A logo ainda está vinculada a uma empresa');
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: asset.key }));
     await this.db.mediaAsset.delete({ where: { id: asset.id } });
   }

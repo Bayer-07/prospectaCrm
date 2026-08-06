@@ -90,6 +90,25 @@ export function isValidCnpj(value: string) {
   return digits.endsWith(`${firstDigit}${secondDigit}`);
 }
 
+export function normalizeLinkedinUrl(value: unknown) {
+  if (value === null || value === undefined) return value;
+  const raw = typeof value === 'string' ? value.trim() : '';
+  if (!raw) return null;
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+}
+
+const linkedinUrlSchema = z.preprocess(
+  normalizeLinkedinUrl,
+  z.string().url('Link do LinkedIn inválido').max(300).refine((value) => {
+    try {
+      const hostname = new URL(value).hostname.toLowerCase();
+      return hostname === 'linkedin.com' || hostname.endsWith('.linkedin.com');
+    } catch {
+      return false;
+    }
+  }, 'Informe um link do LinkedIn').nullable().optional(),
+);
+
 export const companyInputSchema = z.object({
   name: z.string().trim().min(2).max(180),
   legalName: z.string().trim().max(180).optional(),
@@ -98,6 +117,7 @@ export const companyInputSchema = z.object({
     .refine((value) => !value || isValidCnpj(value), 'CNPJ inválido')
     .optional(),
   domain: z.string().trim().toLowerCase().max(160).optional(),
+  linkedinUrl: linkedinUrlSchema,
   sector: z.string().trim().max(100).optional(),
   size: z.string().trim().max(60).optional(),
   phone: z.string().trim().max(24).optional(),

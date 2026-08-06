@@ -49,6 +49,7 @@ describe('MediaService uploads', () => {
       messageId: null,
       createdAt: new Date('2026-07-27T12:00:00Z'),
       profilePhotoFor: null,
+      companyLogoFor: null,
     });
     vi.spyOn((service as any).client, 'send').mockResolvedValueOnce({
       ContentLength: 4096,
@@ -57,5 +58,29 @@ describe('MediaService uploads', () => {
 
     await expect(service.confirmProfilePhotoAsset(auth, '14ee3455-a854-40ab-92dc-01d71c3dbef8'))
       .resolves.toEqual(expect.objectContaining({ contentType: 'image/webp', sizeBytes: 4096 }));
+  });
+
+  it('confirma uma logo de empresa somente depois de validar o objeto armazenado', async () => {
+    findUnique.mockResolvedValue({
+      id: '14ee3455-a854-40ab-92dc-01d71c3dbef8',
+      key: 'organization-1/2026-08-06/logo.ico',
+      filename: 'logo.ico',
+      contentType: 'image/x-icon',
+      sizeBytes: 8192,
+      messageId: null,
+      createdAt: new Date('2026-08-06T12:00:00Z'),
+      profilePhotoFor: null,
+      companyLogoFor: null,
+    });
+    vi.spyOn((service as any).client, 'send').mockResolvedValueOnce({
+      ContentLength: 8192,
+      ContentType: 'image/x-icon',
+    });
+
+    await expect(service.confirmCompanyLogoAsset(
+      auth,
+      '14ee3455-a854-40ab-92dc-01d71c3dbef8',
+      'company-1',
+    )).resolves.toEqual(expect.objectContaining({ contentType: 'image/x-icon', sizeBytes: 8192 }));
   });
 });

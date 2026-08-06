@@ -41,9 +41,11 @@ describe('SessionTokenService', () => {
       userId: 'f7c557c8-2fe1-430b-92aa-66d09c73ec39',
       expiresAt: new Date(Date.now() - 10_000),
     });
-    const replacement = valid.endsWith('a') ? 'b' : 'a';
+    const [header, payload, signature] = valid.split('.');
+    const replacement = signature.startsWith('a') ? 'b' : 'a';
+    const tampered = `${header}.${payload}.${replacement}${signature.slice(1)}`;
 
-    await expect(service.verify(`${valid.slice(0, -1)}${replacement}`)).resolves.toBeNull();
+    await expect(service.verify(tampered)).resolves.toBeNull();
     await expect(service.verify(expired)).resolves.toBeNull();
   });
 });

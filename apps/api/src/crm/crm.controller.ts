@@ -1,5 +1,6 @@
-import { Body, Controller, Delete, Get, Param, Patch, Post, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post, Query, Res } from '@nestjs/common';
 import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { RequirePermission } from '../auth/permission.decorator.js';
 import type { AuthContext } from '../auth/types.js';
@@ -39,6 +40,7 @@ import {
   ApiUpdateTaskDocumentation,
 } from '../swagger/crm-openapi.js';
 import { CompanyCnpjLookupService } from './company-cnpj-lookup.service.js';
+import { CompanyLogoLookupService } from './company-logo-lookup.service.js';
 import { CrmService } from './crm.service.js';
 
 @ApiTags('CRM')
@@ -48,6 +50,7 @@ export class CrmController {
   constructor(
     private readonly crm: CrmService,
     private readonly companyCnpjLookup: CompanyCnpjLookupService,
+    private readonly companyLogoLookup: CompanyLogoLookupService,
   ) {}
 
   @Get('dashboard')
@@ -77,6 +80,13 @@ export class CrmController {
     return { data: await this.companyCnpjLookup.lookup(cnpj) };
   }
 
+  @RequirePermission('companies', 'write')
+  @ApiExcludeEndpoint()
+  @Get('companies/lookup/logo')
+  async lookupCompanyLogo(@Query('domain') domain: string) {
+    return { data: await this.companyLogoLookup.lookup(domain) };
+  }
+
   @RequirePermission('companies', 'read')
   @ApiGetCompanyDocumentation()
   @Get('companies/:id')
@@ -91,6 +101,35 @@ export class CrmController {
   @ApiUpdateCompanyDocumentation()
   @Patch('companies/:id')
   async updateCompany(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: unknown) { return { data: await this.crm.updateCompany(auth, id, body) }; }
+
+  @RequirePermission('companies', 'write')
+  @ApiExcludeEndpoint()
+  @Patch('companies/:id/logo')
+  async setCompanyLogo(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+    @Body() body: { mediaAssetId: string },
+  ) { return { data: await this.crm.setCompanyLogo(auth, id, body.mediaAssetId) }; }
+
+  @RequirePermission('companies', 'write')
+  @ApiExcludeEndpoint()
+  @Delete('companies/:id/logo')
+  async removeCompanyLogo(@CurrentUser() auth: AuthContext, @Param('id') id: string) {
+    return { data: await this.crm.removeCompanyLogo(auth, id) };
+  }
+
+  @RequirePermission('companies', 'read')
+  @ApiExcludeEndpoint()
+  @Get('companies/:id/logo')
+  async companyLogo(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+    @Res() response: Response,
+  ) {
+    const logo = await this.crm.companyLogoUrl(auth, id);
+    response.setHeader('Cache-Control', 'private, max-age=300');
+    return response.redirect(302, logo.url);
+  }
 
   @RequirePermission('companies', 'write')
   @ApiArchiveCompanyDocumentation()
