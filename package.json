@@ -3,7 +3,8 @@
   "private": true,
   "packageManager": "pnpm@11.9.0",
   "scripts": {
-    "dev": "pnpm --parallel --filter @prospecta/api --filter @prospecta/worker --filter @prospecta/web --filter @prospecta/mcp dev",
+    "dev": "pnpm run dev:prepare && pnpm --parallel --filter @prospecta/api --filter @prospecta/worker --filter @prospecta/web --filter @prospecta/mcp dev",
+    "dev:prepare": "pnpm db:generate && pnpm --filter @prospecta/contracts --filter @prospecta/database build",
     "build": "pnpm --filter @prospecta/contracts --filter @prospecta/database build && pnpm --filter @prospecta/api --filter @prospecta/worker --filter @prospecta/web --filter @prospecta/mcp build",
     "test": "pnpm -r test",
     "typecheck": "pnpm --filter @prospecta/contracts --filter @prospecta/database build && pnpm --filter @prospecta/api --filter @prospecta/worker --filter @prospecta/web --filter @prospecta/mcp typecheck",

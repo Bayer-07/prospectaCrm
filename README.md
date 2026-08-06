@@ -325,6 +325,7 @@ A chamada também inclui os cabeçalhos `X-BZS-One-Event`, `X-BZS-One-Event-Id`,
 ## Comandos úteis
 
 ```powershell
+pnpm dev         # gera Prisma/contratos compartilhados e inicia API, worker, web e MCP
 pnpm build       # gera a compilação de produção
 pnpm typecheck   # valida os tipos TypeScript
 pnpm test        # executa os testes
