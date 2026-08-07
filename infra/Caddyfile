@@ -34,3 +34,9 @@
     Permissions-Policy "camera=(), microphone=(self), geolocation=()"
   }
 }
+
+# Ponte HTTP local para o Tailscale Funnel entregar mídias do MinIO sem
+# publicar diretamente o armazenamento na rede do servidor.
+:9002 {
+  reverse_proxy minio:9000
+}
