@@ -107,7 +107,7 @@ docker compose -f docker-compose.yml -f docker-compose.dev.yml up -d postgres re
 pnpm dev
 ```
 
-O primeiro comando inicia a infraestrutura em segundo plano. O segundo mantém a aplicação, a API, o worker e o servidor MCP em execução no terminal e atualiza o código automaticamente durante o desenvolvimento.
+O primeiro comando inicia a infraestrutura em segundo plano. O segundo mantém a aplicação, a API, o worker e o servidor MCP em execução no terminal. API, worker e MCP rodam no modo estável, sem reiniciar por alterações no banco ou em dependências compartilhadas; o frontend continua com atualização automática do Vite. Depois de alterar o código do backend, encerre o comando com `Ctrl+C` e execute `pnpm dev` novamente.
 
 Não use `docker compose up` sem a lista de serviços durante o desenvolvimento: isso também iniciaria as imagens de produção da API e do frontend.
 
@@ -325,7 +325,7 @@ A chamada também inclui os cabeçalhos `X-BZS-One-Event`, `X-BZS-One-Event-Id`,
 ## Comandos úteis
 
 ```powershell
-pnpm dev         # gera Prisma/contratos compartilhados e inicia API, worker, web e MCP
+pnpm dev         # inicia API, worker, web e MCP no modo estável
 pnpm build       # gera a compilação de produção
 pnpm typecheck   # valida os tipos TypeScript
 pnpm test        # executa os testes

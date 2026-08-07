@@ -25,7 +25,18 @@ const handleMcp = toNodeHandler(mcpHandler, {
   onerror: (error) => console.error('[mcp-adapter]', error.message),
 });
 
-const server = createServer(async (request, response) => {
+const server = createServer((request, response) => {
+  void handleRequest(request, response).catch((error) => {
+    console.error('[mcp-request-unhandled]', error);
+    if (!response.headersSent) {
+      json(response, 500, { error: 'Falha interna no servidor MCP' });
+    } else if (!response.writableEnded) {
+      response.destroy();
+    }
+  });
+});
+
+async function handleRequest(request: IncomingMessage, response: ServerResponse) {
   if (request.url === '/health' && request.method === 'GET') {
     return json(response, 200, { status: 'ok', service: 'bzs-one-mcp' });
   }
@@ -58,7 +69,7 @@ const server = createServer(async (request, response) => {
     console.error('[mcp-request]', error);
     return json(response, 500, { error: 'Falha interna no servidor MCP' });
   }
-});
+}
 
 server.listen(port, host, () => {
   console.log(`BZS One MCP ouvindo em http://${host}:${port}/mcp`);

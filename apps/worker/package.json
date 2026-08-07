@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "node --env-file-if-exists=../../.env --import tsx --watch src/main.ts",
+    "dev": "node --env-file-if-exists=../../.env --import tsx src/main.ts",
     "verify:mailgun": "node --env-file-if-exists=../../.env --import tsx src/verify-mailgun.ts",
     "verify:gmail": "node --env-file-if-exists=../../.env --import tsx src/verify-gmail-campaign.ts",
     "replay:evolution": "node --env-file-if-exists=../../.env --import tsx src/replay-evolution-events.ts",

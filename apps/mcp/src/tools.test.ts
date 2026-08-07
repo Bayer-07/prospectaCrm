@@ -75,4 +75,33 @@ describe('servidor MCP BZS One', () => {
     );
     fetchMock.mockRestore();
   });
+
+  it('continua atendendo depois de criar um registro', async () => {
+    const fetchMock = vi.spyOn(globalThis, 'fetch')
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: { id: 'empresa-1', name: 'Empresa MCP' } }),
+        { status: 201, headers: { 'Content-Type': 'application/json' } },
+      ))
+      .mockResolvedValueOnce(new Response(
+        JSON.stringify({ data: [{ id: 'empresa-1', name: 'Empresa MCP' }] }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      ));
+    const server = createBzsMcpServer('pk_test_secret', ['companies:read', 'companies:write']);
+    const client = new Client({ name: 'mcp-test', version: '1.0.0' });
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    await Promise.all([server.connect(serverTransport), client.connect(clientTransport)]);
+
+    const created = await client.callTool({
+      name: 'criar_empresa',
+      arguments: { name: 'Empresa MCP', idempotencyKey: 'mcp-create-company-stable' },
+    });
+    const listed = await client.callTool({ name: 'listar_empresas', arguments: {} });
+
+    expect(created.isError).not.toBe(true);
+    expect(listed.isError).not.toBe(true);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+
+    fetchMock.mockRestore();
+    await Promise.all([client.close(), server.close()]);
+  });
 });

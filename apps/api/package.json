@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "pnpm build && node --env-file-if-exists=../../.env --watch dist/main.js",
+    "dev": "pnpm build && node --env-file-if-exists=../../.env dist/main.js",
     "build": "tsc -p tsconfig.build.json",
     "start": "node dist/main.js",
     "typecheck": "tsc -p tsconfig.json --noEmit",
