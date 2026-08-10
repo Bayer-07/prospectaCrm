@@ -1,4 +1,4 @@
-import { memo, type FormEvent, type KeyboardEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
+import { memo, type DragEvent, type FormEvent, type KeyboardEvent, useCallback, useDeferredValue, useEffect, useMemo, useRef, useState } from 'react';
 import {
   DndContext, DragEndEvent, DragOverlay, DragStartEvent, PointerSensor, TouchSensor,
   useDraggable, useDroppable, useSensor, useSensors,
@@ -6,20 +6,25 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import {
-  Building2, CalendarDays, ChevronDown, CircleDollarSign, Clock3, Filter,
-  LayoutGrid, Mail, Phone, Plus, Search, Tag, UserRound, UsersRound, X,
+  Building2, CalendarDays, ChevronDown, CircleDollarSign, Clock3, ExternalLink, FileText, Filter,
+  LayoutGrid, Link2, Mail, Paperclip, Phone, Plus, Search, Tag, Upload, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { api, dateTime, initials, money, type Envelope } from '../lib/api';
+import { api, apiErrorMessage, apiUrl, dateTime, initials, money, type Envelope } from '../lib/api';
 import type { Company, Contact, Opportunity, Pipeline, Stage } from '../lib/types';
 import { Button, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { toast } from '../lib/toast';
+import { useAuth } from '../App';
 
 type OpportunityDetails = Opportunity & {
   status: string;
   currency: string;
   source?: string;
   expectedCloseAt?: string;
+  proposalUrl?: string | null;
+  proposalAssetId?: string | null;
+  proposalAddedAt?: string | null;
+  proposalAsset?: { id: string; filename: string; contentType: string; sizeBytes: number } | null;
   createdAt: string;
   company?: Company & { phone?: string; address?: Record<string, string> };
   pipeline: { id: string; name: string };
@@ -177,7 +182,100 @@ function OpportunityDrawer({ id, onClose }: { id: string; onClose(): void }) {
   const opportunity = details.data?.data;
   const unavailable = Boolean(details.error);
   if (unavailable) return <><button className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes" /><aside className="opportunity-drawer" aria-label="Detalhes da oportunidade"><header><div><span className="eyebrow">Oportunidade</span><h2>Detalhes indisponíveis</h2></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header></aside></>;
-  return <><button className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes" /><aside className="opportunity-drawer" aria-label="Detalhes da oportunidade"><header><div><span className="eyebrow">Oportunidade</span><h2>{opportunity?.title || 'Carregando…'}</h2></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header>{details.isLoading ? <PageLoading /> : details.error ? <div className="drawer-error">{details.error.message}</div> : opportunity && <div className="drawer-content"><div className="drawer-summary"><div><span>Valor</span><strong>{money(opportunity.valueCents)}</strong></div><div><span>Etapa</span><span className="stage-pill"><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></div><div><span>Probabilidade</span><strong>{opportunity.probability}%</strong></div></div><section><h3><Building2 size={17} />Empresa</h3>{opportunity.company ? <div className="drawer-entity"><span className="company-avatar">{initials(opportunity.company.name)}</span><div><strong>{opportunity.company.name}</strong><small>{opportunity.company.sector || opportunity.company.domain || 'Sem informações complementares'}</small>{opportunity.company.phone && <a href={`tel:${opportunity.company.phone}`}><Phone size={13} />{opportunity.company.phone}</a>}</div></div> : <p className="drawer-muted">Nenhuma empresa vinculada.</p>}</section><section><h3><UsersRound size={17} />Contatos</h3>{opportunity.contacts.length ? <div className="drawer-contact-list">{opportunity.contacts.map(({ contact, isPrimary }) => <div key={contact.id}><span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}{isPrimary && <em>Principal</em>}</strong><small>{contact.jobTitle || 'Cargo não informado'}</small><span>{contact.email && <a href={`mailto:${contact.email}`}><Mail size={13} />{contact.email}</a>}{contact.phone && <a href={`tel:${contact.phone}`}><Phone size={13} />{contact.phone}</a>}</span></div></div>)}</div> : <p className="drawer-muted">Nenhum contato vinculado.</p>}</section><section className="drawer-grid"><div><h3><UserRound size={17} />Responsável</h3><p>{opportunity.owner?.name || 'Não atribuído'}</p></div><div><h3><CalendarDays size={17} />Previsão</h3><p>{opportunity.expectedCloseAt ? dateTime(opportunity.expectedCloseAt).split(' ')[0] : 'Não definida'}</p></div><div><h3><CircleDollarSign size={17} />Origem</h3><p>{opportunity.source || 'Não informada'}</p></div><div><h3><Clock3 size={17} />Atualizada</h3><p>{dateTime(opportunity.updatedAt)}</p></div></section>{opportunity.tags.length > 0 && <section><h3><Tag size={17} />Tags</h3><div className="drawer-tags">{opportunity.tags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></section>}<section><h3><Clock3 size={17} />Atividades recentes</h3>{opportunity.activities.length ? <div className="drawer-timeline">{opportunity.activities.slice(0, 8).map((activity) => <div key={activity.id}><i /><p><strong>{activity.title}</strong><small>{dateTime(activity.occurredAt)}</small></p></div>)}</div> : <p className="drawer-muted">Nenhuma atividade registrada.</p>}</section></div>}</aside></>;
+  return <><button className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes" /><aside className="opportunity-drawer" aria-label="Detalhes da oportunidade"><header><div><span className="eyebrow">Oportunidade</span><h2>{opportunity?.title || 'Carregando…'}</h2></div><button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header>{details.isLoading ? <PageLoading /> : details.error ? <div className="drawer-error">{details.error.message}</div> : opportunity && <div className="drawer-content"><div className="drawer-summary"><div><span>Valor</span><strong>{money(opportunity.valueCents)}</strong></div><div><span>Etapa</span><span className="stage-pill"><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></div><div><span>Probabilidade</span><strong>{opportunity.probability}%</strong></div></div><OpportunityProposalSection opportunity={opportunity} /><section><h3><Building2 size={17} />Empresa</h3>{opportunity.company ? <div className="drawer-entity"><span className="company-avatar">{initials(opportunity.company.name)}</span><div><strong>{opportunity.company.name}</strong><small>{opportunity.company.sector || opportunity.company.domain || 'Sem informações complementares'}</small>{opportunity.company.phone && <a href={`tel:${opportunity.company.phone}`}><Phone size={13} />{opportunity.company.phone}</a>}</div></div> : <p className="drawer-muted">Nenhuma empresa vinculada.</p>}</section><section><h3><UsersRound size={17} />Contatos</h3>{opportunity.contacts.length ? <div className="drawer-contact-list">{opportunity.contacts.map(({ contact, isPrimary }) => <div key={contact.id}><span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}{isPrimary && <em>Principal</em>}</strong><small>{contact.jobTitle || 'Cargo não informado'}</small><span>{contact.email && <a href={`mailto:${contact.email}`}><Mail size={13} />{contact.email}</a>}{contact.phone && <a href={`tel:${contact.phone}`}><Phone size={13} />{contact.phone}</a>}</span></div></div>)}</div> : <p className="drawer-muted">Nenhum contato vinculado.</p>}</section><section className="drawer-grid"><div><h3><UserRound size={17} />Responsável</h3><p>{opportunity.owner?.name || 'Não atribuído'}</p></div><div><h3><CalendarDays size={17} />Previsão</h3><p>{opportunity.expectedCloseAt ? dateTime(opportunity.expectedCloseAt).split(' ')[0] : 'Não definida'}</p></div><div><h3><CircleDollarSign size={17} />Origem</h3><p>{opportunity.source || 'Não informada'}</p></div><div><h3><Clock3 size={17} />Atualizada</h3><p>{dateTime(opportunity.updatedAt)}</p></div></section>{opportunity.tags.length > 0 && <section><h3><Tag size={17} />Tags</h3><div className="drawer-tags">{opportunity.tags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></section>}<section><h3><Clock3 size={17} />Atividades recentes</h3>{opportunity.activities.length ? <div className="drawer-timeline">{opportunity.activities.slice(0, 8).map((activity) => <div key={activity.id}><i /><p><strong>{activity.title}</strong><small>{dateTime(activity.occurredAt)}</small></p></div>)}</div> : <p className="drawer-muted">Nenhuma atividade registrada.</p>}</section></div>}</aside></>;
+}
+
+const PROPOSAL_ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain';
+const PROPOSAL_TYPES = new Set(PROPOSAL_ACCEPT.split(','));
+
+function proposalFileSize(bytes: number) {
+  if (bytes < 1024 * 1024) return `${Math.max(1, Math.round(bytes / 1024))} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function proposalLinkLabel(url: string) {
+  try { return new URL(url).hostname; } catch { return url; }
+}
+
+function OpportunityProposalSection({ opportunity }: { opportunity: OpportunityDetails }) {
+  const { user } = useAuth();
+  const [editing, setEditing] = useState(false);
+  const canWrite = Boolean(user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
+  const hasProposal = Boolean(opportunity.proposalUrl || opportunity.proposalAsset);
+  const href = opportunity.proposalAsset
+    ? apiUrl(`/opportunities/${opportunity.id}/proposal/file`)
+    : opportunity.proposalUrl || '';
+  return <section className="opportunity-proposal-section">
+    <div className="opportunity-proposal-heading"><h3><FileText size={17} />Proposta</h3>{canWrite && hasProposal && <button type="button" onClick={() => setEditing(true)}>Alterar</button>}</div>
+    {hasProposal ? <a className="opportunity-proposal-card" href={href} target="_blank" rel="noopener noreferrer">
+      <span>{opportunity.proposalAsset ? <Paperclip size={18} /> : <Link2 size={18} />}</span>
+      <div><strong>{opportunity.proposalAsset?.filename || proposalLinkLabel(opportunity.proposalUrl || '')}</strong><small>{opportunity.proposalAsset ? `${opportunity.proposalAsset.contentType.split('/').at(-1)?.toUpperCase()} · ${proposalFileSize(opportunity.proposalAsset.sizeBytes)}` : opportunity.proposalUrl}{opportunity.proposalAddedAt ? ` · Adicionada em ${dateTime(opportunity.proposalAddedAt)}` : ''}</small></div>
+      <ExternalLink size={17} />
+    </a> : canWrite ? <button type="button" className="opportunity-proposal-empty" onClick={() => setEditing(true)}><Plus size={18} /><span><strong>Adicionar proposta</strong><small>Envie um arquivo ou informe um link</small></span></button> : <p className="drawer-muted">Nenhuma proposta adicionada.</p>}
+    {editing && <OpportunityProposalModal opportunity={opportunity} onClose={() => setEditing(false)} />}
+  </section>;
+}
+
+function OpportunityProposalModal({ opportunity, onClose }: { opportunity: OpportunityDetails; onClose(): void }) {
+  const client = useQueryClient();
+  const [type, setType] = useState<'FILE' | 'LINK'>(opportunity.proposalUrl ? 'LINK' : 'FILE');
+  const [url, setUrl] = useState(opportunity.proposalUrl || '');
+  const [file, setFile] = useState<File | null>(null);
+  const [dragging, setDragging] = useState(false);
+  const [fileError, setFileError] = useState('');
+  const mutation = useMutation({
+    mutationFn: async () => {
+      let mediaAssetId: string | undefined;
+      if (type === 'FILE') {
+        if (!file) throw new Error('Selecione o arquivo da proposta');
+        const created = await api<Envelope<{ id: string; uploadUrl: string }>>('/media/uploads', {
+          method: 'POST',
+          body: JSON.stringify({ filename: file.name, contentType: file.type, sizeBytes: file.size }),
+        });
+        const uploaded = await fetch(created.data.uploadUrl, { method: 'PUT', headers: { 'Content-Type': file.type }, body: file });
+        if (!uploaded.ok) throw new Error('Não foi possível concluir o upload da proposta');
+        mediaAssetId = created.data.id;
+      }
+      return api(`/opportunities/${opportunity.id}/proposal`, {
+        method: 'PATCH',
+        body: JSON.stringify(type === 'FILE' ? { type, mediaAssetId } : { type, url }),
+      });
+    },
+    onSuccess: () => {
+      toast.success(opportunity.proposalUrl || opportunity.proposalAsset ? 'Proposta atualizada.' : 'Proposta adicionada.');
+      void client.invalidateQueries({ queryKey: ['opportunity', opportunity.id] });
+      void client.invalidateQueries({ queryKey: ['kanban'] });
+      onClose();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível salvar a proposta')),
+  });
+  const chooseFile = (candidate: File | null) => {
+    if (!candidate) return;
+    if (!PROPOSAL_TYPES.has(candidate.type)) { setFileError('Selecione uma imagem, PDF ou documento compatível.'); return; }
+    if (!candidate.size || candidate.size > 25 * 1024 * 1024) { setFileError('O arquivo deve ter entre 1 byte e 25 MB.'); return; }
+    setFile(candidate);
+    setFileError('');
+  };
+  const dropFile = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    setDragging(false);
+    chooseFile(event.dataTransfer.files?.[0] || null);
+  };
+  const canSubmit = type === 'FILE' ? Boolean(file) : Boolean(url.trim());
+  return <Modal title={opportunity.proposalUrl || opportunity.proposalAsset ? 'Alterar proposta' : 'Adicionar proposta'} onClose={() => !mutation.isPending && onClose()} width={600}>
+    <form className="modal-form opportunity-proposal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); if (canSubmit) mutation.mutate(); }}>
+      <div className="segmented opportunity-proposal-type" role="group" aria-label="Tipo da proposta"><button type="button" className={type === 'FILE' ? 'active' : ''} aria-pressed={type === 'FILE'} onClick={() => setType('FILE')}><Upload size={15} />Arquivo</button><button type="button" className={type === 'LINK' ? 'active' : ''} aria-pressed={type === 'LINK'} onClick={() => setType('LINK')}><Link2 size={15} />Link</button></div>
+      {type === 'LINK' ? <Field label="Link da proposta" value={url} onChange={(event) => setUrl(event.target.value)} placeholder="https://exemplo.com/proposta" hint="O endereço será aberto em uma nova aba." required /> : <>
+        <label className={`opportunity-proposal-dropzone${dragging ? ' dragging' : ''}`} onDragEnter={(event) => { event.preventDefault(); setDragging(true); }} onDragOver={(event) => event.preventDefault()} onDragLeave={() => setDragging(false)} onDrop={dropFile}>
+          <input hidden type="file" accept={PROPOSAL_ACCEPT} onChange={(event) => { chooseFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} />
+          <Upload size={22} /><span><strong>Selecionar arquivo da proposta</strong><small>Clique ou arraste uma imagem ou documento de até 25 MB</small></span>
+        </label>
+        {file && <div className="opportunity-proposal-selected"><Paperclip size={17} /><span><strong>{file.name}</strong><small>{proposalFileSize(file.size)}</small></span><button type="button" onClick={() => setFile(null)} aria-label="Remover arquivo selecionado"><X size={16} /></button></div>}
+        {fileError && <p className="form-error">{fileError}</p>}
+      </>}
+      <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose} disabled={mutation.isPending}>Cancelar</Button><Button type="submit" loading={mutation.isPending} disabled={!canSubmit}>Salvar proposta</Button></div>
+    </form>
+  </Modal>;
 }
 
 function OpportunityModal({ pipeline, onClose, onCreated }: { pipeline: Pipeline; onClose(): void; onCreated(): void }) {

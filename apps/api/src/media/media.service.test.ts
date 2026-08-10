@@ -83,4 +83,29 @@ describe('MediaService uploads', () => {
       'company-1',
     )).resolves.toEqual(expect.objectContaining({ contentType: 'image/x-icon', sizeBytes: 8192 }));
   });
+
+  it('confirma um documento de proposta sem permitir reutilizar mídia já vinculada', async () => {
+    findUnique.mockResolvedValue({
+      id: '14ee3455-a854-40ab-92dc-01d71c3dbef8',
+      key: 'organization-1/2026-08-10/proposta.pdf',
+      filename: 'proposta.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 16_384,
+      messageId: null,
+      profilePhotoFor: null,
+      companyLogoFor: null,
+      quickReplyFor: null,
+      opportunityProposalFor: null,
+    });
+    vi.spyOn((service as any).client, 'send').mockResolvedValueOnce({
+      ContentLength: 16_384,
+      ContentType: 'application/pdf',
+    });
+
+    await expect(service.confirmOpportunityProposalAsset(
+      auth,
+      '14ee3455-a854-40ab-92dc-01d71c3dbef8',
+      'opportunity-1',
+    )).resolves.toEqual(expect.objectContaining({ contentType: 'application/pdf', sizeBytes: 16_384 }));
+  });
 });

@@ -671,6 +671,36 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .stage-pill { display: flex; align-items: center; gap: 6px; color: var(--ink) !important; font-weight: 650; }.stage-pill i { width: 7px; height: 7px; border-radius: 50%; }
 .drawer-content > section { padding: 20px 0; border-bottom: 1px solid var(--line); }.drawer-content > section:last-child { border-bottom: 0; }
 .drawer-content section > h3, .drawer-grid h3 { margin-bottom: 13px; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .45px; }
+.opportunity-proposal-heading { margin-bottom: 11px; display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.opportunity-proposal-heading h3 { margin: 0; display: flex; align-items: center; gap: 7px; color: var(--muted); font-size: 12px; text-transform: uppercase; letter-spacing: .45px; }
+.opportunity-proposal-heading button { min-height: 28px; padding: 0 8px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface-soft); color: var(--violet-dark); font-size: 11px; font-weight: 700; cursor: pointer; }
+.opportunity-proposal-heading button:hover { border-color: var(--violet); background: var(--violet-soft); color: var(--violet); }
+.opportunity-proposal-card { min-height: 64px; padding: 10px 11px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); color: var(--ink); display: grid; grid-template-columns: 38px minmax(0, 1fr) 20px; align-items: center; gap: 10px; transition: border-color .16s ease, background .16s ease, transform .16s ease; }
+.opportunity-proposal-card:hover { border-color: var(--violet); background: var(--violet-soft); transform: translateY(-1px); }
+.opportunity-proposal-card > span { width: 38px; height: 38px; border-radius: 9px; background: var(--surface); color: var(--violet); display: grid; place-items: center; }
+.opportunity-proposal-card > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.opportunity-proposal-card strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
+.opportunity-proposal-card small { overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
+.opportunity-proposal-card > svg { color: var(--muted); }
+.opportunity-proposal-empty { width: 100%; min-height: 64px; padding: 10px 13px; border: 1px dashed var(--line-strong); border-radius: 11px; background: var(--surface-soft); color: var(--muted); display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer; }
+.opportunity-proposal-empty:hover { border-color: var(--violet); background: var(--violet-soft); color: var(--violet); }
+.opportunity-proposal-empty > span { display: flex; flex-direction: column; gap: 3px; }
+.opportunity-proposal-empty strong { color: var(--ink); font-size: 13px; }
+.opportunity-proposal-empty small { font-size: 11px; }
+.opportunity-proposal-type { width: fit-content; }
+.opportunity-proposal-type button { display: inline-flex; align-items: center; gap: 6px; }
+.opportunity-proposal-dropzone { min-height: 112px; padding: 18px; border: 1px dashed var(--line-strong); border-radius: 12px; background: var(--surface-soft); color: var(--muted); display: flex; align-items: center; justify-content: center; gap: 12px; cursor: pointer; transition: border-color .16s ease, background .16s ease, color .16s ease; }
+.opportunity-proposal-dropzone:hover, .opportunity-proposal-dropzone.dragging { border-color: var(--violet); background: var(--violet-soft); color: var(--violet); }
+.opportunity-proposal-dropzone > span { display: flex; flex-direction: column; gap: 4px; }
+.opportunity-proposal-dropzone strong { color: var(--ink); font-size: 13px; }
+.opportunity-proposal-dropzone small { font-size: 11px; }
+.opportunity-proposal-selected { padding: 10px 11px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface-soft); display: flex; align-items: center; gap: 9px; }
+.opportunity-proposal-selected > svg { flex: none; color: var(--violet); }
+.opportunity-proposal-selected > span { min-width: 0; display: flex; flex: 1; flex-direction: column; gap: 2px; }
+.opportunity-proposal-selected strong { overflow: hidden; font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.opportunity-proposal-selected small { color: var(--muted); font-size: 10px; }
+.opportunity-proposal-selected button { width: 30px; height: 30px; border: 0; border-radius: 8px; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.opportunity-proposal-selected button:hover { background: var(--red-soft); color: var(--red); }
 .drawer-entity, .drawer-contact-list > div { display: flex; align-items: flex-start; gap: 11px; }
 .drawer-entity > div, .drawer-contact-list > div > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
 .drawer-entity strong, .drawer-contact-list strong { font-size: 14px; }.drawer-entity small, .drawer-contact-list small { color: var(--muted); }

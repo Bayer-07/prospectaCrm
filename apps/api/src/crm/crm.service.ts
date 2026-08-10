@@ -507,8 +507,66 @@ export class CrmService {
   }
 
   async getOpportunity(auth: AuthContext, id: string) {
-    const opportunity = await this.db.opportunity.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities') }, include: { company: true, pipeline: true, stage: true, owner: true, team: true, contacts: { include: { contact: true } }, tasks: true, notes: true, activities: { orderBy: { occurredAt: 'desc' } }, tags: { include: { tag: true } } } });
+    const opportunity = await this.db.opportunity.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities') }, include: { company: true, pipeline: true, stage: true, owner: true, team: true, proposalAsset: { select: { id: true, filename: true, contentType: true, sizeBytes: true } }, contacts: { include: { contact: true } }, tasks: true, notes: true, activities: { orderBy: { occurredAt: 'desc' } }, tags: { include: { tag: true } } } });
     if (!opportunity) throw new NotFoundException('Oportunidade não encontrada'); return opportunity;
+  }
+
+  async setOpportunityProposal(auth: AuthContext, id: string, raw: unknown) {
+    const current = await this.db.opportunity.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities', 'write') },
+      select: { id: true, companyId: true, proposalUrl: true, proposalAssetId: true },
+    });
+    if (!current) throw new NotFoundException('Oportunidade não encontrada');
+    if (!raw || typeof raw !== 'object') throw new BadRequestException('Informe o tipo da proposta');
+    const input = raw as { type?: unknown; url?: unknown; mediaAssetId?: unknown };
+    const type = String(input.type || '').trim().toUpperCase();
+    let proposalUrl: string | null = null;
+    let proposalAssetId: string | null = null;
+    if (type === 'LINK') {
+      const candidate = String(input.url || '').trim();
+      if (!candidate || candidate.length > 2048) throw new BadRequestException('Informe um link válido de até 2048 caracteres');
+      try {
+        const parsed = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+        if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) throw new Error('invalid protocol');
+        proposalUrl = parsed.toString();
+      } catch {
+        throw new BadRequestException('Informe um link HTTP ou HTTPS válido');
+      }
+    } else if (type === 'FILE') {
+      proposalAssetId = String(input.mediaAssetId || '').trim();
+      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(proposalAssetId)) {
+        throw new BadRequestException('Arquivo da proposta inválido');
+      }
+      if (!this.media) throw new ServiceUnavailableException('Armazenamento de propostas indisponível');
+      await this.media.confirmOpportunityProposalAsset(auth, proposalAssetId, current.id);
+    } else {
+      throw new BadRequestException('Selecione arquivo ou link para a proposta');
+    }
+    const opportunity = await this.db.opportunity.update({
+      where: { id: current.id },
+      data: { proposalUrl, proposalAssetId, proposalAddedAt: new Date() },
+      include: { proposalAsset: { select: { id: true, filename: true, contentType: true, sizeBytes: true } } },
+    });
+    await this.audit(auth, 'opportunity.proposal_updated', 'Opportunity', id, {
+      proposalUrl: current.proposalUrl,
+      proposalAssetId: current.proposalAssetId,
+    }, { proposalUrl, proposalAssetId });
+    const proposalActivityTitle = current.proposalUrl || current.proposalAssetId ? 'Proposta atualizada' : 'Proposta adicionada';
+    await this.activity(auth, 'opportunity.proposal_updated', proposalActivityTitle, { opportunityId: id, companyId: current.companyId || undefined });
+    if (current.proposalAssetId && current.proposalAssetId !== proposalAssetId) {
+      await this.media?.deleteAsset(auth, current.proposalAssetId).catch(() => undefined);
+    }
+    return opportunity;
+  }
+
+  async opportunityProposalFileUrl(auth: AuthContext, id: string) {
+    const opportunity = await this.db.opportunity.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities') },
+      select: { proposalAssetId: true },
+    });
+    if (!opportunity?.proposalAssetId) throw new NotFoundException('Arquivo da proposta não encontrado');
+    if (!this.media) throw new ServiceUnavailableException('Armazenamento de propostas indisponível');
+    return this.media.downloadUrl(auth, opportunity.proposalAssetId);
   }
 
   async updateOpportunity(auth: AuthContext, id: string, raw: unknown) {

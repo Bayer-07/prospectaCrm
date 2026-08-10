@@ -17,16 +17,24 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 const PROFILE_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const COMPANY_LOGO_TYPES = new Set([...PROFILE_PHOTO_TYPES, 'image/x-icon']);
-const QUICK_REPLY_MEDIA_TYPES = new Set([
-  ...PROFILE_PHOTO_TYPES,
+const DOCUMENT_TYPES = new Set([
   'application/pdf',
   'application/msword',
   'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.ms-excel',
+  'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+  'application/vnd.ms-powerpoint',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
 ]);
+const QUICK_REPLY_MEDIA_TYPES = new Set([
+  ...PROFILE_PHOTO_TYPES,
+  ...DOCUMENT_TYPES,
+]);
+const OPPORTUNITY_PROPOSAL_TYPES = new Set([...PROFILE_PHOTO_TYPES, ...DOCUMENT_TYPES]);
 const ALLOWED_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/x-icon', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm',
-  'video/mp4', 'application/pdf', 'application/msword',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'video/mp4', ...DOCUMENT_TYPES,
 ]);
 
 @Injectable()
@@ -93,6 +101,8 @@ export class MediaService implements OnModuleInit {
       include: {
         profilePhotoFor: { select: { id: true } },
         companyLogoFor: { select: { id: true } },
+        quickReplyFor: { select: { id: true } },
+        opportunityProposalFor: { select: { id: true } },
       },
     });
     if (
@@ -101,6 +111,8 @@ export class MediaService implements OnModuleInit {
       || asset.messageId
       || (asset.profilePhotoFor && asset.profilePhotoFor.id !== auth.userId)
       || asset.companyLogoFor
+      || asset.quickReplyFor
+      || asset.opportunityProposalFor
       || !PROFILE_PHOTO_TYPES.has(asset.contentType)
       || asset.sizeBytes < 1
       || asset.sizeBytes > MAX_PROFILE_PHOTO_BYTES
@@ -129,6 +141,8 @@ export class MediaService implements OnModuleInit {
       include: {
         profilePhotoFor: { select: { id: true } },
         companyLogoFor: { select: { id: true } },
+        quickReplyFor: { select: { id: true } },
+        opportunityProposalFor: { select: { id: true } },
       },
     });
     if (
@@ -137,6 +151,8 @@ export class MediaService implements OnModuleInit {
       || asset.messageId
       || asset.profilePhotoFor
       || (asset.companyLogoFor && asset.companyLogoFor.id !== companyId)
+      || asset.quickReplyFor
+      || asset.opportunityProposalFor
       || !COMPANY_LOGO_TYPES.has(asset.contentType)
       || asset.sizeBytes < 1
       || asset.sizeBytes > MAX_PROFILE_PHOTO_BYTES
@@ -166,6 +182,7 @@ export class MediaService implements OnModuleInit {
         profilePhotoFor: { select: { id: true } },
         companyLogoFor: { select: { id: true } },
         quickReplyFor: { select: { id: true } },
+        opportunityProposalFor: { select: { id: true } },
       },
     });
     if (
@@ -175,6 +192,7 @@ export class MediaService implements OnModuleInit {
       || asset.profilePhotoFor
       || asset.companyLogoFor
       || (asset.quickReplyFor && asset.quickReplyFor.id !== quickReplyId)
+      || asset.opportunityProposalFor
       || !QUICK_REPLY_MEDIA_TYPES.has(asset.contentType)
       || asset.sizeBytes < 1
       || asset.sizeBytes > MAX_FILE_BYTES
@@ -197,6 +215,46 @@ export class MediaService implements OnModuleInit {
     return asset;
   }
 
+  async confirmOpportunityProposalAsset(auth: AuthContext, id: string, opportunityId: string) {
+    const asset = await this.db.mediaAsset.findUnique({
+      where: { id },
+      include: {
+        profilePhotoFor: { select: { id: true } },
+        companyLogoFor: { select: { id: true } },
+        quickReplyFor: { select: { id: true } },
+        opportunityProposalFor: { select: { id: true } },
+      },
+    });
+    if (
+      !asset
+      || !asset.key.startsWith(`${auth.organizationId}/`)
+      || asset.messageId
+      || asset.profilePhotoFor
+      || asset.companyLogoFor
+      || asset.quickReplyFor
+      || (asset.opportunityProposalFor && asset.opportunityProposalFor.id !== opportunityId)
+      || !OPPORTUNITY_PROPOSAL_TYPES.has(asset.contentType)
+      || asset.sizeBytes < 1
+      || asset.sizeBytes > MAX_FILE_BYTES
+    ) {
+      throw new BadRequestException('Selecione uma imagem ou documento válido de até 25 MB');
+    }
+    try {
+      const stored = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: asset.key }));
+      if (
+        !stored.ContentLength
+        || stored.ContentLength !== asset.sizeBytes
+        || (stored.ContentType && stored.ContentType.split(';', 1)[0].toLowerCase() !== asset.contentType)
+      ) {
+        throw new BadRequestException('O arquivo enviado não corresponde à proposta selecionada');
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Conclua o envio do arquivo antes de salvar a proposta');
+    }
+    return asset;
+  }
+
   async deleteAsset(auth: AuthContext, id: string) {
     const asset = await this.db.mediaAsset.findUnique({
       where: { id },
@@ -204,12 +262,14 @@ export class MediaService implements OnModuleInit {
         profilePhotoFor: { select: { id: true } },
         companyLogoFor: { select: { id: true } },
         quickReplyFor: { select: { id: true } },
+        opportunityProposalFor: { select: { id: true } },
       },
     });
     if (!asset || !asset.key.startsWith(`${auth.organizationId}/`)) return;
     if (asset.profilePhotoFor) throw new BadRequestException('A foto ainda está vinculada a um usuário');
     if (asset.companyLogoFor) throw new BadRequestException('A logo ainda está vinculada a uma empresa');
     if (asset.quickReplyFor) throw new BadRequestException('O arquivo ainda está vinculado a uma resposta rápida');
+    if (asset.opportunityProposalFor) throw new BadRequestException('O arquivo ainda está vinculado a uma oportunidade');
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: asset.key }));
     await this.db.mediaAsset.delete({ where: { id: asset.id } });
   }

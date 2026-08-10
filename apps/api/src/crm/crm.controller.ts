@@ -204,6 +204,26 @@ export class CrmController {
   async opportunity(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.crm.getOpportunity(auth, id) }; }
 
   @RequirePermission('opportunities', 'write')
+  @ApiExcludeEndpoint()
+  @Patch('opportunities/:id/proposal')
+  async setOpportunityProposal(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: unknown) {
+    return { data: await this.crm.setOpportunityProposal(auth, id, body) };
+  }
+
+  @RequirePermission('opportunities', 'read')
+  @ApiExcludeEndpoint()
+  @Get('opportunities/:id/proposal/file')
+  async opportunityProposalFile(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+    @Res() response: Response,
+  ) {
+    const proposal = await this.crm.opportunityProposalFileUrl(auth, id);
+    response.setHeader('Cache-Control', 'private, max-age=300');
+    return response.redirect(302, proposal.url);
+  }
+
+  @RequirePermission('opportunities', 'write')
   @ApiUpdateOpportunityDocumentation()
   @Patch('opportunities/:id')
   async updateOpportunity(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: unknown) { return { data: await this.crm.updateOpportunity(auth, id, body) }; }

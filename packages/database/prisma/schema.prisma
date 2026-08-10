@@ -457,6 +457,9 @@ model Opportunity {
   probability     Int                  @default(0)
   expectedCloseAt DateTime?
   source          String?
+  proposalUrl     String?
+  proposalAssetId String?              @unique @db.Uuid
+  proposalAddedAt DateTime?
   lossReason      String?
   wonAt           DateTime?
   lostAt          DateTime?
@@ -470,6 +473,7 @@ model Opportunity {
   company         Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
   team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   owner           User?                @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  proposalAsset   MediaAsset?           @relation("OpportunityProposalAsset", fields: [proposalAssetId], references: [id], onDelete: SetNull)
   contacts        OpportunityContact[]
   tasks           Task[]
   notes           Note[]
@@ -846,6 +850,7 @@ model MediaAsset {
   profilePhotoFor User? @relation("UserProfilePhoto")
   companyLogoFor Company? @relation("CompanyLogo")
   quickReplyFor QuickReply?
+  opportunityProposalFor Opportunity? @relation("OpportunityProposalAsset")
 
   @@index([messageId])
 }
