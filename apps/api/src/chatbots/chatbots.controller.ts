@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { ApiTags } from '@nestjs/swagger';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { RequirePermission } from '../auth/permission.decorator.js';
@@ -37,4 +37,8 @@ export class ChatbotsController {
   @RequirePermission('workflows', 'write')
   @Patch(':id/status')
   async status(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { status: 'PAUSED' | 'ARCHIVED' | 'PUBLISHED' }) { return { data: await this.chatbots.setStatus(auth, id, body.status) }; }
+
+  @RequirePermission('workflows', 'write')
+  @Delete(':id')
+  async remove(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.chatbots.remove(auth, id) }; }
 }

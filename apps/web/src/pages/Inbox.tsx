@@ -491,9 +491,9 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: {
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
-      toast.success('Conversa exportada em PDF.');
+      toast.success('Atendimento exportado em PDF.');
     },
-    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível exportar a conversa')),
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível exportar o atendimento')),
   });
 
   return <>
@@ -979,9 +979,9 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       link.click();
       link.remove();
       window.setTimeout(() => URL.revokeObjectURL(href), 1_000);
-      setActionNotice('Conversa exportada em PDF');
+      setActionNotice('Atendimento exportado em PDF');
     },
-    onError: (error) => setActionError(error instanceof Error ? error.message : 'Não foi possível exportar a conversa'),
+    onError: (error) => setActionError(error instanceof Error ? error.message : 'Não foi possível exportar o atendimento'),
   });
   useLayoutEffect(() => {
     const body = bodyRef.current;

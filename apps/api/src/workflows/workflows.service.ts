@@ -19,7 +19,7 @@ export class WorkflowsService {
 
   list(auth: AuthContext) {
     return this.db.workflow.findMany({
-      where: { organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { organizationId: auth.organizationId, status: { not: 'ARCHIVED' }, ...this.scope(auth) },
       include: {
         versions: { orderBy: { version: 'desc' }, take: 1, select: { id: true, version: true, publishedAt: true } },
         _count: { select: { enrollments: true } },
@@ -42,7 +42,7 @@ export class WorkflowsService {
 
   async get(auth: AuthContext, id: string) {
     const workflow = await this.db.workflow.findFirst({
-      where: { id, organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { id, organizationId: auth.organizationId, status: { not: 'ARCHIVED' }, ...this.scope(auth) },
       include: { versions: { orderBy: { version: 'desc' } }, enrollments: { orderBy: { startedAt: 'desc' }, take: 100, include: { contact: { select: { id: true, name: true, phone: true } } } } },
     });
     if (!workflow) throw new NotFoundException('Automação não encontrada');
@@ -166,9 +166,32 @@ export class WorkflowsService {
     return this.db.workflow.update({ where: { id }, data: { status } });
   }
 
+  async remove(auth: AuthContext, id: string) {
+    await this.getForMutation(auth, id);
+    const completedAt = new Date();
+    await this.db.$transaction([
+      this.db.workflowEnrollment.updateMany({
+        where: { workflowId: id, status: { in: ['ACTIVE', 'WAITING'] } },
+        data: { status: 'STOPPED', stopReason: 'Automação excluída', completedAt },
+      }),
+      this.db.workflow.update({ where: { id }, data: { status: 'ARCHIVED' } }),
+      this.db.auditLog.create({
+        data: {
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          action: 'workflow.deleted',
+          entityType: 'Workflow',
+          entityId: id,
+          after: { status: 'ARCHIVED', completedAt: completedAt.toISOString() },
+        },
+      }),
+    ]);
+    return { id, status: 'ARCHIVED' as const };
+  }
+
   private async getForMutation(auth: AuthContext, id: string) {
     const workflow = await this.db.workflow.findFirst({
-      where: { id, organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { id, organizationId: auth.organizationId, status: { not: 'ARCHIVED' }, ...this.scope(auth) },
       select: {
         id: true,
         status: true,

@@ -783,6 +783,7 @@ export class InboundProcessor {
         conversationId: conversation.id,
         type: 'started',
         text: fromMe ? 'Atendimento iniciado pelo WhatsApp conectado' : 'Atendimento iniciado por nova mensagem',
+        createdAt: occurredAt,
       } });
     } else if (!fromMe && currentConversation.status === 'CLOSED') {
       await this.db.conversationEvent.create({ data: {
@@ -790,6 +791,7 @@ export class InboundProcessor {
         conversationId: conversation.id,
         type: 'started',
         text: 'Novo atendimento iniciado por mensagem do cliente',
+        createdAt: occurredAt,
       } });
     }
     const resolvedReply = replyTarget?.conversationId === conversation.id ? replyTarget : null;

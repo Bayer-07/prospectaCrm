@@ -5,6 +5,7 @@ export type ConversationPdfItem = {
   createdAt: Date | string;
   direction?: 'INBOUND' | 'OUTBOUND';
   text: string;
+  transcription?: string;
   status?: string;
 };
 
@@ -91,7 +92,7 @@ export async function buildConversationPdf(data: ConversationPdfData) {
     page = document.addPage([PAGE_WIDTH, PAGE_HEIGHT]);
     pages.push(page);
     page.drawRectangle({ x: 0, y: PAGE_HEIGHT - 70, width: PAGE_WIDTH, height: 70, color: BLUE });
-    page.drawText(continuation ? 'Histórico da conversa' : 'Histórico de atendimento', { x: MARGIN, y: PAGE_HEIGHT - 38, size: continuation ? 16 : 19, font: bold, color: rgb(1, 1, 1) });
+    page.drawText(continuation ? 'Histórico do atendimento' : 'Histórico de atendimento', { x: MARGIN, y: PAGE_HEIGHT - 38, size: continuation ? 16 : 19, font: bold, color: rgb(1, 1, 1) });
     page.drawText(pdfText(data.contactName), { x: MARGIN, y: PAGE_HEIGHT - 56, size: 9.5, font: regular, color: rgb(0.9, 0.97, 1) });
     y = PAGE_HEIGHT - 94;
   };
@@ -137,7 +138,11 @@ export async function buildConversationPdf(data: ConversationPdfData) {
     const outbound = item.direction === 'OUTBOUND';
     const author = outbound ? (data.assigneeName || 'Atendente') : data.contactName;
     const label = `${author} - ${dateTime(item.createdAt)}`;
-    const bodyLines = wrapText(item.text || '[Mensagem sem texto]', regular, 9.5, CONTENT_WIDTH - 28);
+    const body = [
+      item.text || '[Mensagem sem texto]',
+      item.transcription ? `Transcrição do áudio:\n${item.transcription}` : '',
+    ].filter(Boolean).join('\n\n');
+    const bodyLines = wrapText(body, regular, 9.5, CONTENT_WIDTH - 28);
     let offset = 0;
     let continuation = false;
     while (offset < bodyLines.length) {
@@ -162,7 +167,7 @@ export async function buildConversationPdf(data: ConversationPdfData) {
   }
 
   if (!data.items.length) {
-    page.drawText('Nenhuma mensagem registrada nesta conversa.', { x: MARGIN, y, size: 10, font: regular, color: MUTED });
+    page.drawText('Nenhuma mensagem registrada neste atendimento.', { x: MARGIN, y, size: 10, font: regular, color: MUTED });
   }
 
   pages.forEach((current, index) => {

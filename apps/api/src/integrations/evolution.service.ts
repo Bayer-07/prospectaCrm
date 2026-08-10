@@ -1,4 +1,4 @@
-import { BadGatewayException, BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
@@ -10,10 +10,29 @@ import { INBOUND_QUEUE, OUTBOUND_QUEUE } from '../queue/queue.module.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
 import type { ConversationPdfItem } from './conversation-pdf.js';
 import { conversationVisibilityWhere } from './conversation-visibility.js';
+import { TranscriptionsService } from './transcriptions.service.js';
 
 type ProfilePictureCacheEntry = { expiresAt: number; sizeBytes: number; picture: { body: Buffer; contentType: string } | null };
+type ConversationPdfMessage = {
+  id: string;
+  direction: 'INBOUND' | 'OUTBOUND';
+  type: string;
+  text: string | null;
+  status: string;
+  payload: Prisma.JsonValue;
+  createdAt: Date;
+  transcriptionStatus: string | null;
+  transcriptionText: string | null;
+  transcriptionError: string | null;
+  media: Array<{ filename: string; contentType: string }>;
+};
 const MAX_PROFILE_PICTURE_CACHE_ENTRIES = 250;
 const MAX_PROFILE_PICTURE_CACHE_BYTES = 64 * 1024 * 1024;
+const PDF_TRANSCRIPTION_POLL_INTERVAL_MS = 500;
+const PDF_TRANSCRIPTION_TIMEOUT_MS = Math.min(
+  Math.max(Number(process.env.PDF_TRANSCRIPTION_TIMEOUT_MS) || 5 * 60_000, 10_000),
+  15 * 60_000,
+);
 
 @Injectable()
 export class EvolutionService {
@@ -28,6 +47,7 @@ export class EvolutionService {
     @Inject(INBOUND_QUEUE) private readonly inboundQueue: Queue,
     @Inject(OUTBOUND_QUEUE) private readonly outboundQueue: Queue,
     private readonly realtime: RealtimeGateway,
+    @Optional() private readonly transcriptions?: TranscriptionsService,
   ) {}
 
   async listInstances(auth: AuthContext) {
@@ -547,28 +567,93 @@ export class EvolutionService {
   async exportConversationPdf(auth: AuthContext, id: string) {
     const conversation = await this.db.conversation.findFirst({
       where: { id, organizationId: auth.organizationId, ...this.conversationScope(auth) },
-      include: {
+      select: {
+        id: true,
+        status: true,
+        createdAt: true,
         organization: { select: { name: true } },
         contact: { select: { name: true, phone: true } },
         instance: { select: { name: true } },
         assignee: { select: { name: true } },
-        messages: {
-          where: { type: { not: 'reaction' } },
-          include: { media: { select: { filename: true, contentType: true } } },
-          orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        },
-        events: { orderBy: [{ createdAt: 'asc' }, { id: 'asc' }] },
       },
     });
     if (!conversation) throw new NotFoundException('Conversa não encontrada');
 
+    const latestStart = await this.db.conversationEvent.findFirst({
+      where: {
+        organizationId: auth.organizationId,
+        conversationId: conversation.id,
+        type: { in: ['started', 'reopened'] },
+      },
+      select: { id: true, createdAt: true },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+    const attendanceStartedAt = latestStart?.createdAt || conversation.createdAt;
+    const previousAttendanceEnd = latestStart
+      ? await this.db.conversationEvent.findFirst({
+        where: {
+          organizationId: auth.organizationId,
+          conversationId: conversation.id,
+          type: 'closed',
+          createdAt: { lt: latestStart.createdAt },
+        },
+        select: { createdAt: true },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      })
+      : null;
+    // The message that reopens a ticket can be persisted with the provider's
+    // timestamp a few milliseconds before the `started` event. The previous
+    // closing event is therefore the reliable exclusive boundary between two
+    // attendances.
+    const attendanceDateFilter = previousAttendanceEnd
+      ? { createdAt: { gt: previousAttendanceEnd.createdAt } }
+      : {};
+    const [storedMessages, storedEvents] = await Promise.all([
+      this.db.message.findMany({
+        where: {
+          conversationId: conversation.id,
+          type: { not: 'reaction' },
+          ...attendanceDateFilter,
+        },
+        select: {
+          id: true,
+          direction: true,
+          type: true,
+          text: true,
+          status: true,
+          payload: true,
+          createdAt: true,
+          transcriptionStatus: true,
+          transcriptionText: true,
+          transcriptionError: true,
+          media: { select: { filename: true, contentType: true }, orderBy: { createdAt: 'asc' } },
+        },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+      this.db.conversationEvent.findMany({
+        where: { conversationId: conversation.id, ...attendanceDateFilter },
+        select: { id: true, type: true, text: true, createdAt: true },
+        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      }),
+    ]);
+    const conversationMessages = await this.ensurePdfAudioTranscriptions(auth, conversation.id, storedMessages);
+
     const mediaLabels: Record<string, string> = { image: 'Imagem', sticker: 'Figurinha', audio: 'Áudio', video: 'Vídeo', document: 'Documento', deleted: 'Mensagem apagada' };
-    const messages: ConversationPdfItem[] = conversation.messages.map((message) => {
+    const messages: ConversationPdfItem[] = conversationMessages.map((message) => {
       const attachments = message.media.map((media) => `[${mediaLabels[message.type] || 'Arquivo'}: ${media.filename}]`);
       const text = [message.text, ...attachments].filter(Boolean).join('\n') || `[${mediaLabels[message.type] || message.type}]`;
-      return { kind: 'message', createdAt: message.createdAt, direction: message.direction, text, status: message.status };
+      return {
+        kind: 'message',
+        createdAt: message.createdAt,
+        direction: message.direction,
+        text,
+        status: message.status,
+        ...(this.isPdfAudioMessage(message) && message.transcriptionText
+          ? { transcription: message.transcriptionText }
+          : {}),
+      };
     });
-    const events: ConversationPdfItem[] = conversation.events.map((event) => ({ kind: 'event', createdAt: event.createdAt, text: event.text }));
+    const events: ConversationPdfItem[] = storedEvents.map((event) => ({ kind: 'event', createdAt: event.createdAt, text: event.text }));
     const exportedAt = new Date();
     const { buildConversationPdf } = await import('./conversation-pdf.js');
     const buffer = await buildConversationPdf({
@@ -578,7 +663,7 @@ export class EvolutionService {
       instanceName: conversation.instance.name,
       assigneeName: conversation.assignee?.name,
       status: conversation.status,
-      createdAt: conversation.createdAt,
+      createdAt: attendanceStartedAt,
       exportedAt,
       items: [...messages, ...events],
     });
@@ -588,10 +673,85 @@ export class EvolutionService {
       action: 'conversation.pdf_exported',
       entityType: 'Conversation',
       entityId: conversation.id,
-      after: { exportedAt: exportedAt.toISOString(), messageCount: messages.length },
+      after: {
+        exportedAt: exportedAt.toISOString(),
+        attendanceStartedAt: attendanceStartedAt.toISOString(),
+        messageCount: messages.length,
+        transcribedAudioCount: messages.filter((message) => Boolean(message.transcription)).length,
+      },
     } });
     const safeName = conversation.contact.name.normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-zA-Z0-9]+/g, '-').replace(/^-|-$/g, '').toLowerCase() || 'contato';
-    return { buffer, filename: `conversa-${safeName}.pdf` };
+    return { buffer, filename: `atendimento-${safeName}.pdf` };
+  }
+
+  private isPdfAudioMessage(message: Pick<ConversationPdfMessage, 'type' | 'payload' | 'media'>) {
+    const payload = message.payload && typeof message.payload === 'object' && !Array.isArray(message.payload)
+      ? message.payload as Record<string, Prisma.JsonValue>
+      : {};
+    const originalType = typeof payload.originalType === 'string' ? payload.originalType : message.type;
+    return originalType === 'audio'
+      || message.type === 'audio'
+      || message.media.some((media) => media.contentType.toLowerCase().startsWith('audio/'));
+  }
+
+  private async ensurePdfAudioTranscriptions(
+    auth: AuthContext,
+    conversationId: string,
+    messages: ConversationPdfMessage[],
+  ) {
+    const missing = messages.filter((message) => this.isPdfAudioMessage(message) && !message.transcriptionText?.trim());
+    if (!missing.length) return messages;
+    if (!this.transcriptions) {
+      throw new ServiceUnavailableException('O serviço de transcrição não está disponível para gerar o PDF');
+    }
+
+    const requests = await Promise.allSettled(
+      missing.map((message) => this.transcriptions!.request(auth, conversationId, message.id)),
+    );
+    const rejected = requests.find((request) => request.status === 'rejected');
+    if (rejected?.status === 'rejected') {
+      const detail = rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason);
+      throw new ServiceUnavailableException(`Não foi possível iniciar a transcrição dos áudios: ${detail}`);
+    }
+
+    const pendingIds = new Set(missing.map((message) => message.id));
+    const transcriptions = new Map<string, string>();
+    const deadline = Date.now() + PDF_TRANSCRIPTION_TIMEOUT_MS;
+    while (pendingIds.size && Date.now() < deadline) {
+      const states = await this.db.message.findMany({
+        where: { conversationId, id: { in: [...pendingIds] } },
+        select: {
+          id: true,
+          transcriptionStatus: true,
+          transcriptionText: true,
+          transcriptionError: true,
+        },
+      });
+      for (const state of states) {
+        if (state.transcriptionStatus === 'COMPLETED' && state.transcriptionText?.trim()) {
+          transcriptions.set(state.id, state.transcriptionText.trim());
+          pendingIds.delete(state.id);
+          continue;
+        }
+        if (state.transcriptionStatus === 'FAILED') {
+          throw new ServiceUnavailableException(
+            `Não foi possível transcrever um áudio do atendimento: ${state.transcriptionError || 'erro desconhecido'}`,
+          );
+        }
+      }
+      if (pendingIds.size) {
+        await new Promise((resolve) => setTimeout(resolve, PDF_TRANSCRIPTION_POLL_INTERVAL_MS));
+      }
+    }
+    if (pendingIds.size) {
+      throw new ServiceUnavailableException('A transcrição dos áudios não terminou a tempo. Tente exportar novamente.');
+    }
+
+    return messages.map((message) => ({
+      ...message,
+      transcriptionText: transcriptions.get(message.id) || message.transcriptionText,
+      transcriptionStatus: transcriptions.has(message.id) ? 'COMPLETED' : message.transcriptionStatus,
+    }));
   }
 
   async profilePicture(auth: AuthContext, id: string) {

@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { ChatbotsService } from './chatbots.service.js';
 
 const service = new ChatbotsService({} as never);
@@ -61,5 +61,42 @@ describe('validação do mapa do chatbot', () => {
         { source: 'condition', sourceHandle: 'false', target: 'end' },
       ],
     }, true)).toThrow(/bloco de pergunta/);
+  });
+});
+
+describe('exclusão de chatbot', () => {
+  it('arquiva o chatbot, interrompe sessões ativas e preserva o histórico', async () => {
+    const updateSessions = vi.fn().mockResolvedValue({ count: 2 });
+    const updateChatbot = vi.fn().mockResolvedValue({ id: 'chatbot-1', status: 'ARCHIVED' });
+    const audit = vi.fn().mockResolvedValue({});
+    const db = {
+      chatbot: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'chatbot-1', instanceId: 'instance-1', status: 'PUBLISHED', publishedVersion: 1, versions: [],
+        }),
+        update: updateChatbot,
+      },
+      chatbotSession: { updateMany: updateSessions },
+      auditLog: { create: audit },
+      $transaction: vi.fn().mockResolvedValue([]),
+    };
+    const chatbotService = new ChatbotsService(db as never);
+    const auth = {
+      type: 'session' as const,
+      organizationId: 'organization-1',
+      userId: 'user-1',
+      name: 'Gabriel',
+      permissions: [{ resource: '*', action: '*', scope: 'ALL' as const }],
+    };
+
+    await expect(chatbotService.remove(auth, 'chatbot-1')).resolves.toEqual({ id: 'chatbot-1', status: 'ARCHIVED' });
+    expect(updateSessions).toHaveBeenCalledWith({
+      where: { chatbotId: 'chatbot-1', status: { in: ['ACTIVE', 'WAITING'] } },
+      data: { status: 'STOPPED', stopReason: 'Chatbot excluído', completedAt: expect.any(Date) },
+    });
+    expect(updateChatbot).toHaveBeenCalledWith({ where: { id: 'chatbot-1' }, data: { status: 'ARCHIVED' } });
+    expect(audit).toHaveBeenCalledWith({ data: expect.objectContaining({
+      action: 'chatbot.deleted', entityType: 'Chatbot', entityId: 'chatbot-1',
+    }) });
   });
 });

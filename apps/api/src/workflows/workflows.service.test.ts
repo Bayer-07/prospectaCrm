@@ -103,3 +103,38 @@ describe('inscrição manual em automações', () => {
     expect(second).toEqual({ requested: 2, enrolled: 1, skipped: 1 });
   });
 });
+
+describe('exclusão de automação', () => {
+  it('arquiva a automação e interrompe inscrições ativas sem apagar o histórico', async () => {
+    const updateEnrollments = vi.fn().mockResolvedValue({ count: 3 });
+    const updateWorkflow = vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'ARCHIVED' });
+    const audit = vi.fn().mockResolvedValue({});
+    const db = {
+      workflow: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'workflow-1', status: 'PUBLISHED', publishedVersion: 1, versions: [] }),
+        update: updateWorkflow,
+      },
+      workflowEnrollment: { updateMany: updateEnrollments },
+      auditLog: { create: audit },
+      $transaction: vi.fn().mockResolvedValue([]),
+    };
+    const workflowService = new WorkflowsService(db as never, {} as never);
+    const auth = {
+      type: 'session' as const,
+      organizationId: 'organization-1',
+      userId: 'user-1',
+      name: 'Gabriel',
+      permissions: [{ resource: '*', action: '*', scope: 'ALL' as const }],
+    };
+
+    await expect(workflowService.remove(auth, 'workflow-1')).resolves.toEqual({ id: 'workflow-1', status: 'ARCHIVED' });
+    expect(updateEnrollments).toHaveBeenCalledWith({
+      where: { workflowId: 'workflow-1', status: { in: ['ACTIVE', 'WAITING'] } },
+      data: { status: 'STOPPED', stopReason: 'Automação excluída', completedAt: expect.any(Date) },
+    });
+    expect(updateWorkflow).toHaveBeenCalledWith({ where: { id: 'workflow-1' }, data: { status: 'ARCHIVED' } });
+    expect(audit).toHaveBeenCalledWith({ data: expect.objectContaining({
+      action: 'workflow.deleted', entityType: 'Workflow', entityId: 'workflow-1',
+    }) });
+  });
+});

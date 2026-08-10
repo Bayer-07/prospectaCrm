@@ -15,7 +15,7 @@ export class ChatbotsService {
 
   list(auth: AuthContext) {
     return this.db.chatbot.findMany({
-      where: { organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { organizationId: auth.organizationId, status: { not: 'ARCHIVED' }, ...this.scope(auth) },
       include: {
         instance: { select: { id: true, name: true, phone: true, status: true } },
         versions: { orderBy: { version: 'desc' }, take: 1, select: { id: true, version: true, publishedAt: true } },
@@ -41,7 +41,7 @@ export class ChatbotsService {
 
   async get(auth: AuthContext, id: string) {
     const chatbot = await this.db.chatbot.findFirst({
-      where: { id, organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { id, organizationId: auth.organizationId, status: { not: 'ARCHIVED' }, ...this.scope(auth) },
       include: {
         instance: { select: { id: true, name: true, phone: true, status: true } },
         versions: { orderBy: { version: 'desc' } },
@@ -115,9 +115,32 @@ export class ChatbotsService {
     return this.db.chatbot.update({ where: { id }, data: { status } });
   }
 
+  async remove(auth: AuthContext, id: string) {
+    await this.getForMutation(auth, id);
+    const completedAt = new Date();
+    await this.db.$transaction([
+      this.db.chatbotSession.updateMany({
+        where: { chatbotId: id, status: { in: ['ACTIVE', 'WAITING'] } },
+        data: { status: 'STOPPED', stopReason: 'Chatbot excluído', completedAt },
+      }),
+      this.db.chatbot.update({ where: { id }, data: { status: 'ARCHIVED' } }),
+      this.db.auditLog.create({
+        data: {
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          action: 'chatbot.deleted',
+          entityType: 'Chatbot',
+          entityId: id,
+          after: { status: 'ARCHIVED', completedAt: completedAt.toISOString() },
+        },
+      }),
+    ]);
+    return { id, status: 'ARCHIVED' as const };
+  }
+
   private async getForMutation(auth: AuthContext, id: string) {
     const chatbot = await this.db.chatbot.findFirst({
-      where: { id, organizationId: auth.organizationId, ...this.scope(auth) },
+      where: { id, organizationId: auth.organizationId, status: { not: 'ARCHIVED' }, ...this.scope(auth) },
       select: {
         id: true,
         instanceId: true,
