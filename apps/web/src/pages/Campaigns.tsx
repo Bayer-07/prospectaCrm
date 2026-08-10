@@ -623,7 +623,7 @@ function CampaignDetails({ campaignId, onClose }: { campaignId: string; onClose(
             <div><Clock3 /><span>Faltam enviar</span><strong>{progress.remaining}</strong></div>
           </div>
           <div className="campaign-progress-summary">
-            <div><i style={{ width: `${progressPercent}%` }} /></div>
+            <div><i style={{ transform: `scaleX(${progressPercent / 100})` }} /></div>
             <p><strong>{progressPercent}% processado</strong><span>{progress.failed ? `${progress.failed} falharam · ` : ''}{progress.skipped ? `${progress.skipped} ignorados · ` : ''}{progress.remaining} aguardando envio</span></p>
           </div>
 

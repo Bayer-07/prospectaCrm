@@ -14,6 +14,7 @@ import {
   useSensors,
 } from '@dnd-kit/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { createPortal } from 'react-dom';
 import {
   CalendarDays,
   Check,
@@ -204,9 +205,9 @@ export function TasksPage() {
           onCreate={createAt}
           onOpen={openTask}
         />}
-      <DragOverlay dropAnimation={{ duration: 160, easing: 'ease-out' }}>
+      {createPortal(<DragOverlay dropAnimation={{ duration: 240, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }}>
         {activeTask ? <TaskDragPreview task={activeTask} view={view} /> : null}
-      </DragOverlay>
+      </DragOverlay>, document.body)}
     </DndContext>
 
     {modal && <TaskModal
