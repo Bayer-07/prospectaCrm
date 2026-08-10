@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Mail, MapPin, MessageCircle, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Mail, MapPin, MessageCircle, MessageCirclePlus, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
@@ -323,7 +323,7 @@ export function InboxPage() {
       : ['Nenhum ticket encerrado', 'Atendimentos finalizados ficarão guardados aqui.'];
   return <div className="inbox-layout">
     <aside className="conversation-sidebar">
-      <div className="conversation-sidebar-heading"><strong>Conversas</strong><div className="conversation-sidebar-actions">{isAdmin && <button className={`icon-button conversation-view-all${showAll ? ' active' : ''}`} onClick={toggleAll} aria-label={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'} title={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'}><Eye size={16} /></button>}<Button onClick={() => setStartingConversation(true)}><Plus size={14} />Nova conversa</Button></div></div>
+      <div className="conversation-sidebar-heading"><strong>Conversas</strong><div className="conversation-sidebar-actions">{isAdmin && <button className={`icon-button conversation-view-all${showAll ? ' active' : ''}`} onClick={toggleAll} aria-label={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'} title={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'}><Eye size={16} /></button>}<button type="button" className="icon-button conversation-new-button" onClick={() => setStartingConversation(true)} aria-label="Nova conversa" title="Nova conversa"><MessageCirclePlus size={18} /></button></div></div>
       <div className="inbox-tabs">
         <button className={filter === 'waiting' ? 'active' : ''} onClick={() => changeFilter('waiting')}>Aguardando <span>{counts.data?.data.waiting || 0}</span></button>
         <button className={filter === 'open' ? 'active' : ''} onClick={() => changeFilter('open')}>Abertas <span>{counts.data?.data.open || 0}</span></button>

@@ -666,6 +666,15 @@ textarea {
   background: color-mix(in srgb, var(--apple-surface) 96%, transparent);
 }
 .conversation-sidebar-heading { min-height: 58px; border-color: var(--line); }
+.conversation-new-button {
+  width: 36px;
+  height: 36px;
+  border: 0;
+  background: var(--apple-blue);
+  color: #fff;
+  box-shadow: 0 3px 10px color-mix(in srgb, var(--apple-blue) 22%, transparent), inset 0 1px 0 rgba(255, 255, 255, .2);
+}
+.conversation-new-button:hover { background: var(--apple-blue-hover); color: #fff; }
 .inbox-tabs { border-color: var(--line); }
 .inbox-tabs button { font-size: 12px; font-weight: 560; transition: color 140ms var(--ease-out), background-color 140ms var(--ease-out); }
 .inbox-tabs button::after {
