@@ -52,6 +52,15 @@ export function linkifyWhatsappText(text: string): WhatsappLinkPart[] {
   return parts.length ? parts : [{ type: 'text', value: text }];
 }
 
+export function firstWhatsappLink(text: string) {
+  for (const token of tokenizeWhatsappText(text)) {
+    if (token.type === 'code') continue;
+    const link = linkifyWhatsappText(token.value).find((part) => part.type === 'link');
+    if (link?.href) return link.href;
+  }
+  return undefined;
+}
+
 function renderLinkedText(text: string, keyPrefix: string): ReactNode[] {
   return linkifyWhatsappText(text).map((part, index) => part.type === 'link'
     ? <a key={`${keyPrefix}-link-${index}`} className="whatsapp-link" href={part.href} target="_blank" rel="noopener noreferrer">{part.value}</a>

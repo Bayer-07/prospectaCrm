@@ -682,6 +682,18 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .opportunity-proposal-card strong { overflow: hidden; font-size: 13px; text-overflow: ellipsis; white-space: nowrap; }
 .opportunity-proposal-card small { overflow: hidden; color: var(--muted); font-size: 10px; line-height: 1.35; text-overflow: ellipsis; white-space: nowrap; }
 .opportunity-proposal-card > svg { color: var(--muted); }
+.opportunity-proposal-link-card { min-height: 94px; padding: 8px; grid-template-columns: 88px minmax(0, 1fr) 18px; align-items: stretch; gap: 11px; }
+.opportunity-proposal-link-card:active { transform: scale(.985); }
+.opportunity-proposal-link-card > .opportunity-proposal-preview-media { position: relative; width: 88px; height: 76px; overflow: hidden; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); color: var(--violet); display: grid; place-items: center; }
+.opportunity-proposal-preview-media > img { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface); }
+.opportunity-proposal-link-card > .opportunity-proposal-preview-copy { min-width: 0; padding: 2px 0; justify-content: center; gap: 4px; }
+.opportunity-proposal-preview-copy strong { display: -webkit-box; overflow: hidden; font-size: 13px; line-height: 1.28; white-space: normal; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.opportunity-proposal-preview-copy p { display: -webkit-box; overflow: hidden; color: var(--muted); font-size: 11px; line-height: 1.3; -webkit-box-orient: vertical; -webkit-line-clamp: 2; }
+.opportunity-proposal-preview-copy small { margin-top: 1px; font-size: 10px; }
+.opportunity-proposal-link-card > svg { align-self: center; }
+@media (hover: hover) and (pointer: fine) {
+  .opportunity-proposal-link-card:hover .opportunity-proposal-preview-media { border-color: color-mix(in srgb, var(--violet) 45%, var(--line)); }
+}
 .opportunity-proposal-empty { width: 100%; min-height: 64px; padding: 10px 13px; border: 1px dashed var(--line-strong); border-radius: 11px; background: var(--surface-soft); color: var(--muted); display: flex; align-items: center; gap: 10px; text-align: left; cursor: pointer; }
 .opportunity-proposal-empty:hover { border-color: var(--violet); background: var(--violet-soft); color: var(--violet); }
 .opportunity-proposal-empty > span { display: flex; flex-direction: column; gap: 3px; }
@@ -978,6 +990,22 @@ body { font-size: 16px; line-height: 1.45; }
 .message-bubble.document-media > small { margin-right: 4px; }
 .message-bubble.contact-message { width: min(330px, 75%); max-width: min(330px, 75%); padding: 7px 7px 6px; }
 .message-bubble.location-message { width: min(330px, 75%); max-width: min(330px, 75%); padding: 6px 6px 5px; }
+.message-bubble.link-preview-message { width: min(440px, 75%); max-width: min(440px, 75%); padding: 7px 7px 6px; }
+.message-link-preview { min-height: 94px; overflow: hidden; border: 1px solid color-mix(in srgb, var(--line-strong) 74%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--surface-soft) 90%, transparent); color: var(--ink); display: grid; grid-template-columns: 100px minmax(0, 1fr); align-items: stretch; text-decoration: none; transition: border-color .15s ease, background .15s ease, transform .15s ease, box-shadow .15s ease; }
+.message-link-preview:active { transform: scale(.985); }
+.message-link-preview:focus-visible { outline: 0; border-color: var(--violet); box-shadow: 0 0 0 3px var(--focus-ring); }
+.message-link-preview-media { position: relative; min-height: 92px; overflow: hidden; border-right: 1px solid color-mix(in srgb, var(--line) 75%, transparent); background: var(--surface); color: var(--violet); display: grid; place-items: center; }
+.message-link-preview-media > img { position: absolute; z-index: 1; inset: 0; width: 100%; height: 100%; object-fit: cover; background: var(--surface); }
+.message-link-preview-copy { min-width: 0; padding: 10px 11px 9px; display: flex; flex-direction: column; justify-content: center; gap: 4px; }
+.message-link-preview-copy strong, .message-link-preview-copy > span { display: -webkit-box; overflow: hidden; -webkit-box-orient: vertical; }
+.message-link-preview-copy strong { font-size: 13px; line-height: 1.3; -webkit-line-clamp: 2; }
+.message-link-preview-copy > span { color: var(--muted); font-size: 11px; line-height: 1.35; -webkit-line-clamp: 2; }
+.message-link-preview-copy small { overflow: hidden; color: color-mix(in srgb, var(--muted) 90%, var(--ink)); font-size: 10px; text-overflow: ellipsis; white-space: nowrap; }
+.message-link-preview + .expandable-message-text { margin: 8px 5px 1px; }
+.message-bubble.link-preview-message > small { margin-right: 4px; }
+@media (hover: hover) and (pointer: fine) {
+  .message-link-preview:hover { border-color: color-mix(in srgb, var(--violet) 48%, var(--line)); background: color-mix(in srgb, var(--surface-soft) 76%, var(--violet-soft)); transform: translateY(-1px); box-shadow: 0 5px 14px rgba(18, 25, 34, .12); }
+}
 .message-location-card { overflow: hidden; border: 1px solid color-mix(in srgb, var(--line-strong) 72%, transparent); border-radius: 9px; background: color-mix(in srgb, var(--surface-soft) 88%, transparent); color: var(--ink); display: block; transition: border-color .15s ease, transform .15s ease, box-shadow .15s ease; }
 .message-location-card:hover { border-color: color-mix(in srgb, var(--violet) 48%, var(--line)); transform: translateY(-1px); box-shadow: 0 5px 14px rgba(18, 25, 34, .12); }
 .message-location-card:focus-visible { outline: 0; border-color: var(--violet); box-shadow: 0 0 0 3px var(--focus-ring); }
@@ -1242,6 +1270,8 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
   .message-bubble.document-media { width: min(360px, 90%); max-width: min(360px, 90%); }
   .message-bubble.contact-message { width: min(330px, 90%); max-width: min(330px, 90%); }
   .message-bubble.location-message { width: min(330px, 90%); max-width: min(330px, 90%); }
+  .message-bubble.link-preview-message { width: min(440px, 90%); max-width: min(440px, 90%); }
+  .message-link-preview { grid-template-columns: 82px minmax(0, 1fr); }
   .composer { grid-template-columns: auto minmax(0, 1fr); padding: 9px 10px; }
   .composer-signature { min-width: 42px; padding: 0 3px; }
   .composer-tools button { width: 36px; height: 40px; flex-basis: 36px; }

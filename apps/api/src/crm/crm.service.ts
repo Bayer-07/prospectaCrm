@@ -569,6 +569,15 @@ export class CrmService {
     return this.media.downloadUrl(auth, opportunity.proposalAssetId);
   }
 
+  async opportunityProposalLink(auth: AuthContext, id: string) {
+    const opportunity = await this.db.opportunity.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities') },
+      select: { proposalUrl: true },
+    });
+    if (!opportunity?.proposalUrl) throw new NotFoundException('Link da proposta não encontrado');
+    return opportunity.proposalUrl;
+  }
+
   async updateOpportunity(auth: AuthContext, id: string, raw: unknown) {
     const input = this.parse(opportunityInputSchema.partial(), raw);
     const before = await this.db.opportunity.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities', 'write') } });

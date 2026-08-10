@@ -3,14 +3,14 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { ContactModal } from '../components/ContactModal';
-import { WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../components/WhatsappText';
+import { firstWhatsappLink, WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../components/WhatsappText';
 import { useAuth } from '../App';
 import { useRealtimeConnected } from '../lib/realtime';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
@@ -38,6 +38,14 @@ type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo:
 type ConversationFilterOptions = {
   instances: WhatsappInstance[];
   users: Array<{ id: string; name: string; email: string }>;
+};
+type MessageLinkPreviewData = {
+  url: string;
+  hostname: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  siteName?: string;
 };
 
 const EMPTY_CONVERSATION_FILTERS: ConversationListFilters = {
@@ -2045,6 +2053,36 @@ function ExpandableText({ text, whatsapp = false }: { text: string; whatsapp?: b
   </>;
 }
 
+function messageLinkLabel(url: string) {
+  try { return new URL(url).hostname.replace(/^www\./i, ''); } catch { return url; }
+}
+
+function MessageLinkPreview({ message, url, onReady }: { message: Message; url: string; onReady(): void }) {
+  const preview = useQuery({
+    queryKey: ['message-link-preview', message.conversationId, url],
+    queryFn: () => api<Envelope<MessageLinkPreviewData | null>>(`/conversations/${message.conversationId}/messages/${message.id}/link-preview`),
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
+  const data = preview.data?.data;
+
+  useEffect(() => {
+    if (data) onReady();
+  }, [data, onReady]);
+
+  if (!data) return null;
+  return <a
+    className="message-link-preview"
+    href={data.url || url}
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label={`Abrir prévia de ${data.title || data.hostname}`}
+  >
+    <span className="message-link-preview-media"><Link2 size={21} />{data.imageUrl && <img src={data.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onLoad={onReady} onError={(event) => { event.currentTarget.hidden = true; }} />}</span>
+    <span className="message-link-preview-copy"><strong>{data.title || messageLinkLabel(url)}</strong>{data.description && <span>{data.description}</span>}<small>{data.siteName || data.hostname || messageLinkLabel(url)}</small></span>
+  </a>;
+}
+
 const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallback, contactName, menuOpen, onMenu, onReactionMenu, onJumpToReply, onReply, onRetry, retrying, canRetry, onStartSharedContact, onMediaReady, audioPlaybackRate, onCycleAudioPlaybackRate }: {
   message: Message;
   replyTo?: Message;
@@ -2078,11 +2116,12 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
   const visualMedia = Boolean(message.media?.length) && (originalType === 'image' || originalType === 'video');
   const documentMedia = Boolean(message.media?.length) && originalType === 'document';
   const messageText = sharedContactMessage || locationMessage ? '' : message.text || originalText || (deleted ? 'Conteúdo original indisponível' : sticker && !message.media?.length ? 'Figurinha indisponível' : message.media?.length ? '' : `[${message.type}]`);
+  const messageLink = deleted ? undefined : firstWhatsappLink(messageText);
   const quickReactionButton = canRetry && !deleted && <button type="button" className="message-quick-reaction" aria-label="Reagir à mensagem" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onReactionMenu(message, rect.left, rect.bottom + 4); }}><SmilePlus size={18} /></button>;
   return <div className={`message-row ${outbound ? 'outbound' : 'inbound'}${menuOpen ? ' menu-open' : ''}`} data-message-id={message.id} data-message-kind={isAudioMessage(message) ? 'audio' : originalType}>
     {outbound && quickReactionButton}
     <div
-      className={`message-bubble${sticker ? ' sticker' : ''}${visualMedia ? ' visual-media' : ''}${documentMedia ? ' document-media' : ''}${sharedContactMessage ? ' contact-message' : ''}${locationMessage ? ' location-message' : ''}${deleted ? ' deleted-message' : ''}${message.status === 'FAILED' ? ' failed' : ''}`}
+      className={`message-bubble${sticker ? ' sticker' : ''}${visualMedia ? ' visual-media' : ''}${documentMedia ? ' document-media' : ''}${sharedContactMessage ? ' contact-message' : ''}${locationMessage ? ' location-message' : ''}${messageLink ? ' link-preview-message' : ''}${deleted ? ' deleted-message' : ''}${message.status === 'FAILED' ? ' failed' : ''}`}
       onContextMenu={(event) => { event.preventDefault(); onMenu(message, event.clientX, event.clientY); }}
       onDoubleClick={(event) => {
         if (!canRetry || deleted || (event.target as HTMLElement).closest('button, a, audio, video')) return;
@@ -2098,6 +2137,7 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
       {isAudioMessage(message) && <AudioTranscription message={message} />}
       {sharedContacts.map((contact) => <SharedContactCard key={contact.phone} contact={contact} onStart={() => onStartSharedContact(contact)} />)}
       {location && <LocationCard location={location} />}
+      {messageLink && <MessageLinkPreview message={message} url={messageLink} onReady={onMediaReady} />}
       {messageText && <ExpandableText text={messageText} whatsapp />}
       <small>{edited && <span className="message-edited-label">Editada</span>}{dateTime(message.createdAt).split(' ')[1]} {outbound && <MessageDelivery status={message.status} failure={failure} onRetry={() => onRetry(message.id)} retrying={retrying} canRetry={canRetry} />}</small>
       {reactions.length > 0 && <div className="message-reactions" aria-label="Reações">{reactions.map((reaction, index) => <span key={`${reaction.userId || reaction.userName || 'reaction'}-${index}`} title={reaction.userName || 'Reação'}>{reaction.emoji}</span>)}</div>}

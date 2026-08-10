@@ -1,10 +1,11 @@
 import { Body, Controller, Delete, Get, Headers, Param, Patch, Post, Query, Res } from '@nestjs/common';
-import { ApiTags } from '@nestjs/swagger';
+import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 import type { Response } from 'express';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { RequirePermission } from '../auth/permission.decorator.js';
 import { Public } from '../auth/public.decorator.js';
 import type { AuthContext } from '../auth/types.js';
+import { LinkPreviewService } from '../crm/link-preview.service.js';
 import { EvolutionService } from './evolution.service.js';
 import { TranscriptionsService } from './transcriptions.service.js';
 
@@ -14,6 +15,7 @@ export class IntegrationsController {
   constructor(
     private readonly evolution: EvolutionService,
     private readonly transcriptions: TranscriptionsService,
+    private readonly linkPreview: LinkPreviewService,
   ) {}
 
   @RequirePermission('integrations', 'read')
@@ -90,6 +92,18 @@ export class IntegrationsController {
     @Query() query: { cursor?: string; limit?: string },
   ) {
     return { data: await this.evolution.conversationMessages(auth, id, query) };
+  }
+
+  @ApiExcludeEndpoint()
+  @RequirePermission('conversations', 'read')
+  @Get('conversations/:id/messages/:messageId/link-preview')
+  async messageLinkPreview(
+    @CurrentUser() auth: AuthContext,
+    @Param('id') id: string,
+    @Param('messageId') messageId: string,
+  ) {
+    const link = await this.evolution.messageLink(auth, id, messageId);
+    return { data: await this.linkPreview.lookup(link) };
   }
 
   @RequirePermission('conversations', 'read')

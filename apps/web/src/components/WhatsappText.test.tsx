@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { linkifyWhatsappText, tokenizeWhatsappText, WhatsappText } from './WhatsappText';
+import { firstWhatsappLink, linkifyWhatsappText, tokenizeWhatsappText, WhatsappText } from './WhatsappText';
 
 describe('tokenizeWhatsappText', () => {
   it('reconhece os quatro formatos usados pelo WhatsApp', () => {
@@ -62,5 +62,17 @@ describe('linkifyWhatsappText', () => {
     const html = renderToStaticMarkup(<WhatsappText text="`https://www.bzs.com.br`" />);
     expect(html).not.toContain('<a');
     expect(html).toContain('<code>https://www.bzs.com.br</code>');
+  });
+});
+
+describe('firstWhatsappLink', () => {
+  it('encontra o primeiro link que pode ser exibido na mensagem', () => {
+    expect(firstWhatsappLink('Veja *https://www.bzs.com.br/sistemas/controle-agua-gas*')).toBe(
+      'https://www.bzs.com.br/sistemas/controle-agua-gas',
+    );
+  });
+
+  it('ignora endereços marcados como código', () => {
+    expect(firstWhatsappLink('`https://interno.exemplo.com`')).toBeUndefined();
   });
 });

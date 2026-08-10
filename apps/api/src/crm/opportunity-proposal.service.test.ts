@@ -83,4 +83,15 @@ describe('proposta da oportunidade', () => {
     }));
     expect(media.downloadUrl).toHaveBeenCalledWith(auth, assetId);
   });
+
+  it('entrega o link para a prévia somente após aplicar o escopo da oportunidade', async () => {
+    const { service, opportunity } = dependencies({ proposalUrl: 'https://bzs.com.br/proposta', proposalAssetId: null });
+
+    await expect(service.opportunityProposalLink(auth, 'opportunity-1')).resolves.toBe('https://bzs.com.br/proposta');
+
+    expect(opportunity.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'opportunity-1', organizationId: auth.organizationId, archivedAt: null }),
+      select: { proposalUrl: true },
+    }));
+  });
 });

@@ -42,6 +42,7 @@ import {
 import { CompanyCnpjLookupService } from './company-cnpj-lookup.service.js';
 import { CompanyLogoLookupService } from './company-logo-lookup.service.js';
 import { CrmService } from './crm.service.js';
+import { LinkPreviewService } from './link-preview.service.js';
 
 @ApiTags('CRM')
 @ApiCrmDocumentationModels()
@@ -51,6 +52,7 @@ export class CrmController {
     private readonly crm: CrmService,
     private readonly companyCnpjLookup: CompanyCnpjLookupService,
     private readonly companyLogoLookup: CompanyLogoLookupService,
+    private readonly linkPreview: LinkPreviewService,
   ) {}
 
   @Get('dashboard')
@@ -221,6 +223,14 @@ export class CrmController {
     const proposal = await this.crm.opportunityProposalFileUrl(auth, id);
     response.setHeader('Cache-Control', 'private, max-age=300');
     return response.redirect(302, proposal.url);
+  }
+
+  @RequirePermission('opportunities', 'read')
+  @ApiExcludeEndpoint()
+  @Get('opportunities/:id/proposal/preview')
+  async opportunityProposalPreview(@CurrentUser() auth: AuthContext, @Param('id') id: string) {
+    const proposalUrl = await this.crm.opportunityProposalLink(auth, id);
+    return { data: await this.linkPreview.lookup(proposalUrl) };
   }
 
   @RequirePermission('opportunities', 'write')

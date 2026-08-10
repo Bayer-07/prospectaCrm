@@ -220,6 +220,31 @@ describe('paginated conversation history', () => {
   });
 });
 
+describe('prévia de links das mensagens', () => {
+  it('lê o link somente depois de validar o acesso à conversa', async () => {
+    const conversationFindFirst = vi.fn().mockResolvedValue({ id: 'conversation-1' });
+    const messageFindFirst = vi.fn().mockResolvedValue({
+      type: 'text',
+      text: 'Confira https://www.bzs.com.br/sistemas/controle-agua-gas.',
+      payload: {},
+    });
+    const service = new EvolutionService({
+      conversation: { findFirst: conversationFindFirst },
+      message: { findFirst: messageFindFirst },
+    } as never, {} as never, {} as never, {} as never);
+
+    await expect(service.messageLink(auth, 'conversation-1', 'message-1')).resolves.toBe(
+      'https://www.bzs.com.br/sistemas/controle-agua-gas',
+    );
+    expect(conversationFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'conversation-1', organizationId: 'organization-1' }),
+    }));
+    expect(messageFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'message-1', conversationId: 'conversation-1' }),
+    }));
+  });
+});
+
 describe('busca global de atendimentos', () => {
   it('busca somente conversas aguardando ou abertas dentro da visibilidade do usuário', async () => {
     const findMany = vi.fn().mockResolvedValue([]);

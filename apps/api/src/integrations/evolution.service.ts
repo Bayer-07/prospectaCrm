@@ -5,6 +5,7 @@ import type { Prisma } from '@prisma/client';
 import { contactTemplateVariables, isOptOutMessage, normalizeEvolutionInstanceStatus, renderTemplateVariables, type EvolutionInstanceStatus } from '@prospecta/contracts';
 import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import type { AuthContext } from '../auth/types.js';
+import { firstLinkInText } from '../crm/link-preview.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { INBOUND_QUEUE, OUTBOUND_QUEUE } from '../queue/queue.module.js';
 import { RealtimeGateway } from '../realtime/realtime.gateway.js';
@@ -550,6 +551,28 @@ export class EvolutionService {
       events,
       nextCursor: hasMore ? oldestMessage?.id || null : null,
     };
+  }
+
+  async messageLink(auth: AuthContext, conversationId: string, messageId: string) {
+    const conversation = await this.db.conversation.findFirst({
+      where: { id: conversationId, organizationId: auth.organizationId, ...this.conversationScope(auth) },
+      select: { id: true },
+    });
+    if (!conversation) throw new NotFoundException('Conversa não encontrada');
+
+    const message = await this.db.message.findFirst({
+      where: { id: messageId, conversationId, type: { not: 'reaction' } },
+      select: { text: true, type: true, payload: true },
+    });
+    const payload = message?.payload && typeof message.payload === 'object' && !Array.isArray(message.payload)
+      ? message.payload as Record<string, unknown>
+      : {};
+    if (!message || message.type === 'deleted' || payload.deleted === true) {
+      throw new NotFoundException('Mensagem não encontrada');
+    }
+    const link = firstLinkInText(message.text || '');
+    if (!link) throw new NotFoundException('Link da mensagem não encontrado');
+    return link;
   }
 
   conversationAssignees(auth: AuthContext) {

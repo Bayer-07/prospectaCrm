@@ -36,6 +36,15 @@ type OpportunityDetails = Opportunity & {
   tags: Array<{ tag: { id: string; name: string; color: string } }>;
 };
 
+type ProposalLinkPreview = {
+  url: string;
+  hostname: string;
+  title?: string;
+  description?: string;
+  imageUrl?: string;
+  siteName?: string;
+};
+
 const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, overlay = false }: { opportunity: Opportunity; onOpen?: () => void; overlay?: boolean }) {
   const drag = useDraggable({ id: opportunity.id, data: { stageId: opportunity.stageId }, disabled: overlay });
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
@@ -200,16 +209,28 @@ function proposalLinkLabel(url: string) {
 function OpportunityProposalSection({ opportunity }: { opportunity: OpportunityDetails }) {
   const { user } = useAuth();
   const [editing, setEditing] = useState(false);
+  const preview = useQuery({
+    queryKey: ['opportunity-proposal-preview', opportunity.id, opportunity.proposalUrl],
+    queryFn: () => api<Envelope<ProposalLinkPreview | null>>(`/opportunities/${opportunity.id}/proposal/preview`),
+    enabled: Boolean(opportunity.proposalUrl),
+    staleTime: 30 * 60_000,
+    retry: false,
+  });
   const canWrite = Boolean(user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
   const hasProposal = Boolean(opportunity.proposalUrl || opportunity.proposalAsset);
   const href = opportunity.proposalAsset
     ? apiUrl(`/opportunities/${opportunity.id}/proposal/file`)
     : opportunity.proposalUrl || '';
+  const linkPreview = preview.data?.data;
   return <section className="opportunity-proposal-section">
     <div className="opportunity-proposal-heading"><h3><FileText size={17} />Proposta</h3>{canWrite && hasProposal && <button type="button" onClick={() => setEditing(true)}>Alterar</button>}</div>
-    {hasProposal ? <a className="opportunity-proposal-card" href={href} target="_blank" rel="noopener noreferrer">
-      <span>{opportunity.proposalAsset ? <Paperclip size={18} /> : <Link2 size={18} />}</span>
-      <div><strong>{opportunity.proposalAsset?.filename || proposalLinkLabel(opportunity.proposalUrl || '')}</strong><small>{opportunity.proposalAsset ? `${opportunity.proposalAsset.contentType.split('/').at(-1)?.toUpperCase()} · ${proposalFileSize(opportunity.proposalAsset.sizeBytes)}` : opportunity.proposalUrl}{opportunity.proposalAddedAt ? ` · Adicionada em ${dateTime(opportunity.proposalAddedAt)}` : ''}</small></div>
+    {opportunity.proposalAsset ? <a className="opportunity-proposal-card" href={href} target="_blank" rel="noopener noreferrer">
+      <span><Paperclip size={18} /></span>
+      <div><strong>{opportunity.proposalAsset.filename}</strong><small>{`${opportunity.proposalAsset.contentType.split('/').at(-1)?.toUpperCase()} · ${proposalFileSize(opportunity.proposalAsset.sizeBytes)}`}{opportunity.proposalAddedAt ? ` · Adicionada em ${dateTime(opportunity.proposalAddedAt)}` : ''}</small></div>
+      <ExternalLink size={17} />
+    </a> : opportunity.proposalUrl ? <a className="opportunity-proposal-card opportunity-proposal-link-card" href={href} target="_blank" rel="noopener noreferrer" aria-busy={preview.isLoading}>
+      <span className="opportunity-proposal-preview-media"><Link2 size={20} />{linkPreview?.imageUrl && <img src={linkPreview.imageUrl} alt="" loading="lazy" referrerPolicy="no-referrer" onError={(event) => { event.currentTarget.hidden = true; }} />}</span>
+      <div className="opportunity-proposal-preview-copy"><strong>{linkPreview?.title || proposalLinkLabel(opportunity.proposalUrl)}</strong>{linkPreview?.description && <p>{linkPreview.description}</p>}<small>{linkPreview?.siteName || linkPreview?.hostname || proposalLinkLabel(opportunity.proposalUrl)}{opportunity.proposalAddedAt ? ` · Adicionada em ${dateTime(opportunity.proposalAddedAt)}` : ''}</small></div>
       <ExternalLink size={17} />
     </a> : canWrite ? <button type="button" className="opportunity-proposal-empty" onClick={() => setEditing(true)}><Plus size={18} /><span><strong>Adicionar proposta</strong><small>Envie um arquivo ou informe um link</small></span></button> : <p className="drawer-muted">Nenhuma proposta adicionada.</p>}
     {editing && <OpportunityProposalModal opportunity={opportunity} onClose={() => setEditing(false)} />}
