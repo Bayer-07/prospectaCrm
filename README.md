@@ -41,6 +41,33 @@ Na implantação, substitua `APP_URL`, `APP_ADDRESS`, `API_URL`,
 frontend continuará usando `/api/v1` e `/socket.io` como endereços relativos,
 portanto não será necessário alterar o código da aplicação.
 
+### Atualizar o servidor Ubuntu
+
+Depois da primeira instalação, execute na raiz do projeto:
+
+```bash
+chmod +x rebuild.sh
+./rebuild.sh
+```
+
+O script atualiza o repositório com `git pull --ff-only`, reconstrói API,
+worker, frontend e MCP, aplica as migrações e publica os novos containers sem
+remover os volumes do PostgreSQL, Redis ou MinIO. Se existir um arquivo
+`docker-compose.tailscale.yml`, ele será aplicado automaticamente e o Caddy
+local não será iniciado.
+
+Para reconstruir o código que já está no servidor sem executar `git pull`:
+
+```bash
+./rebuild.sh --no-pull
+```
+
+Quando também houver alterações na imagem customizada da Evolution API:
+
+```bash
+./rebuild.sh --with-evolution
+```
+
 ## Pré-requisitos
 
 - Node.js 22 ou mais recente;
