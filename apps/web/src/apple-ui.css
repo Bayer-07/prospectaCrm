@@ -660,6 +660,9 @@ textarea {
 .auth-theme-toggle { border-radius: 12px; background: var(--apple-surface); -webkit-backdrop-filter: blur(20px); backdrop-filter: blur(20px); }
 
 /* Inbox: preserve the desktop-chat geometry, refine its materials. */
+.inbox-shell { grid-template-rows: auto minmax(0, 1fr); }
+.inbox-shell .page-content-inbox { padding: 0; }
+.inbox-shell .inbox-layout { height: 100%; margin: 0; }
 .inbox-layout { border-top: 0; background: var(--surface); }
 .conversation-sidebar {
   border-right-color: var(--line);

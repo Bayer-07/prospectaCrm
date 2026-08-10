@@ -341,7 +341,7 @@ export function Shell() {
           <div className="popover-wrap"><button className="profile-button" onClick={() => setProfileOpen(!profileOpen)}><UserAvatar user={user} /><div><strong>{user?.name}</strong><small>{user?.roleKey === 'admin' ? 'Administrador' : user?.roleKey}</small></div><ChevronDown size={14} /></button>{profileOpen && <div className="popover profile-popover"><button type="button" onClick={() => { setProfileOpen(false); setProfileModalOpen(true); }}><UserRound size={16} />Meu perfil</button><button type="button" disabled={!canRead('users')} title={!canRead('users') ? 'Você não possui acesso à gestão da equipe' : undefined} onClick={() => { setProfileOpen(false); navigate('/configuracoes?tab=users'); }}><Users size={16} />Minha equipe</button><button type="button" className="profile-logout" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOut size={16} />{signOut.isPending ? 'Saindo…' : 'Sair'}</button></div>}</div>
         </div>
       </header>
-      <div className="page-heading"><div><h1>{info.title}</h1><p>{info.description}</p></div></div>
+      {!isInbox && <div className="page-heading"><div><h1>{info.title}</h1><p>{info.description}</p></div></div>}
       <div className={`page-content ${isInbox ? 'page-content-inbox' : ''}`}><RealtimeContext.Provider value={realtimeConnected}><Outlet /></RealtimeContext.Provider></div>
     </main>
     {profileModalOpen && <ProfileModal onClose={() => setProfileModalOpen(false)} />}
