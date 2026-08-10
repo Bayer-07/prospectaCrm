@@ -24,6 +24,7 @@ const InboxPage = lazy(() => import('./pages/Inbox').then((module) => ({ default
 const CampaignsPage = lazy(() => import('./pages/Campaigns').then((module) => ({ default: module.CampaignsPage })));
 const ChatbotsPage = lazy(() => import('./pages/Chatbots').then((module) => ({ default: module.ChatbotsPage })));
 const AutomationsPage = lazy(() => import('./pages/Automations').then((module) => ({ default: module.AutomationsPage })));
+const QuickRepliesPage = lazy(() => import('./pages/QuickReplies').then((module) => ({ default: module.QuickRepliesPage })));
 const ReportsPage = lazy(() => import('./pages/Reports').then((module) => ({ default: module.ReportsPage })));
 const SettingsPage = lazy(() => import('./pages/Settings').then((module) => ({ default: module.SettingsPage })));
 const ConnectionsPage = lazy(() => import('./pages/Settings').then((module) => ({ default: module.ConnectionsPage })));
@@ -87,7 +88,7 @@ function Protected() {
   return user ? <Outlet /> : <Navigate to="/login" state={{ from: location.pathname }} replace />;
 }
 
-const routeTitles: Record<string, string> = { '/': 'Visão geral', '/pipeline': 'Pipeline', '/empresas': 'Empresas', '/contatos': 'Contatos', '/tarefas': 'Tarefas', '/inbox': 'Inbox', '/chatbots': 'Chatbots', '/campanhas': 'Campanhas', '/automacoes': 'Automações', '/relatorios': 'Relatórios', '/email': 'E-mail', '/conexoes': 'Conexões', '/configuracoes': 'Configurações', '/integracoes': 'Integrações', '/integracoes/api': 'API', '/integracoes/mcp': 'Servidor MCP', '/integracoes/webhooks': 'Webhooks', '/integracoes/swagger': 'Swagger' };
+const routeTitles: Record<string, string> = { '/': 'Visão geral', '/pipeline': 'Pipeline', '/empresas': 'Empresas', '/contatos': 'Contatos', '/tarefas': 'Tarefas', '/inbox': 'Inbox', '/respostas-rapidas': 'Respostas rápidas', '/chatbots': 'Chatbots', '/campanhas': 'Campanhas', '/automacoes': 'Automações', '/relatorios': 'Relatórios', '/email': 'E-mail', '/conexoes': 'Conexões', '/configuracoes': 'Configurações', '/integracoes': 'Integrações', '/integracoes/api': 'API', '/integracoes/mcp': 'Servidor MCP', '/integracoes/webhooks': 'Webhooks', '/integracoes/swagger': 'Swagger' };
 
 function RouteTitle() {
   const location = useLocation();
@@ -111,6 +112,7 @@ export function App() {
         <Route path="contatos" element={<ContactsPage />} />
         <Route path="tarefas" element={<TasksPage />} />
         <Route path="inbox/:conversationId?" element={<InboxPage />} />
+        <Route path="respostas-rapidas" element={<QuickRepliesPage />} />
         <Route path="campanhas" element={<CampaignsPage />} />
         <Route path="chatbots" element={<ChatbotsPage />} />
         <Route path="automacoes" element={<AutomationsPage />} />

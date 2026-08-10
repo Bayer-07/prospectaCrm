@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell, Blocks, BookOpen, Bot, Building2, Cable, Camera, CheckCheck, CheckSquare, ChevronDown, ContactRound, Eye, Gauge,
-  Inbox, KanbanSquare, KeyRound, LogOut, Mail, Menu, MessageSquareText, Moon, Network, Plug, Plus,
+  Inbox, KanbanSquare, KeyRound, LogOut, Mail, Menu, MessageSquareReply, MessageSquareText, Moon, Network, Plug, Plus,
   Settings, Sun, Trash2, UserRound, Users, Webhook, X,
 } from 'lucide-react';
 import { api, dateTime, type Envelope } from '../lib/api';
@@ -46,7 +46,7 @@ const nav: Array<{ section: string; items: NavItem[] }> = [
     { to: '/tarefas', label: 'Tarefas', icon: CheckSquare, resource: 'tasks' },
   ] },
   { section: 'Conversas', items: [
-    { to: '/inbox', label: 'Inbox', icon: Inbox, resource: 'conversations' }, { to: '/chatbots', label: 'Chatbots', icon: Bot, resource: 'workflows' }, { to: '/campanhas', label: 'Campanhas', icon: MessageSquareText, resource: 'campaigns' },
+    { to: '/inbox', label: 'Inbox', icon: Inbox, resource: 'conversations' }, { to: '/respostas-rapidas', label: 'Respostas rápidas', icon: MessageSquareReply, resource: 'conversations' }, { to: '/chatbots', label: 'Chatbots', icon: Bot, resource: 'workflows' }, { to: '/campanhas', label: 'Campanhas', icon: MessageSquareText, resource: 'campaigns' },
     { to: '/automacoes', label: 'Automações', icon: Bot, resource: 'workflows' }, { to: '/email', label: 'E-mail', icon: Mail, resource: 'campaigns' },
   ] },
   { section: 'Gestão', items: [
@@ -74,6 +74,7 @@ const pageInfo: Record<string, { title: string; description: string }> = {
   '/contatos': { title: 'Contatos', description: 'Pessoas, consentimentos e carteiras.' },
   '/tarefas': { title: 'Tarefas', description: 'Próximas ações da equipe.' },
   '/inbox': { title: 'Inbox', description: 'Conversas compartilhadas do WhatsApp.' },
+  '/respostas-rapidas': { title: 'Respostas rápidas', description: 'Textos e anexos reutilizáveis no atendimento.' },
   '/campanhas': { title: 'Campanhas', description: 'Disparos com cadência e validação de números no WhatsApp.' },
   '/chatbots': { title: 'Chatbots', description: 'Atendimento automático por regras em um mapa visual.' },
   '/automacoes': { title: 'Automações', description: 'Jornadas visuais de WhatsApp e CRM.' },

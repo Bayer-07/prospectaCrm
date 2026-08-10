@@ -157,6 +157,7 @@ model Organization {
   auditLogs              AuditLog[]
   notifications          Notification[]
   emailTemplates         EmailTemplate[]
+  quickReplies           QuickReply[]
 }
 
 model Team {
@@ -243,6 +244,7 @@ model User {
   createdCampaigns        Campaign[]
   createdWorkflows        Workflow[]
   createdChatbots         Chatbot[]
+  createdQuickReplies     QuickReply[]
   auditLogs               AuditLog[]
   notifications           Notification[]
 
@@ -843,8 +845,27 @@ model MediaAsset {
   message     Message?  @relation(fields: [messageId], references: [id], onDelete: Cascade)
   profilePhotoFor User? @relation("UserProfilePhoto")
   companyLogoFor Company? @relation("CompanyLogo")
+  quickReplyFor QuickReply?
 
   @@index([messageId])
+}
+
+model QuickReply {
+  id             String      @id @default(uuid()) @db.Uuid
+  organizationId String      @db.Uuid
+  createdById    String      @db.Uuid
+  mediaAssetId   String?     @unique @db.Uuid
+  title          String
+  shortcut       String
+  text           String?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  createdBy      User        @relation(fields: [createdById], references: [id])
+  mediaAsset     MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+
+  @@unique([organizationId, shortcut])
+  @@index([organizationId, title, id], map: "QuickReply_org_title_idx")
 }
 
 model ConsentEvent {

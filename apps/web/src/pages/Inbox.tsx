@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Mail, MapPin, MessageCircle, MessageCirclePlus, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
@@ -18,12 +18,20 @@ import { isMessageEdited, messageEditedAt, messageEditHistory } from '../lib/mes
 import { toast } from '../lib/toast';
 import { inboxFilterForStatus, shouldSyncInboxFilter, type InboxFilter } from '../lib/inbox-navigation';
 import { extractWhatsappLocation, type WhatsappLocation } from '../lib/whatsapp-location';
+import { composerCommandSearch, detectComposerCommand } from '../lib/composer-command';
 
 type WhatsappInstance = { id: string; name: string; phone?: string; status: string };
 type ConversationHistoryPage = { messages: Message[]; events: ConversationEvent[]; nextCursor: string | null };
 type ConversationAssignee = { id: string; name: string; email: string; team?: { id: string; name: string; color: string } };
 type WorkflowShortcut = { id: string; name: string; description?: string; status: string; publishedVersion?: number };
 type WorkflowEnrollmentResult = { requested: number; enrolled: number; skipped: number };
+type QuickReplyShortcut = {
+  id: string;
+  title: string;
+  shortcut: string;
+  text?: string | null;
+  mediaAsset?: { id: string; filename: string; contentType: string; sizeBytes: number } | null;
+};
 type ContactInlineField = 'phone' | 'email' | 'companyId';
 type TicketContextMenuState = { conversation: Conversation; top: number; left: number };
 type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string };
@@ -743,6 +751,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [showScrollToLatest, setShowScrollToLatest] = useState(false);
   const [automationMenuOpen, setAutomationMenuOpen] = useState(false);
   const [automationIndex, setAutomationIndex] = useState(0);
+  const [quickReplyMenuOpen, setQuickReplyMenuOpen] = useState(false);
+  const [quickReplyIndex, setQuickReplyIndex] = useState(0);
   const [emojiPickerOpen, setEmojiPickerOpen] = useState(false);
   const [draggingAttachment, setDraggingAttachment] = useState(false);
   const [recordingStatus, setRecordingStatus] = useState<RecordingStatus>('idle');
@@ -789,12 +799,23 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     enabled: automationMenuOpen && canStartAutomations,
     staleTime: 60_000,
   });
-  const automationSearch = text.startsWith('/') ? text.slice(1).trim().toLocaleLowerCase('pt-BR') : '';
+  const quickReplies = useQuery({
+    queryKey: ['quick-replies'],
+    queryFn: () => api<Envelope<QuickReplyShortcut[]>>('/quick-replies'),
+    enabled: quickReplyMenuOpen,
+    staleTime: 60_000,
+  });
+  const automationSearch = composerCommandSearch(text, '@');
   const workflowOptions = useMemo(() => (workflows.data?.data || []).filter((workflow) => {
     if (workflow.status !== 'PUBLISHED' || !workflow.publishedVersion) return false;
     if (!automationSearch) return true;
     return `${workflow.name} ${workflow.description || ''}`.toLocaleLowerCase('pt-BR').includes(automationSearch);
   }), [workflows.data, automationSearch]);
+  const quickReplySearch = composerCommandSearch(text, '/');
+  const quickReplyOptions = useMemo(() => (quickReplies.data?.data || []).filter((reply) => {
+    if (!quickReplySearch) return true;
+    return `${reply.shortcut} ${reply.title} ${reply.text || ''}`.toLocaleLowerCase('pt-BR').includes(quickReplySearch);
+  }), [quickReplies.data, quickReplySearch]);
   const startWorkflow = useMutation({
     mutationFn: (workflow: WorkflowShortcut) => api<Envelope<WorkflowEnrollmentResult>>(`/workflows/${workflow.id}/enroll`, {
       method: 'POST',
@@ -808,6 +829,29 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         : `Este contato já está na versão publicada de “${workflow.name}”`);
       onSend();
     },
+  });
+  const insertQuickReply = useMutation({
+    mutationFn: async (reply: QuickReplyShortcut) => {
+      if (!reply.mediaAsset) return { reply, attachment: null as File | null };
+      const response = await api<Envelope<{ url: string; filename: string; contentType: string }>>(`/media/${reply.mediaAsset.id}/url`);
+      const downloaded = await fetch(response.data.url);
+      if (!downloaded.ok) throw new Error('Não foi possível carregar o anexo da resposta rápida');
+      const blob = await downloaded.blob();
+      const attachment = new File([blob], response.data.filename || reply.mediaAsset.filename, {
+        type: response.data.contentType || reply.mediaAsset.contentType,
+        lastModified: Date.now(),
+      });
+      return { reply, attachment };
+    },
+    onSuccess: ({ reply, attachment }) => {
+      setText(reply.text || '');
+      setFile(attachment);
+      setAttachmentError('');
+      setQuickReplyMenuOpen(false);
+      setAutomationMenuOpen(false);
+      window.setTimeout(() => textRef.current?.moveCaretToEnd(), 0);
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível inserir a resposta rápida')),
   });
   const send = useMutation({
     mutationFn: async (draft: OutgoingDraft) => {
@@ -1018,6 +1062,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   }, [file]);
   useEffect(() => setSignatureEnabled(Boolean(user?.messageSignatureEnabled)), [user?.messageSignatureEnabled]);
   useEffect(() => setAutomationIndex(0), [automationSearch, automationMenuOpen]);
+  useEffect(() => setQuickReplyIndex(0), [quickReplySearch, quickReplyMenuOpen]);
   useEffect(() => {
     if (!emojiPickerOpen) return;
     const closePicker = (event: PointerEvent) => {
@@ -1058,6 +1103,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     setActionError('');
     setAutomationMenuOpen(false);
     setAutomationIndex(0);
+    setQuickReplyMenuOpen(false);
+    setQuickReplyIndex(0);
     setEmojiPickerOpen(false);
     setDraggingAttachment(false);
     attachmentDragDepthRef.current = 0;
@@ -1096,6 +1143,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     if (send.isError) send.reset();
     setEmojiPickerOpen(false);
     setAutomationMenuOpen(false);
+    setQuickReplyMenuOpen(false);
     setRecordingStatus('requesting');
     const conversationAtStart = conversation.id;
     const requestId = ++recordingRequestIdRef.current;
@@ -1224,10 +1272,33 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     if (startWorkflow.isPending) return;
     startWorkflow.mutate(workflow);
   };
-  const handleAutomationKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
+  const selectQuickReply = (reply: QuickReplyShortcut) => {
+    if (insertQuickReply.isPending) return;
+    insertQuickReply.mutate(reply);
+  };
+  const handleComposerKeyDown = (event: React.KeyboardEvent<HTMLDivElement>) => {
     if (emojiPickerOpen && event.key === 'Escape') {
       setEmojiPickerOpen(false);
       return true;
+    }
+    if (quickReplyMenuOpen) {
+      if (event.key === 'Escape') {
+        setQuickReplyMenuOpen(false);
+        return true;
+      }
+      if (event.key === 'ArrowDown') {
+        setQuickReplyIndex((current) => quickReplyOptions.length ? (current + 1) % quickReplyOptions.length : 0);
+        return true;
+      }
+      if (event.key === 'ArrowUp') {
+        setQuickReplyIndex((current) => quickReplyOptions.length ? (current - 1 + quickReplyOptions.length) % quickReplyOptions.length : 0);
+        return true;
+      }
+      if (event.key === 'Enter' && !event.shiftKey) {
+        const reply = quickReplyOptions[quickReplyIndex];
+        if (reply) selectQuickReply(reply);
+        return true;
+      }
     }
     if (!automationMenuOpen) return false;
     if (event.key === 'Escape') {
@@ -1251,6 +1322,11 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   };
   const submitCurrentMessage = () => {
     if (!canReply) return;
+    if (quickReplyMenuOpen) {
+      const reply = quickReplyOptions[quickReplyIndex];
+      if (reply) selectQuickReply(reply);
+      return;
+    }
     if (automationMenuOpen) {
       const workflow = workflowOptions[automationIndex];
       if (workflow) selectWorkflow(workflow);
@@ -1282,6 +1358,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   }, []);
   const startEdit = (message: Message) => {
     setAutomationMenuOpen(false);
+    setQuickReplyMenuOpen(false);
     setEmojiPickerOpen(false);
     setReplyingTo(null);
     setFile(null);
@@ -1293,6 +1370,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   };
   const cancelEdit = () => {
     setAutomationMenuOpen(false);
+    setQuickReplyMenuOpen(false);
     setEmojiPickerOpen(false);
     setEditingMessage(null);
     setText('');
@@ -1308,6 +1386,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       ? candidate
       : new File([candidate], candidate.name || `arquivo-${Date.now()}`, { type: 'application/octet-stream', lastModified: candidate.lastModified });
     setAutomationMenuOpen(false);
+    setQuickReplyMenuOpen(false);
     setEmojiPickerOpen(false);
     setFile(normalized);
     setAttachmentError('');
@@ -1552,8 +1631,31 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
           </Suspense>
         </div>}
         <div className="composer-capsule">
-          <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAutomationMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button></div>
+          <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button></div>
           <div className="composer-input">
+        {quickReplyMenuOpen && <div className="automation-command-menu quick-reply-command-menu" role="listbox" aria-label="Respostas rápidas disponíveis">
+          <div className="automation-command-heading"><span><MessageSquareReply size={17} /></span><div><strong>Inserir resposta rápida</strong><small>O conteúdo ficará disponível para edição</small></div><kbd>Esc</kbd></div>
+          <div className="automation-command-options">
+            {quickReplies.isLoading
+              ? <div className="automation-command-empty"><i />Carregando respostas rápidas…</div>
+              : quickReplies.isError
+                ? <div className="automation-command-empty error"><AlertCircle size={17} /><span>Não foi possível carregar as respostas rápidas.</span></div>
+                : quickReplyOptions.length
+                  ? quickReplyOptions.map((reply, index) => <button
+                      type="button"
+                      role="option"
+                      aria-selected={index === quickReplyIndex}
+                      className={index === quickReplyIndex ? 'selected' : ''}
+                      key={reply.id}
+                      onMouseDown={(event) => event.preventDefault()}
+                      onMouseEnter={() => setQuickReplyIndex(index)}
+                      onClick={() => selectQuickReply(reply)}
+                      disabled={insertQuickReply.isPending}
+                    ><span><MessageSquareReply size={16} /></span><div><strong>/{reply.shortcut} · {reply.title}</strong><small>{reply.mediaAsset ? `${reply.text ? 'Texto e anexo' : 'Anexo'} · ${reply.mediaAsset.filename}` : reply.text || 'Sem conteúdo'}</small></div>{insertQuickReply.isPending && insertQuickReply.variables?.id === reply.id ? <i /> : <ChevronDown size={15} />}</button>)
+                  : <div className="automation-command-empty"><MessageSquareReply size={17} /><span>{quickReplySearch ? 'Nenhuma resposta corresponde à busca.' : 'Nenhuma resposta rápida cadastrada.'}</span></div>}
+          </div>
+          <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> inserir</span></div>
+        </div>}
         {automationMenuOpen && <div className="automation-command-menu" role="listbox" aria-label="Automações disponíveis">
           <div className="automation-command-heading"><span><Workflow size={17} /></span><div><strong>Iniciar automação</strong><small>Continue digitando para filtrar</small></div><kbd>Esc</kbd></div>
           <div className="automation-command-options">
@@ -1582,10 +1684,10 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         {editingMessage && <div className="composer-reply composer-edit"><Pencil size={16} /><div><strong>Editando mensagem</strong><span>{messagePreview(editingMessage)}</span></div><button type="button" onClick={cancelEdit} aria-label="Cancelar edição"><X size={15} /></button></div>}
         {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
         {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
-        <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleAutomationKeyDown} onChange={(value) => { setText(value); setAutomationMenuOpen(canReply && !editingMessage && !file && value.startsWith('/') && !value.includes('\n')); setAttachmentError(''); if (send.isError) send.reset(); if (edit.isError) edit.reset(); }} placeholder={composerPlaceholder} onSubmit={() => { if (!send.isPending && !edit.isPending && !startWorkflow.isPending) submitCurrentMessage(); }} />
+        <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleComposerKeyDown} onChange={(value) => { const command = detectComposerCommand(value, { canReply, editing: Boolean(editingMessage), hasFile: Boolean(file) }); setText(value); setQuickReplyMenuOpen(command === 'quick-reply'); setAutomationMenuOpen(command === 'automation'); setAttachmentError(''); if (send.isError) send.reset(); if (edit.isError) edit.reset(); }} placeholder={composerPlaceholder} onSubmit={() => { if (!send.isPending && !edit.isPending && !startWorkflow.isPending && !insertQuickReply.isPending) submitCurrentMessage(); }} />
           </div>
-          {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending} aria-label={editingMessage ? 'Salvar edição' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'} title={editingMessage ? 'Salvar edição' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'}>{editingMessage ? <Check size={18} /> : automationMenuOpen ? <Workflow size={18} /> : <Send size={19} />}</Button></div>}
-          {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={() => void startVoiceRecording()} disabled={send.isPending || startWorkflow.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
+          {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label={editingMessage ? 'Salvar edição' : quickReplyMenuOpen ? 'Inserir resposta rápida' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'} title={editingMessage ? 'Salvar edição' : quickReplyMenuOpen ? 'Inserir resposta rápida' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'}>{editingMessage ? <Check size={18} /> : quickReplyMenuOpen ? <MessageSquareReply size={18} /> : automationMenuOpen ? <Workflow size={18} /> : <Send size={19} />}</Button></div>}
+          {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={() => void startVoiceRecording()} disabled={send.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
         </div>
         </>}
       </div>

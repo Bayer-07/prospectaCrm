@@ -17,6 +17,12 @@ const MAX_FILE_BYTES = 25 * 1024 * 1024;
 const MAX_PROFILE_PHOTO_BYTES = 5 * 1024 * 1024;
 const PROFILE_PHOTO_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp']);
 const COMPANY_LOGO_TYPES = new Set([...PROFILE_PHOTO_TYPES, 'image/x-icon']);
+const QUICK_REPLY_MEDIA_TYPES = new Set([
+  ...PROFILE_PHOTO_TYPES,
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+]);
 const ALLOWED_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/x-icon', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm',
   'video/mp4', 'application/pdf', 'application/msword',
@@ -153,17 +159,57 @@ export class MediaService implements OnModuleInit {
     return asset;
   }
 
+  async confirmQuickReplyAsset(auth: AuthContext, id: string, quickReplyId?: string) {
+    const asset = await this.db.mediaAsset.findUnique({
+      where: { id },
+      include: {
+        profilePhotoFor: { select: { id: true } },
+        companyLogoFor: { select: { id: true } },
+        quickReplyFor: { select: { id: true } },
+      },
+    });
+    if (
+      !asset
+      || !asset.key.startsWith(`${auth.organizationId}/`)
+      || asset.messageId
+      || asset.profilePhotoFor
+      || asset.companyLogoFor
+      || (asset.quickReplyFor && asset.quickReplyFor.id !== quickReplyId)
+      || !QUICK_REPLY_MEDIA_TYPES.has(asset.contentType)
+      || asset.sizeBytes < 1
+      || asset.sizeBytes > MAX_FILE_BYTES
+    ) {
+      throw new BadRequestException('Selecione uma imagem, PDF ou documento Word válido');
+    }
+    try {
+      const stored = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: asset.key }));
+      if (
+        !stored.ContentLength
+        || stored.ContentLength !== asset.sizeBytes
+        || (stored.ContentType && stored.ContentType.split(';', 1)[0].toLowerCase() !== asset.contentType)
+      ) {
+        throw new BadRequestException('O arquivo enviado não corresponde ao anexo selecionado');
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Conclua o envio do anexo antes de salvar a resposta rápida');
+    }
+    return asset;
+  }
+
   async deleteAsset(auth: AuthContext, id: string) {
     const asset = await this.db.mediaAsset.findUnique({
       where: { id },
       include: {
         profilePhotoFor: { select: { id: true } },
         companyLogoFor: { select: { id: true } },
+        quickReplyFor: { select: { id: true } },
       },
     });
     if (!asset || !asset.key.startsWith(`${auth.organizationId}/`)) return;
     if (asset.profilePhotoFor) throw new BadRequestException('A foto ainda está vinculada a um usuário');
     if (asset.companyLogoFor) throw new BadRequestException('A logo ainda está vinculada a uma empresa');
+    if (asset.quickReplyFor) throw new BadRequestException('O arquivo ainda está vinculado a uma resposta rápida');
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: asset.key }));
     await this.db.mediaAsset.delete({ where: { id: asset.id } });
   }
