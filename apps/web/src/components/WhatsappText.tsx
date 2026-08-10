@@ -6,7 +6,15 @@ export type WhatsappToken = {
   marker?: string;
 };
 
+export type WhatsappLinkPart = {
+  type: 'text' | 'link';
+  value: string;
+  href?: string;
+};
+
 const tokenPattern = /```([\s\S]+?)```|`([^`\n]+?)`|\*([^*\n]+?)\*|_([^_\n]+?)_|~([^~\n]+?)~/g;
+const linkPattern = /https?:\/\/[^\s<>]+|www\.[^\s<>]+/gi;
+const trailingLinkPunctuation = /[.,!?;:)}\]"'’”]+$/;
 
 export function tokenizeWhatsappText(text: string): WhatsappToken[] {
   const tokens: WhatsappToken[] = [];
@@ -27,9 +35,36 @@ export function tokenizeWhatsappText(text: string): WhatsappToken[] {
 
 const markers = { bold: '*', italic: '_', strike: '~', code: '```' } as const;
 
+export function linkifyWhatsappText(text: string): WhatsappLinkPart[] {
+  const parts: WhatsappLinkPart[] = [];
+  let cursor = 0;
+  for (const match of text.matchAll(linkPattern)) {
+    const index = match.index ?? 0;
+    if (index > cursor) parts.push({ type: 'text', value: text.slice(cursor, index) });
+    const raw = match[0];
+    const trailing = raw.match(trailingLinkPunctuation)?.[0] || '';
+    const value = trailing ? raw.slice(0, -trailing.length) : raw;
+    if (value) parts.push({ type: 'link', value, href: value.toLocaleLowerCase('pt-BR').startsWith('www.') ? `https://${value}` : value });
+    if (trailing) parts.push({ type: 'text', value: trailing });
+    cursor = index + raw.length;
+  }
+  if (cursor < text.length) parts.push({ type: 'text', value: text.slice(cursor) });
+  return parts.length ? parts : [{ type: 'text', value: text }];
+}
+
+function renderLinkedText(text: string, keyPrefix: string): ReactNode[] {
+  return linkifyWhatsappText(text).map((part, index) => part.type === 'link'
+    ? <a key={`${keyPrefix}-link-${index}`} className="whatsapp-link" href={part.href} target="_blank" rel="noopener noreferrer">{part.value}</a>
+    : part.value);
+}
+
 function renderTokens(text: string, showMarkers: boolean): ReactNode[] {
-  return tokenizeWhatsappText(text).map((token, index) => {
-    if (token.type === 'text') return token.value;
+  const rendered: ReactNode[] = [];
+  tokenizeWhatsappText(text).forEach((token, index) => {
+    if (token.type === 'text') {
+      rendered.push(...renderLinkedText(token.value, `text-${index}`));
+      return;
+    }
     const marker = token.marker || markers[token.type];
     const content = token.type === 'code' ? token.value : renderTokens(token.value, showMarkers);
     const formatted = token.type === 'bold'
@@ -39,12 +74,13 @@ function renderTokens(text: string, showMarkers: boolean): ReactNode[] {
         : token.type === 'strike'
           ? <del>{content}</del>
           : <code>{content}</code>;
-    return <span key={`${token.type}-${index}`} className={`whatsapp-format whatsapp-format-${token.type}`}>
+    rendered.push(<span key={`${token.type}-${index}`} className={`whatsapp-format whatsapp-format-${token.type}`}>
       {showMarkers && <span className="whatsapp-marker">{marker}</span>}
       {formatted}
       {showMarkers && <span className="whatsapp-marker">{marker}</span>}
-    </span>;
+    </span>);
   });
+  return rendered;
 }
 
 export const WhatsappText = memo(function WhatsappText({ text, showMarkers = false }: { text: string; showMarkers?: boolean }) {
