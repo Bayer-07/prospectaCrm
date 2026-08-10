@@ -1,6 +1,6 @@
-import { useEffect, useState } from 'react';
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ContactRound, Filter, Mail, MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, formatPhone, initials, type Envelope } from '../lib/api';
 import type { Contact } from '../lib/types';
@@ -46,11 +46,30 @@ export function ContactsPage() {
   }, [requestedCreate]);
   const debouncedSearch = useDebouncedValue(search);
   const activeFilters = activeContactFilterCount(appliedFilters);
-  const query = useQuery({
+  const query = useInfiniteQuery({
     queryKey: ['contacts', debouncedSearch, appliedFilters],
-    queryFn: () => api<Envelope<Contact[]>>(`/contacts?${contactListQuery(debouncedSearch, appliedFilters)}`),
-    placeholderData: (previous) => previous,
+    queryFn: ({ pageParam }) => api<Envelope<Contact[]>>(`/contacts?${contactListQuery(debouncedSearch, appliedFilters, pageParam)}`),
+    initialPageParam: '',
+    getNextPageParam: (lastPage) => lastPage.meta?.nextCursor || undefined,
   });
+  const contacts = useMemo(() => {
+    const uniqueContacts = new Map<string, Contact>();
+    for (const page of query.data?.pages || []) {
+      for (const contact of page.data) uniqueContacts.set(contact.id, contact);
+    }
+    return [...uniqueContacts.values()];
+  }, [query.data?.pages]);
+  const loadMoreRef = useRef<HTMLDivElement | null>(null);
+  const { fetchNextPage, hasNextPage, isFetchingNextPage } = query;
+  useEffect(() => {
+    const target = loadMoreRef.current;
+    if (!target || !hasNextPage) return;
+    const observer = new IntersectionObserver(([entry]) => {
+      if (entry?.isIntersecting && !isFetchingNextPage) void fetchNextPage();
+    }, { rootMargin: '320px 0px' });
+    observer.observe(target);
+    return () => observer.disconnect();
+  }, [fetchNextPage, hasNextPage, isFetchingNextPage]);
   const filterOptions = useQuery({
     queryKey: ['contact-filter-options'],
     queryFn: () => api<Envelope<ContactFilterMetadata>>('/metadata'),
@@ -141,9 +160,9 @@ export function ContactsPage() {
         <Button onClick={() => setCreating(true)}><Plus size={15} />Novo contato</Button>
       </div>
     </div>
-    {query.data?.data.length ? <div className="table-card"><table>
+    {contacts.length ? <><div className="table-card"><table>
       <thead><tr><th>Contato</th><th>Empresa</th><th>Telefone</th><th>Responsável</th><th>Tags</th><th /></tr></thead>
-      <tbody>{query.data.data.map((contact) => <tr key={contact.id}>
+      <tbody>{contacts.map((contact) => <tr key={contact.id}>
         <td><div className="entity-cell"><span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong>{contact.email
           ? <button type="button" className="contact-email-link" onClick={() => openEmailCampaign(contact)} title="Criar campanha de e-mail"><Mail size={12} />{contact.email}</button>
           : <small><Mail size={12} />{contact.jobTitle || 'Sem e-mail'}</small>}</div></div></td>
@@ -153,7 +172,7 @@ export function ContactsPage() {
         <td><div className="tag-list">{contact.tags?.slice(0, 2).map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></td>
         <td className="contact-actions-cell"><button className="icon-button" onClick={(event) => openMenu(event, contact)} aria-label={`Ações de ${contact.name}`} aria-haspopup="menu" aria-expanded={menu?.contact.id === contact.id}><MoreHorizontal size={17} /></button></td>
       </tr>)}</tbody>
-    </table></div> : <Empty icon={<ContactRound />} title="Nenhum contato encontrado" description={activeFilters ? 'Ajuste ou limpe os filtros aplicados.' : 'Cadastre um contato ou importe sua base em CSV.'} action={activeFilters ? <Button variant="secondary" onClick={clearFilters}>Limpar filtros</Button> : <Button onClick={() => setCreating(true)}>Adicionar contato</Button>} />}
+    </table></div>{(hasNextPage || isFetchingNextPage) && <div ref={loadMoreRef} className="list-infinite-loader" aria-live="polite">{isFetchingNextPage ? <><LoaderCircle size={18} className="spin" />Carregando mais 20 contatos…</> : 'Continue rolando para carregar mais contatos'}</div>}</> : <Empty icon={<ContactRound />} title="Nenhum contato encontrado" description={activeFilters ? 'Ajuste ou limpe os filtros aplicados.' : 'Cadastre um contato ou importe sua base em CSV.'} action={activeFilters ? <Button variant="secondary" onClick={clearFilters}>Limpar filtros</Button> : <Button onClick={() => setCreating(true)}>Adicionar contato</Button>} />}
 
     {menu && <>
       <button className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />

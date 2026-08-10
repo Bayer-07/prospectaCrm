@@ -20,10 +20,13 @@ export function activeContactFilterCount(filters: ContactListFilters) {
   return Object.values(filters).filter((value) => value.trim()).length;
 }
 
-export function contactListQuery(search: string, filters: ContactListFilters) {
-  const params = new URLSearchParams({ limit: '100' });
+export const CONTACT_LIST_PAGE_SIZE = 20;
+
+export function contactListQuery(search: string, filters: ContactListFilters, cursor?: string) {
+  const params = new URLSearchParams({ limit: String(CONTACT_LIST_PAGE_SIZE) });
   const normalizedSearch = search.trim();
   if (normalizedSearch) params.set('search', normalizedSearch);
+  if (cursor) params.set('cursor', cursor);
   for (const [key, value] of Object.entries(filters)) {
     const normalized = value.trim();
     if (normalized) params.set(key, normalized);

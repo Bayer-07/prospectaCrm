@@ -15,12 +15,21 @@ describe('filtros da listagem de contatos', () => {
     }));
 
     expect(Object.fromEntries(query)).toEqual({
-      limit: '100',
+      limit: '20',
       search: 'Bayer',
       ownerId: 'none',
       company: 'BZS Tecnologia',
       hasPhone: 'true',
     });
+  });
+
+  it('inclui o cursor somente nas páginas seguintes', () => {
+    const firstPage = new URLSearchParams(contactListQuery('', EMPTY_CONTACT_FILTERS));
+    const nextPage = new URLSearchParams(contactListQuery('', EMPTY_CONTACT_FILTERS, 'contact-20'));
+
+    expect(firstPage.has('cursor')).toBe(false);
+    expect(nextPage.get('cursor')).toBe('contact-20');
+    expect(nextPage.get('limit')).toBe('20');
   });
 
   it('contabiliza os filtros ativos para o indicador do botão', () => {
