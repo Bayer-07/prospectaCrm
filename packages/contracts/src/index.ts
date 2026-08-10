@@ -5,6 +5,13 @@ export { extractSharedWhatsappContacts, normalizePhoneKey } from './whatsapp-con
 export type { SharedWhatsappContact } from './whatsapp-contact.js';
 
 export {
+  contactTemplateVariables,
+  DEFAULT_TEMPLATE_TIME_ZONE,
+  renderTemplateVariables,
+  timeBasedGreeting,
+} from './template-variables.js';
+
+export {
   escapeEmailHtml,
   renderBzsEmailLayout,
   renderPasswordResetEmail,

@@ -1,5 +1,6 @@
 import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock3, Download, FileSpreadsheet, LoaderCircle, MessageSquareText, Pause, Play, Plus, Search, Send, ShieldCheck, Trash2, Upload, UserRoundCheck, Users, X } from 'lucide-react';
 import { api, apiFetch, dateTime, initials, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
@@ -103,16 +104,10 @@ function campaignRecipientMessages(campaign: Campaign, recipient: CampaignRecipi
       : campaign.bubbles.map((bubble) => ({ type: 'text', content: bubble.content }));
   if (recipient.renderedMessages?.length) return messages;
 
-  const variables: Record<string, string> = {
-    nome: recipient.contact.name || '',
-    telefone: recipient.contact.phone || '',
-    email: recipient.contact.email || '',
-    empresa: recipient.contact.companies?.[0]?.company?.name || '',
-    cargo: recipient.contact.jobTitle || '',
-  };
+  const variables = contactTemplateVariables(recipient.contact);
   return messages.map((message) => ({
     ...message,
-    content: message.content.replace(/{{\s*([\w.]+)\s*}}/g, (_match, key: string) => variables[key] || ''),
+    content: renderTemplateVariables(message.content, variables),
   }));
 }
 
@@ -562,7 +557,7 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
         </div>)}</div>
         <div className="campaign-message-tools">
           <Button type="button" variant="secondary" onClick={() => setMessages((current) => [...current, ''])}><Plus size={15} />Adicionar mensagem</Button>
-          <div className="variable-list"><span>Variáveis:</span><button type="button" onClick={() => addVariable('{{nome}}')}>{'{{nome}}'}</button><button type="button" onClick={() => addVariable('{{empresa}}')}>{'{{empresa}}'}</button><button type="button" onClick={() => addVariable('{{cargo}}')}>{'{{cargo}}'}</button></div>
+          <div className="variable-list"><span>Variáveis:</span><button type="button" onClick={() => addVariable('{{saudacao}}')}>{'{{saudacao}}'}</button><button type="button" onClick={() => addVariable('{{nome}}')}>{'{{nome}}'}</button><button type="button" onClick={() => addVariable('{{telefone}}')}>{'{{telefone}}'}</button><button type="button" onClick={() => addVariable('{{email}}')}>{'{{email}}'}</button><button type="button" onClick={() => addVariable('{{empresa}}')}>{'{{empresa}}'}</button><button type="button" onClick={() => addVariable('{{cargo}}')}>{'{{cargo}}'}</button></div>
         </div>
       </section>}
 

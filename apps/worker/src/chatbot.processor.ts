@@ -29,7 +29,21 @@ export class ChatbotProcessor {
             instanceId: true,
             assigneeId: true,
             status: true,
-            contact: { select: { id: true, name: true, phone: true, consentStatus: true } },
+            contact: {
+              select: {
+                id: true,
+                name: true,
+                phone: true,
+                email: true,
+                jobTitle: true,
+                consentStatus: true,
+                companies: {
+                  where: { isPrimary: true },
+                  select: { company: { select: { name: true } } },
+                  take: 1,
+                },
+              },
+            },
             chatbotSession: true,
           },
         },
@@ -62,6 +76,9 @@ export class ChatbotProcessor {
       previousMessage: oldContext.lastMessage,
       contactName: conversation.contact.name,
       contactPhone: conversation.contact.phone,
+      contactEmail: conversation.contact.email,
+      contactJobTitle: conversation.contact.jobTitle,
+      contactCompany: conversation.contact.companies[0]?.company.name,
       conversationId: conversation.id,
     };
     let session = conversation.chatbotSession;

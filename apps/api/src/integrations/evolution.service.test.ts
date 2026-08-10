@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
+import { timeBasedGreeting } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
 import { EvolutionService } from './evolution.service.js';
 
@@ -791,6 +792,56 @@ describe('assinatura do operador', () => {
       text: undefined,
       payload: expect.objectContaining({ signature: null }),
     }) });
+  });
+});
+
+describe('variáveis em mensagens manuais', () => {
+  it('substitui todas as variáveis no momento do envio antes de aplicar a assinatura', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'message-variables' });
+    const outboundQueue = { add: vi.fn().mockResolvedValue(undefined) };
+    const db = {
+      conversation: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'conversation-1',
+          instanceId: 'instance-1',
+          contactId: 'contact-1',
+          status: 'OPEN',
+          assigneeId: 'user-1',
+        }),
+      },
+      contact: {
+        findUnique: vi.fn().mockResolvedValue({
+          name: 'Adriana',
+          phone: '+554599225389',
+          email: 'adriana@bzs.com.br',
+          jobTitle: 'Síndica',
+          companies: [{ company: { name: 'BZS Tecnologia' } }],
+        }),
+      },
+      message: {
+        findFirst: vi.fn().mockResolvedValue({ text: 'Preciso de uma proposta' }),
+        create,
+      },
+    };
+    const realtime = { notifyOrganization: vi.fn() };
+    const service = new EvolutionService(db as never, {} as never, outboundQueue as never, realtime as never);
+
+    await service.sendMessage(
+      { ...auth, name: 'Gabriel Bayer', messageSignatureEnabled: true },
+      'conversation-1',
+      {
+        type: 'text',
+        text: '{{saudacao}}, {{nome}} | {{telefone}} | {{email}} | {{empresa}} | {{cargo}} | {{mensagem}}',
+      },
+    );
+
+    expect(create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      text: `*Gabriel Bayer:*\n${timeBasedGreeting()}, Adriana | +554599225389 | adriana@bzs.com.br | BZS Tecnologia | Síndica | Preciso de uma proposta`,
+    }) });
+    expect(db.contact.findUnique).toHaveBeenCalledTimes(1);
+    expect(db.message.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ conversationId: 'conversation-1', direction: 'INBOUND' }),
+    }));
   });
 });
 

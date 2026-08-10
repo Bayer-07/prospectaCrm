@@ -2,7 +2,7 @@ import { BadGatewayException, BadRequestException, Inject, Injectable, NotFoundE
 import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
-import { isOptOutMessage, normalizeEvolutionInstanceStatus, type EvolutionInstanceStatus } from '@prospecta/contracts';
+import { contactTemplateVariables, isOptOutMessage, normalizeEvolutionInstanceStatus, renderTemplateVariables, type EvolutionInstanceStatus } from '@prospecta/contracts';
 import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import type { AuthContext } from '../auth/types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -1044,9 +1044,12 @@ export class EvolutionService {
     const signatureEnabled = auth.type === 'session'
       ? input.signatureEnabled ?? auth.messageSignatureEnabled
       : false;
-    const signedText = input.text && signatureEnabled
-      ? `*${auth.name.trim()}:*\n${input.text}`
+    const renderedText = input.text
+      ? await this.renderConversationTemplate(conversationId, conversation.contactId, input.text)
       : input.text;
+    const signedText = renderedText && signatureEnabled
+      ? `*${auth.name.trim()}:*\n${renderedText}`
+      : renderedText;
     const localMessageId = randomUUID();
     const message = await this.db.message.create({ data: {
       instanceId: conversation.instanceId, conversationId, providerMessageId: `local:${localMessageId}`,
@@ -1100,9 +1103,10 @@ export class EvolutionService {
   async editMessage(auth: AuthContext, conversationId: string, messageId: string, rawText: string) {
     const conversation = await this.assertConversationWithInstance(auth, conversationId);
     if (conversation.status !== 'OPEN' || !conversation.assigneeId) throw new BadRequestException('Assuma a conversa antes de editar mensagens');
-    const text = String(rawText || '').trim();
-    if (!text) throw new BadRequestException('A mensagem não pode ficar vazia');
-    if (text.length > 4096) throw new BadRequestException('A mensagem deve ter no máximo 4096 caracteres');
+    const sourceText = String(rawText || '').trim();
+    if (!sourceText) throw new BadRequestException('A mensagem não pode ficar vazia');
+    if (sourceText.length > 4096) throw new BadRequestException('A mensagem deve ter no máximo 4096 caracteres');
+    const text = await this.renderConversationTemplate(conversationId, conversation.contactId, sourceText);
     const message = await this.db.message.findFirst({ where: { id: messageId, conversationId, direction: 'OUTBOUND' } });
     if (!message || message.type !== 'text') throw new BadRequestException('Apenas mensagens de texto enviadas podem ser editadas');
     if (message.providerMessageId.startsWith('local:') || ['QUEUED', 'PENDING', 'FAILED', 'SKIPPED'].includes(message.status)) {
@@ -1311,6 +1315,44 @@ export class EvolutionService {
     }).then((conversation) => {
       if (!conversation) throw new NotFoundException('Conversa não encontrada');
       return conversation;
+    });
+  }
+
+  private async renderConversationTemplate(conversationId: string, contactId: string, template: string) {
+    const keys = [...template.matchAll(/{{\s*([\w.]+)\s*}}/gi)]
+      .map((match) => match[1].toLocaleLowerCase('pt-BR'));
+    if (!keys.length) return template;
+
+    const contactKeys = new Set(['nome', 'telefone', 'email', 'empresa', 'cargo']);
+    const [contact, lastInboundMessage] = await Promise.all([
+      keys.some((key) => contactKeys.has(key))
+        ? this.db.contact.findUnique({
+            where: { id: contactId },
+            select: {
+              name: true,
+              phone: true,
+              email: true,
+              jobTitle: true,
+              companies: {
+                where: { isPrimary: true },
+                select: { company: { select: { name: true } } },
+                take: 1,
+              },
+            },
+          })
+        : null,
+      keys.includes('mensagem')
+        ? this.db.message.findFirst({
+            where: { conversationId, direction: 'INBOUND', type: { not: 'reaction' } },
+            orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+            select: { text: true },
+          })
+        : null,
+    ]);
+
+    return renderTemplateVariables(template, {
+      ...contactTemplateVariables(contact || {}),
+      mensagem: lastInboundMessage?.text || '',
     });
   }
 

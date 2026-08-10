@@ -1,5 +1,6 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { renderTemplateVariables } from '@prospecta/contracts';
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position, addEdge,
   useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps,
@@ -44,6 +45,7 @@ function FlowNode({ data, type, selected }: NodeProps<Node<FlowData>>) {
 }
 
 const nodeTypes = Object.fromEntries(nodeDefinitions.map((item) => [item.type, FlowNode]));
+const automationMessageVariables = ['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo'] as const;
 
 export function AutomationsPage() {
   const client = useQueryClient(); const [selected, setSelected] = useState<WorkflowRecord | null>(null); const [modal, setModal] = useState(false); const [deleting, setDeleting] = useState<WorkflowRecord | null>(null);
@@ -142,8 +144,8 @@ function AutomationNodeInspector({ node, metadata, onChange, onDelete }: { node:
     {node.type === 'send_whatsapp' && <>
       <SelectField label="Número de envio" value={String(node.data.instanceId || '')} onChange={(event) => onChange({ instanceId: event.target.value })}><option value="">Usar o número da conversa</option>{metadata.instances.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}{instance.status !== 'CONNECTED' ? ' · Desconectado' : ''}</option>)}</SelectField>
       <label className="field automation-message-field"><span>Mensagem do WhatsApp</span><textarea rows={8} autoFocus value={message} onChange={(event) => updateMessage(event.target.value)} placeholder="Digite a mensagem que será enviada…" /><small>{message.length} caracteres</small></label>
-      <div className="automation-variable-row"><span>Variáveis</span><button type="button" onClick={() => updateMessage(`${message}${message && !message.endsWith(' ') ? ' ' : ''}{{nome}}`)}>{'{{nome}}'}</button></div>
-      <div className="automation-message-preview"><span>Prévia para o contato</span><div>{message.trim() ? <WhatsappText text={message.replace(/{{\s*nome\s*}}/gi, 'Adriana')} /> : <em>Digite uma mensagem para visualizar.</em>}</div></div>
+      <div className="automation-variable-row"><span>Variáveis</span>{automationMessageVariables.map((variable) => <button key={variable} type="button" onClick={() => updateMessage(`${message}${message && !message.endsWith(' ') ? ' ' : ''}{{${variable}}}`)}>{`{{${variable}}}`}</button>)}</div>
+      <div className="automation-message-preview"><span>Prévia para o contato</span><div>{message.trim() ? <WhatsappText text={renderTemplateVariables(message, { nome: 'Adriana' })} /> : <em>Digite uma mensagem para visualizar.</em>}</div></div>
       <p className="inspector-note">Quando iniciada pelo comando <strong>/</strong> no chat, esta mensagem será enviada exclusivamente para o contato daquela conversa.</p>
     </>}
     {node.type === 'condition' && <>

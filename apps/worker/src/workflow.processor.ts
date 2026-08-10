@@ -1,5 +1,6 @@
 import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
 
 type Node = { id: string; type: string; data?: Record<string, any> };
 type Edge = { source: string; target: string; sourceHandle?: string };
@@ -37,7 +38,14 @@ export class WorkflowProcessor {
     const enrollment = await this.db.workflowEnrollment.findUnique({
       where: { id: job.data.enrollmentId },
       include: {
-        contact: { include: { suppressions: { where: { channel: 'WHATSAPP' } } } },
+        contact: { include: {
+          suppressions: { where: { channel: 'WHATSAPP' } },
+          companies: {
+            where: { isPrimary: true },
+            include: { company: { select: { name: true } } },
+            take: 1,
+          },
+        } },
         workflow: true,
         version: true,
       },
@@ -141,7 +149,10 @@ export class WorkflowProcessor {
             select: { id: true, name: true, messageSignatureEnabled: true },
           })
         : null;
-      const rawText = String(data.text || '').replace(/{{\s*nome\s*}}/gi, enrollment.contact.name);
+      const rawText = renderTemplateVariables(
+        String(data.text || ''),
+        contactTemplateVariables(enrollment.contact),
+      );
       const signature = initiatingUser?.messageSignatureEnabled
         ? { userId: initiatingUser.id, name: initiatingUser.name }
         : null;

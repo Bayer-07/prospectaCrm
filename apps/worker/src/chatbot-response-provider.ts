@@ -1,7 +1,12 @@
+import { renderTemplateVariables } from '@prospecta/contracts';
+
 export type ChatbotRuleContext = {
   lastMessage: string;
   contactName: string;
   contactPhone?: string | null;
+  contactEmail?: string | null;
+  contactJobTitle?: string | null;
+  contactCompany?: string | null;
   conversationId: string;
 };
 
@@ -32,9 +37,13 @@ export class RulesResponseProvider implements ChatbotResponseProvider {
   }
 
   interpolate(template: string, context: ChatbotRuleContext) {
-    return template
-      .replace(/{{\s*nome\s*}}/gi, context.contactName)
-      .replace(/{{\s*telefone\s*}}/gi, context.contactPhone || '')
-      .replace(/{{\s*mensagem\s*}}/gi, context.lastMessage);
+    return renderTemplateVariables(template, {
+      nome: context.contactName,
+      telefone: context.contactPhone || '',
+      email: context.contactEmail || '',
+      empresa: context.contactCompany || '',
+      cargo: context.contactJobTitle || '',
+      mensagem: context.lastMessage,
+    });
   }
 }

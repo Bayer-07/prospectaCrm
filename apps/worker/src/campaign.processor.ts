@@ -1,5 +1,6 @@
 import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
+import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
 import { randomUUID } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
 import { GmailCampaignClient, GmailCampaignError } from './gmail-campaign-client.js';
@@ -43,11 +44,7 @@ export function campaignMessageSequence(recipientMessages: Prisma.JsonValue, cam
 export function campaignContactVariables(contact: Record<string, any>) {
   return {
     ...contact,
-    nome: contact.name || '',
-    telefone: contact.phone || '',
-    email: contact.email || '',
-    empresa: contact.companies?.[0]?.company?.name || '',
-    cargo: contact.jobTitle || '',
+    ...contactTemplateVariables(contact),
   };
 }
 
@@ -515,7 +512,7 @@ export class CampaignProcessor {
   }
 
   private render(content: string, contact: Record<string, unknown>) {
-    return content.replace(/{{\s*([\w.]+)\s*}}/g, (_match, key: string) => String(contact[key] ?? ''));
+    return renderTemplateVariables(content, contact);
   }
 
   private withUnsubscribeFooter(html: string) {

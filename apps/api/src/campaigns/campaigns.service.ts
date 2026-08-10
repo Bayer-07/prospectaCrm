@@ -2,7 +2,7 @@ import { BadRequestException, Inject, Injectable, NotFoundException } from '@nes
 import { Queue } from 'bullmq';
 import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
-import { campaignCadenceSchema, normalizePhoneKey } from '@prospecta/contracts';
+import { campaignCadenceSchema, contactTemplateVariables, normalizePhoneKey, renderTemplateVariables } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
 import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { EvolutionService } from '../integrations/evolution.service.js';
@@ -70,7 +70,7 @@ function recipientMessageTemplates(value: Prisma.JsonValue, fallback: CampaignMe
 }
 
 export function renderCampaignContent(content: string, variables: Record<string, unknown>) {
-  return content.replace(/{{\s*([\w.]+)\s*}}/g, (_match, key: string) => String(variables[key] ?? ''));
+  return renderTemplateVariables(content, variables);
 }
 
 export function campaignSendingSchedule(input: Pick<CreateCampaignInput, 'sendingWindowStart' | 'sendingWindowEnd' | 'sendingDays'>) {
@@ -192,11 +192,8 @@ export class CampaignsService {
       const companyName = recipient.contact.companies[0]?.company.name || '';
       const variables = {
         ...recipient.contact,
-        nome: recipient.contact.name,
-        telefone: recipient.contact.phone || '',
-        email: recipient.contact.email || '',
+        ...contactTemplateVariables(recipient.contact),
         empresa: companyName,
-        cargo: recipient.contact.jobTitle || '',
       };
       return {
         ...recipient,
