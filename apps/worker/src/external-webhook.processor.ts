@@ -3,23 +3,27 @@ import type { PrismaClient } from '@prisma/client';
 import { createDecipheriv, createHash, createHmac } from 'node:crypto';
 import { publicHttpGet } from './public-http-get.js';
 
-let decryptionKey: Buffer | undefined;
+function requiredDecryptionKey() {
+  const secret = process.env.ENCRYPTION_KEY || process.env.SESSION_SECRET;
+  if (!secret) throw new Error('ENCRYPTION_KEY ou SESSION_SECRET precisa ser configurada');
+  return createHash('sha256').update(secret).digest();
+}
 
 function decryptSecret(value: string) {
   if (!value.startsWith('v1.')) return Buffer.from(value, 'base64').toString();
   const [, iv, tag, encrypted] = value.split('.');
-  decryptionKey ||= createHash('sha256').update(process.env.ENCRYPTION_KEY || process.env.SESSION_SECRET || 'prospecta-development-key').digest();
-  const decipher = createDecipheriv('aes-256-gcm', decryptionKey, Buffer.from(iv, 'base64url'));
+  const decipher = createDecipheriv('aes-256-gcm', requiredDecryptionKey(), Buffer.from(iv, 'base64url'));
   decipher.setAuthTag(Buffer.from(tag, 'base64url'));
   return Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64url')), decipher.final()]).toString('utf8');
 }
 
 type ExternalWebhookDependencies = { get: typeof publicHttpGet };
+const defaultExternalWebhookDependencies: ExternalWebhookDependencies = Object.freeze({ get: publicHttpGet });
 
 export async function processExternalWebhook(
   db: PrismaClient,
   job: Job<{ deliveryId: string }>,
-  dependencies: ExternalWebhookDependencies = { get: publicHttpGet },
+  dependencies: ExternalWebhookDependencies = defaultExternalWebhookDependencies,
 ) {
   const delivery = await db.webhookDelivery.findUnique({
     where: { id: job.data.deliveryId },
@@ -34,7 +38,6 @@ export async function processExternalWebhook(
     },
   });
   if (!delivery || delivery.status === 'delivered' || !delivery.webhook.enabled) return;
-  const secret = decryptSecret(delivery.webhook.secretEncrypted);
   const timestamp = Math.floor(Date.now() / 1000).toString();
   const payload = delivery.payload && typeof delivery.payload === 'object' && !Array.isArray(delivery.payload)
     ? delivery.payload as Record<string, unknown>
@@ -42,6 +45,7 @@ export async function processExternalWebhook(
   const entityType = typeof payload.entityType === 'string' ? payload.entityType : '';
   const entityId = typeof payload.entityId === 'string' ? payload.entityId : '';
   try {
+    const secret = decryptSecret(delivery.webhook.secretEncrypted);
     const target = new URL(delivery.webhook.url);
     target.searchParams.set('event', delivery.eventType);
     target.searchParams.set('event_id', delivery.eventId);

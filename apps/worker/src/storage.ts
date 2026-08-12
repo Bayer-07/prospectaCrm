@@ -7,35 +7,39 @@ const storageEndpoint = process.env.S3_ENDPOINT || 'http://localhost:9000';
 // This hostname is embedded in the signed URL and must be both a valid URL
 // for Evolution's DTO validator and reachable from its container.
 const deliveryEndpoint = process.env.S3_DELIVERY_ENDPOINT || storageEndpoint;
-const storageSecret = process.env.S3_SECRET_KEY?.trim();
-if (!storageSecret) throw new Error('S3_SECRET_KEY precisa ser configurada');
-const credentials = {
-  accessKeyId: process.env.S3_ACCESS_KEY || 'prospecta',
-  secretAccessKey: storageSecret,
-};
-
-const storageClient = new S3Client({
-  region,
-  endpoint: storageEndpoint,
-  forcePathStyle: true,
-  credentials,
-});
-
-const deliveryClient = deliveryEndpoint === storageEndpoint ? storageClient : new S3Client({
-  region,
-  endpoint: deliveryEndpoint,
-  forcePathStyle: true,
-  credentials,
-});
-
 const bucket = process.env.S3_BUCKET || 'prospecta-media';
+let clients: { storage: S3Client; delivery: S3Client } | undefined;
+
+function storageClients() {
+  if (clients) return clients;
+  const storageSecret = process.env.S3_SECRET_KEY?.trim();
+  if (!storageSecret) throw new Error('S3_SECRET_KEY precisa ser configurada');
+  const credentials = {
+    accessKeyId: process.env.S3_ACCESS_KEY || 'prospecta',
+    secretAccessKey: storageSecret,
+  };
+  const storage = new S3Client({
+    region,
+    endpoint: storageEndpoint,
+    forcePathStyle: true,
+    credentials,
+  });
+  const delivery = deliveryEndpoint === storageEndpoint ? storage : new S3Client({
+    region,
+    endpoint: deliveryEndpoint,
+    forcePathStyle: true,
+    credentials,
+  });
+  clients = { storage, delivery };
+  return clients;
+}
 
 export function signedMediaUrl(key: string) {
-  return getSignedUrl(deliveryClient, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 15 * 60 });
+  return getSignedUrl(storageClients().delivery, new GetObjectCommand({ Bucket: bucket, Key: key }), { expiresIn: 15 * 60 });
 }
 
 export async function storedMediaBuffer(key: string, maximumBytes = 25 * 1024 * 1024) {
-  const result = await storageClient.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
+  const result = await storageClients().storage.send(new GetObjectCommand({ Bucket: bucket, Key: key }));
   const declaredBytes = Number(result.ContentLength || 0);
   if (declaredBytes > maximumBytes) throw new Error('A mídia ultrapassa o limite de 25 MB');
   if (!result.Body) throw new Error('O arquivo da mídia está vazio');
@@ -52,7 +56,7 @@ export async function storedMediaBase64(key: string, maximumBytes = 25 * 1024 * 
 export async function storeInboundMedia(input: { organizationId: string; filename: string; contentType: string; body: Buffer }) {
   const safeName = input.filename.normalize('NFKD').replace(/[^a-zA-Z0-9._-]/g, '_').slice(-120) || 'midia';
   const key = `${input.organizationId}/${new Date().toISOString().slice(0, 10)}/${randomUUID()}-${safeName}`;
-  await storageClient.send(new PutObjectCommand({
+  await storageClients().storage.send(new PutObjectCommand({
     Bucket: bucket,
     Key: key,
     Body: input.body,
@@ -67,7 +71,7 @@ export async function deleteStoredMedia(keys: string[]) {
   const uniqueKeys = [...new Set(keys.filter(Boolean))];
   for (let index = 0; index < uniqueKeys.length; index += 1_000) {
     const batch = uniqueKeys.slice(index, index + 1_000);
-    const result = await storageClient.send(new DeleteObjectsCommand({
+    const result = await storageClients().storage.send(new DeleteObjectsCommand({
       Bucket: bucket,
       Delete: { Quiet: true, Objects: batch.map((Key) => ({ Key })) },
     }));

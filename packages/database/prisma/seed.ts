@@ -3,11 +3,10 @@ import argon2 from 'argon2';
 import { sgaProspectingEmailTemplates } from '../../contracts/src/email-templates.js';
 
 const db = new PrismaClient();
-const SEED_PASSWORD_PLACEHOLDER = 'troque-a-senha-inicial-do-seed';
 
 function seedAdminPassword() {
   const password = process.env.SEED_ADMIN_PASSWORD?.trim();
-  if (!password || password === SEED_PASSWORD_PLACEHOLDER) {
+  if (!password) {
     throw new Error('Defina uma SEED_ADMIN_PASSWORD exclusiva antes de executar o seed');
   }
   if (password.length < 5) {

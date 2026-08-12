@@ -286,12 +286,12 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
     else onSubmit();
   };
 
-  return <div
+  // The native text controls cannot render the inline formatting required by this rich-text editor.
+  return <div role="textbox" //NOSONAR -- no native rich-text editing element has equivalent behavior.
     ref={rootRef}
     className="whatsapp-composer"
     contentEditable={!disabled}
     suppressContentEditableWarning
-    role="textbox"
     aria-multiline="true"
     aria-label="Mensagem"
     aria-disabled={disabled}
@@ -307,7 +307,7 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
     onKeyUp={rememberSelection}
     onMouseUp={rememberSelection}
     onKeyDown={handleKeyDown}
-    onPaste={(event) => {
+    onPaste={(event: ClipboardEvent<HTMLDivElement>) => {
       onPaste(event);
       if (event.defaultPrevented) return;
       const pastedText = event.clipboardData.getData('text/plain').replaceAll('\r\n', '\n');

@@ -118,10 +118,9 @@ export class ChatbotProcessor {
     const session = input.existing;
     if (session?.lastInboundMessageId === input.inboundMessageId) return null;
     if (session?.status && ['HANDED_OFF', 'STOPPED'].includes(session.status)) return null;
-    const startsNew = !session
-      || session.chatbotId !== input.chatbotId
-      || session.versionId !== input.versionId
-      || ['COMPLETED', 'FAILED'].includes(session.status);
+    const startsNew = session?.chatbotId !== input.chatbotId
+      || session?.versionId !== input.versionId
+      || ['COMPLETED', 'FAILED'].includes(session?.status);
     if (startsNew) return this.startSession(input);
     return this.resumeSession(session, input);
   }

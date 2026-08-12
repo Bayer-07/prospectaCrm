@@ -2864,7 +2864,7 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
   const stageRef = useRef<HTMLDivElement>(null);
   const zoomRef = useRef(1);
   const onCloseRef = useRef(onClose);
-  const dragRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number; moved: boolean } | null>(null);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number; moved: boolean; captureTarget: HTMLButtonElement } | null>(null);
   const suppressClickRef = useRef(false);
   const availableWidth = Math.max(1, viewport.width - 56);
   const availableHeight = Math.max(1, viewport.height - 56);
@@ -2921,13 +2921,13 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     return () => observer.disconnect();
   }, []);
 
-  const beginPan = (event: React.PointerEvent<HTMLDialogElement>) => {
+  const beginPan = (event: React.PointerEvent<HTMLButtonElement>) => {
     const stage = stageRef.current;
-    if (!stage || !stage.contains(event.target as globalThis.Node) || zoomRef.current <= 1 || event.button !== 0) return;
-    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, scrollLeft: stage.scrollLeft, scrollTop: stage.scrollTop, moved: false };
+    if (!stage || zoomRef.current <= 1 || event.button !== 0) return;
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, scrollLeft: stage.scrollLeft, scrollTop: stage.scrollTop, moved: false, captureTarget: event.currentTarget };
     setDragging(true);
   };
-  const movePan = (event: React.PointerEvent<HTMLDialogElement>) => {
+  const movePan = (event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = dragRef.current;
     const stage = stageRef.current;
     if (!drag || !stage || drag.pointerId !== event.pointerId) return;
@@ -2935,19 +2935,18 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     const deltaY = event.clientY - drag.y;
     if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
       drag.moved = true;
-      if (!stage.hasPointerCapture(event.pointerId)) stage.setPointerCapture(event.pointerId);
+      if (!drag.captureTarget.hasPointerCapture(event.pointerId)) drag.captureTarget.setPointerCapture(event.pointerId);
     }
     stage.scrollLeft = drag.scrollLeft - deltaX;
     stage.scrollTop = drag.scrollTop - deltaY;
     event.preventDefault();
   };
-  const endPan = (event: React.PointerEvent<HTMLDialogElement>) => {
+  const endPan = (event: React.PointerEvent<HTMLButtonElement>) => {
     const drag = dragRef.current;
-    const stage = stageRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
+    if (drag?.pointerId !== event.pointerId) return;
     suppressClickRef.current = drag.moved;
     dragRef.current = null;
-    if (stage?.hasPointerCapture(event.pointerId)) stage.releasePointerCapture(event.pointerId);
+    if (drag.captureTarget.hasPointerCapture(event.pointerId)) drag.captureTarget.releasePointerCapture(event.pointerId);
     setDragging(false);
   };
 
@@ -2956,23 +2955,6 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     className="image-lightbox"
     aria-label={`Visualização ampliada de ${alt}`}
     style={{ margin: 0, padding: 0, border: 0 }}
-    onPointerDown={beginPan}
-    onPointerMove={movePan}
-    onPointerUp={endPan}
-    onPointerCancel={endPan}
-    onClick={(event) => {
-      if (suppressClickRef.current) { suppressClickRef.current = false; return; }
-      if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('image-lightbox-canvas')) onClose();
-    }}
-    onKeyDown={(event) => {
-      if (event.key === 'Escape') onClose();
-    }}
-    onWheel={(event) => {
-      const stage = stageRef.current;
-      if (!stage?.contains(event.target as globalThis.Node)) return;
-      event.preventDefault();
-      changeZoom(zoomRef.current + (event.deltaY < 0 ? 0.25 : -0.25));
-    }}
   >
     <header className="image-lightbox-toolbar">
       <strong title={alt}>{alt}</strong>
@@ -2988,12 +2970,32 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
       ref={stageRef}
       className={`image-lightbox-stage${zoom > 1 ? ' zoomed' : ''}${dragging ? ' dragging' : ''}`}
     >
-      <div className="image-lightbox-canvas">
+      <div className="image-lightbox-canvas" style={{ position: 'relative' }}>
         <button
           type="button"
-          onClick={() => { if (!suppressClickRef.current) changeZoom(zoomRef.current === 1 ? 2 : 1); }}
+          aria-label="Fechar visualização da imagem"
+          onClick={onClose}
+          style={{ position: 'absolute', inset: 0, width: '100%', height: '100%', padding: 0, border: 0, background: 'transparent' }}
+        />
+        <button
+          type="button"
+          onPointerDown={beginPan}
+          onPointerMove={movePan}
+          onPointerUp={endPan}
+          onPointerCancel={endPan}
+          onWheel={(event) => {
+            event.preventDefault();
+            changeZoom(zoomRef.current + (event.deltaY < 0 ? 0.25 : -0.25));
+          }}
+          onClick={() => {
+            if (suppressClickRef.current) {
+              suppressClickRef.current = false;
+              return;
+            }
+            changeZoom(zoomRef.current === 1 ? 2 : 1);
+          }}
           title={zoom === 1 ? 'Clique para ampliar' : 'Arraste para mover ou clique para restaurar'}
-          style={{ display: 'block', border: 0, padding: 0, background: 'transparent' }}
+          style={{ position: 'relative', zIndex: 1, display: 'block', border: 0, padding: 0, background: 'transparent' }}
         >
           <img
             src={url}

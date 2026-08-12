@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { firstWhatsappLink, linkifyWhatsappText, tokenizeWhatsappText, WhatsappText } from './WhatsappText';
+import { firstWhatsappLink, linkifyWhatsappText, tokenizeWhatsappText, WhatsappComposer, WhatsappText } from './WhatsappText';
 
 describe('tokenizeWhatsappText', () => {
   it('reconhece os quatro formatos usados pelo WhatsApp', () => {
@@ -74,5 +74,22 @@ describe('firstWhatsappLink', () => {
 
   it('ignora endereços marcados como código', () => {
     expect(firstWhatsappLink('`https://interno.exemplo.com`')).toBeUndefined();
+  });
+});
+
+describe('WhatsappComposer', () => {
+  it('mantém a semântica de caixa de texto no editor rich text', () => {
+    const html = renderToStaticMarkup(<WhatsappComposer
+      value="*Olá*"
+      placeholder="Digite uma mensagem"
+      onChange={() => undefined}
+      onPaste={() => undefined}
+      onSubmit={() => undefined}
+    />);
+
+    expect(html).toContain('contentEditable="true"');
+    expect(html).toContain('role="textbox"');
+    expect(html).toContain('aria-multiline="true"');
+    expect(html).toContain('aria-label="Mensagem"');
   });
 });
