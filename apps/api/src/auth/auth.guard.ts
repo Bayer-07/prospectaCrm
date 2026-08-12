@@ -92,8 +92,7 @@ export class AuthGuard implements CanActivate {
         },
       });
       if (
-        !record
-        || record.id !== claims.sessionId
+        record?.id !== claims.sessionId
         || record.userId !== claims.userId
         || record.expiresAt <= now
         || record.user.status !== 'ACTIVE'

@@ -166,7 +166,8 @@ export function Shell() {
   }, []);
 
   useEffect(() => {
-    const socketBaseUrl = String(import.meta.env.VITE_SOCKET_URL || '').replace(/\/+$/, '');
+    let socketBaseUrl = String(import.meta.env.VITE_SOCKET_URL || '');
+    while (socketBaseUrl.endsWith('/')) socketBaseUrl = socketBaseUrl.slice(0, -1);
     const socket = io(`${socketBaseUrl}/realtime`, { withCredentials: true });
     const invalidationTimers = new Map<string, number>();
     const scheduleInvalidation = (queryKey: readonly unknown[], delayMs = 100) => {
@@ -266,7 +267,7 @@ export function Shell() {
   }, [queryClient]);
 
   const sidebar = <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
-    <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo BZS One" /><div><strong>BZS One</strong></div><button className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
+    <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo BZS One" /><div><strong>BZS One</strong></div><button type="button" className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
     <nav>{nav.map((group) => <div className="nav-group" key={group.section}>
       <span className="nav-section">{group.section}</span>
       {group.items.map((item) => {
@@ -306,14 +307,15 @@ export function Shell() {
   </aside>;
 
   return <div className="app-shell">
-    {sidebar}{mobileOpen && <div className="mobile-overlay" onClick={() => setMobileOpen(false)} />}
+    {sidebar}{mobileOpen && <button type="button" className="mobile-overlay" onClick={() => setMobileOpen(false)} aria-label="Fechar menu lateral" />}
     <main className={`main-column ${isInbox ? 'inbox-shell' : ''}`}>
       <header className="topbar">
-        <button className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
+        <button type="button" className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
         <GlobalSearch />
         <div className="topbar-actions">
           <div className="popover-wrap quick-add-wrap">
             <button
+              type="button"
               className="quick-add"
               onClick={() => {
                 setQuickAddOpen((open) => !open);
@@ -337,9 +339,9 @@ export function Shell() {
               </div>
             </>}
           </div>
-          <button className="icon-button theme-toggle" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'} title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
-          <div className="popover-wrap"><button className="icon-button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notificações"><Bell size={18} />{unread > 0 && <i>{unread}</i>}</button>{notificationsOpen && <div className="popover notifications-popover"><div className="popover-header notification-popover-header"><strong>Notificações</strong><div><span>{unread} novas</span>{unread > 0 && <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending} title="Marcar todas como lidas"><CheckCheck size={14} />Marcar todas como lidas</button>}</div></div><div className="notification-list">{unreadNotifications.length ? unreadNotifications.slice(0, 8).map((item) => <div key={item.id} className="notification-item unread"><button type="button" className="notification-main" onClick={() => openNotification(item)}><span className="notification-icon"><Bell size={14} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{dateTime(item.createdAt)}</small></div></button><button type="button" className="notification-read" onClick={() => markRead.mutate(item.id)} disabled={markRead.isPending && markRead.variables === item.id} aria-label={`Marcar ${item.title} como lida`} title="Marcar como lida"><CheckCheck size={16} /></button></div>) : <p className="popover-empty">Tudo lido por aqui.</p>}</div></div>}</div>
-          <div className="popover-wrap"><button className="profile-button" onClick={() => setProfileOpen(!profileOpen)}><UserAvatar user={user} /><div><strong>{user?.name}</strong><small>{user?.roleKey === 'admin' ? 'Administrador' : user?.roleKey}</small></div><ChevronDown size={14} /></button>{profileOpen && <div className="popover profile-popover"><button type="button" onClick={() => { setProfileOpen(false); setProfileModalOpen(true); }}><UserRound size={16} />Meu perfil</button><button type="button" disabled={!canRead('users')} title={!canRead('users') ? 'Você não possui acesso à gestão da equipe' : undefined} onClick={() => { setProfileOpen(false); navigate('/configuracoes?tab=users'); }}><Users size={16} />Minha equipe</button><button type="button" className="profile-logout" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOut size={16} />{signOut.isPending ? 'Saindo…' : 'Sair'}</button></div>}</div>
+          <button type="button" className="icon-button theme-toggle" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'} title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
+          <div className="popover-wrap"><button type="button" className="icon-button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notificações"><Bell size={18} />{unread > 0 && <i>{unread}</i>}</button>{notificationsOpen && <div className="popover notifications-popover"><div className="popover-header notification-popover-header"><strong>Notificações</strong><div><span>{unread} novas</span>{unread > 0 && <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending} title="Marcar todas como lidas"><CheckCheck size={14} />Marcar todas como lidas</button>}</div></div><div className="notification-list">{unreadNotifications.length ? unreadNotifications.slice(0, 8).map((item) => <div key={item.id} className="notification-item unread"><button type="button" className="notification-main" onClick={() => openNotification(item)}><span className="notification-icon"><Bell size={14} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{dateTime(item.createdAt)}</small></div></button><button type="button" className="notification-read" onClick={() => markRead.mutate(item.id)} disabled={markRead.isPending && markRead.variables === item.id} aria-label={`Marcar ${item.title} como lida`} title="Marcar como lida"><CheckCheck size={16} /></button></div>) : <p className="popover-empty">Tudo lido por aqui.</p>}</div></div>}</div>
+          <div className="popover-wrap"><button type="button" className="profile-button" onClick={() => setProfileOpen(!profileOpen)}><UserAvatar user={user} /><div><strong>{user?.name}</strong><small>{user?.roleKey === 'admin' ? 'Administrador' : user?.roleKey}</small></div><ChevronDown size={14} /></button>{profileOpen && <div className="popover profile-popover"><button type="button" onClick={() => { setProfileOpen(false); setProfileModalOpen(true); }}><UserRound size={16} />Meu perfil</button><button type="button" disabled={!canRead('users')} title={!canRead('users') ? 'Você não possui acesso à gestão da equipe' : undefined} onClick={() => { setProfileOpen(false); navigate('/configuracoes?tab=users'); }}><Users size={16} />Minha equipe</button><button type="button" className="profile-logout" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOut size={16} />{signOut.isPending ? 'Saindo…' : 'Sair'}</button></div>}</div>
         </div>
       </header>
       {!isInbox && <div className="page-heading"><div><h1>{info.title}</h1><p>{info.description}</p></div></div>}
@@ -349,7 +351,7 @@ export function Shell() {
   </div>;
 }
 
-function ProfileModal({ onClose }: { onClose(): void }) {
+function ProfileModal({ onClose }: Readonly<{ onClose(): void }>) {
   const { user, refresh } = useAuth();
   const [form, setForm] = useState({ name: user?.name || '', email: user?.email || '' });
   const [photoMenuOpen, setPhotoMenuOpen] = useState(false);

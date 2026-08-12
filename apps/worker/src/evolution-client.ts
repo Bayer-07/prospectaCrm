@@ -8,16 +8,8 @@ export class EvolutionClient {
     const number = this.normalizeTarget(input.number);
     const isText = input.type === 'text' || (!input.mediaUrl && !input.mediaBase64);
     const isAudio = input.type === 'audio' && Boolean(input.mediaUrl || input.mediaBase64);
-    const path = isText
-      ? `/message/sendText/${encodeURIComponent(instance)}`
-      : isAudio
-        ? `/message/sendWhatsAppAudio/${encodeURIComponent(instance)}`
-        : `/message/sendMedia/${encodeURIComponent(instance)}`;
-    const body = isText
-      ? { number, text: input.text || '', delay: 0, linkPreview: true, ...(input.quoted ? { quoted: input.quoted } : {}) }
-      : isAudio
-        ? { number, audio: input.mediaBase64 || await this.audioBase64(input.mediaUrl!), delay: 0, ...(input.quoted ? { quoted: input.quoted } : {}) }
-        : { number, mediatype: input.type, media: input.mediaUrl, caption: input.text || '', ...(input.quoted ? { quoted: input.quoted } : {}) };
+    const path = this.messagePath(instance, isText, isAudio);
+    const body = await this.messageBody(number, input, isText, isAudio);
     const response = await fetch(`${this.baseUrl}${path}`, {
       method: 'POST', headers: { 'Content-Type': 'application/json', apikey: this.apiKey }, body: JSON.stringify(body),
       signal: AbortSignal.timeout(30_000),
@@ -27,6 +19,28 @@ export class EvolutionClient {
     try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
     if (!response.ok) throw new Error(`Evolution ${response.status}: ${raw.slice(0, 500)}`);
     return result;
+  }
+
+  private messagePath(instance: string, isText: boolean, isAudio: boolean) {
+    const encodedInstance = encodeURIComponent(instance);
+    if (isText) return `/message/sendText/${encodedInstance}`;
+    if (isAudio) return `/message/sendWhatsAppAudio/${encodedInstance}`;
+    return `/message/sendMedia/${encodedInstance}`;
+  }
+
+  private async messageBody(
+    number: string,
+    input: { type: string; text?: string; mediaUrl?: string; mediaBase64?: string; quoted?: { key: Record<string, unknown>; message: Record<string, unknown> } },
+    isText: boolean,
+    isAudio: boolean,
+  ) {
+    const quoted = input.quoted ? { quoted: input.quoted } : {};
+    if (isText) return { number, text: input.text || '', delay: 0, linkPreview: true, ...quoted };
+    if (isAudio) {
+      const audio = input.mediaBase64 || await this.audioBase64(input.mediaUrl!);
+      return { number, audio, delay: 0, ...quoted };
+    }
+    return { number, mediatype: input.type, media: input.mediaUrl, caption: input.text || '', ...quoted };
   }
 
   private async audioBase64(url: string) {
@@ -103,13 +117,7 @@ export class EvolutionClient {
     let result: Record<string, any> | Array<Record<string, any>> = {};
     try { result = raw ? JSON.parse(raw) : {}; } catch { result = { raw }; }
     if (!response.ok) throw new Error(`Evolution ${response.status}: ${raw.slice(0, 500)}`);
-    const items = Array.isArray(result)
-      ? result
-      : Array.isArray(result.numbers)
-        ? result.numbers
-        : Array.isArray(result.data)
-          ? result.data
-          : [];
+    const items = numberCheckItems(result);
     const byNumber = new Map(items.map((item) => [
       String(item.number || item.jid || '').split('@')[0].replace(/\D/g, ''),
       item.exists === true,
@@ -124,4 +132,10 @@ export class EvolutionClient {
     const jidSuffix = suffix.toLowerCase();
     return ['lid', 's.whatsapp.net', 'g.us', 'broadcast'].includes(jidSuffix) ? `${digits}@${jidSuffix}` : digits;
   }
+}
+
+function numberCheckItems(result: Record<string, any> | Array<Record<string, any>>) {
+  if (Array.isArray(result)) return result;
+  if (Array.isArray(result.numbers)) return result.numbers;
+  return Array.isArray(result.data) ? result.data : [];
 }

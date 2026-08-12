@@ -30,7 +30,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
           void this.db.idempotencyRecord.create({ data: {
             organizationId: request.auth.organizationId, key, route, requestHash,
             responseCode: response.statusCode, responseBody: body as Prisma.InputJsonValue,
-            expiresAt: new Date(Date.now() + 24 * 3600_000),
+            expiresAt: new Date(Date.now() + 24 * 3_600_000),
           } }).catch(() => undefined);
         }));
       }),

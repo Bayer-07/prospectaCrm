@@ -16,7 +16,6 @@ import {
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import {
-  CalendarDays,
   Check,
   ChevronLeft,
   ChevronRight,
@@ -146,7 +145,7 @@ export function TasksPage() {
     setDropIndicator(null);
     const task = tasks.find((item) => item.id === String(event.active.id));
     const target = getTaskDropIndicator(event);
-    if (!task || task.status !== 'OPEN' || !target) return;
+    if (task?.status !== 'OPEN' || !target) return;
 
     const dueAt = taskDropDueAt(task.dueAt, target.dateKey, target.minute);
     if (dueAt.getTime() !== new Date(task.dueAt).getTime()) move.mutate({ id: task.id, dueAt });
@@ -156,19 +155,19 @@ export function TasksPage() {
     <div className="task-calendar-toolbar">
       <div className="task-calendar-navigation">
         <Button variant="secondary" onClick={() => setAnchor(startOfDay(new Date()))}>Hoje</Button>
-        <button className="icon-button task-nav-button" onClick={() => navigate(-1)} aria-label="Período anterior"><ChevronLeft size={20} /></button>
-        <button className="icon-button task-nav-button" onClick={() => navigate(1)} aria-label="Próximo período"><ChevronRight size={20} /></button>
+        <button type="button" className="icon-button task-nav-button" onClick={() => navigate(-1)} aria-label="Período anterior"><ChevronLeft size={20} /></button>
+        <button type="button" className="icon-button task-nav-button" onClick={() => navigate(1)} aria-label="Próximo período"><ChevronRight size={20} /></button>
         <h2>{title}</h2>
       </div>
       <div className="task-calendar-actions">
         <div className="segmented task-status-filter" aria-label="Filtrar tarefas">
-          <button className={filter === 'OPEN' ? 'active' : ''} onClick={() => setFilter('OPEN')}>Em aberto</button>
-          <button className={filter === 'COMPLETED' ? 'active' : ''} onClick={() => setFilter('COMPLETED')}>Concluídas</button>
-          <button className={filter === 'ALL' ? 'active' : ''} onClick={() => setFilter('ALL')}>Todas</button>
+          <button type="button" className={filter === 'OPEN' ? 'active' : ''} onClick={() => setFilter('OPEN')}>Em aberto</button>
+          <button type="button" className={filter === 'COMPLETED' ? 'active' : ''} onClick={() => setFilter('COMPLETED')}>Concluídas</button>
+          <button type="button" className={filter === 'ALL' ? 'active' : ''} onClick={() => setFilter('ALL')}>Todas</button>
         </div>
         <div className="segmented task-view-filter" aria-label="Visualização da agenda">
-          <button className={view === 'month' ? 'active' : ''} onClick={() => saveView('month')}>Mês</button>
-          <button className={view === 'week' ? 'active' : ''} onClick={() => saveView('week')}>Semana</button>
+          <button type="button" className={view === 'month' ? 'active' : ''} onClick={() => saveView('month')}>Mês</button>
+          <button type="button" className={view === 'week' ? 'active' : ''} onClick={() => saveView('week')}>Semana</button>
         </div>
         <Button onClick={() => createAt(defaultTaskTime(new Date()))}><Plus size={17} />Nova tarefa</Button>
       </div>
@@ -231,7 +230,7 @@ function MonthCalendar({
   onCreate,
   onOpen,
   onComplete,
-}: {
+}: Readonly<{
   range: { start: Date; end: Date };
   anchor: Date;
   tasksByDay: Map<string, Task[]>;
@@ -239,7 +238,7 @@ function MonthCalendar({
   onCreate(date: Date): void;
   onOpen(task: Task): void;
   onComplete(task: Task): void;
-}) {
+}>) {
   const days = datesBetween(range.start, range.end);
   const week = datesBetween(startOfWeek(new Date()), addDays(startOfWeek(new Date()), 7));
   const todayKey = localDateKey(new Date());
@@ -277,7 +276,7 @@ function MonthDay({
   onCreate,
   onOpen,
   onComplete,
-}: {
+}: Readonly<{
   day: Date;
   tasks: Task[];
   outside: boolean;
@@ -286,20 +285,28 @@ function MonthDay({
   onCreate(date: Date): void;
   onOpen(task: Task): void;
   onComplete(task: Task): void;
-}) {
+}>) {
   const dateKey = localDateKey(day);
   const drop = useDroppable({ id: `task-month-${dateKey}`, data: { view: 'month', dateKey } satisfies TaskDropTarget });
   return <div
     ref={drop.setNodeRef}
     className={`task-month-day${outside ? ' outside' : ''}${today ? ' today' : ''}${drop.isOver ? ' drop-over' : ''}`}
-    onClick={() => onCreate(defaultTaskTime(day))}
+    style={{ position: 'relative' }}
   >
     <button
-      className="task-month-day-number"
-      onClick={(event) => { event.stopPropagation(); onCreate(defaultTaskTime(day)); }}
+      type="button"
       aria-label={`Criar tarefa em ${fullDateFormatter.format(day)}`}
+      onClick={() => onCreate(defaultTaskTime(day))}
+      style={{ position: 'absolute', inset: 0, zIndex: 0, border: 0, background: 'transparent', cursor: 'pointer' }}
+    />
+    <button
+      type="button"
+      className="task-month-day-number"
+      onClick={() => onCreate(defaultTaskTime(day))}
+      aria-label={`Criar tarefa em ${fullDateFormatter.format(day)}`}
+      style={{ position: 'relative', zIndex: 1 }}
     >{day.getDate()}</button>
-    <div className="task-month-events">
+    <div className="task-month-events" style={{ position: 'relative', zIndex: 1, pointerEvents: 'none' }}>
       {tasks.slice(0, 4).map((task) => <MonthTaskEvent
         key={task.id}
         task={task}
@@ -307,17 +314,17 @@ function MonthDay({
         onOpen={onOpen}
         onComplete={onComplete}
       />)}
-      {tasks.length > 4 && <button className="task-more-events" onClick={(event) => event.stopPropagation()}>+{tasks.length - 4} tarefas</button>}
+      {tasks.length > 4 && <button type="button" className="task-more-events" style={{ pointerEvents: 'auto' }}>+{tasks.length - 4} tarefas</button>}
     </div>
   </div>;
 }
 
-function MonthTaskEvent({ task, saving, onOpen, onComplete }: {
+function MonthTaskEvent({ task, saving, onOpen, onComplete }: Readonly<{
   task: Task;
   saving: boolean;
   onOpen(task: Task): void;
   onComplete(task: Task): void;
-}) {
+}>) {
   const drag = useDraggable({
     id: task.id,
     data: { taskId: task.id },
@@ -325,45 +332,47 @@ function MonthTaskEvent({ task, saving, onOpen, onComplete }: {
   });
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const moved = useRef(false);
-  return <button
+  return <div
     ref={drag.setNodeRef}
-    {...drag.attributes}
-    {...drag.listeners}
     className={`task-calendar-event priority-${task.priority.toLowerCase()}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
-    onPointerDownCapture={(event) => {
-      pointerStart.current = { x: event.clientX, y: event.clientY };
-      moved.current = false;
-    }}
-    onPointerMoveCapture={(event) => {
-      if (!pointerStart.current) return;
-      if (Math.hypot(
-        event.clientX - pointerStart.current.x,
-        event.clientY - pointerStart.current.y,
-      ) >= 5) moved.current = true;
-    }}
-    onClick={(event) => {
-      event.stopPropagation();
-      if (moved.current) {
-        moved.current = false;
-        pointerStart.current = null;
-        return;
-      }
-      pointerStart.current = null;
-      onOpen(task);
-    }}
     title={`${timeFormatter.format(new Date(task.dueAt))} · ${task.title}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
+    style={{ position: 'relative', pointerEvents: 'auto' }}
   >
-    <span className="task-event-time">{timeFormatter.format(new Date(task.dueAt))}</span>
-    <strong>{task.title}</strong>
-    <span
+    <button
+      type="button"
+      {...drag.attributes}
+      {...drag.listeners}
+      aria-label={`Abrir tarefa ${task.title}`}
+      onPointerDownCapture={(event) => {
+        pointerStart.current = { x: event.clientX, y: event.clientY };
+        moved.current = false;
+      }}
+      onPointerMoveCapture={(event) => {
+        if (!pointerStart.current) return;
+        if (Math.hypot(event.clientX - pointerStart.current.x, event.clientY - pointerStart.current.y) >= 5) moved.current = true;
+      }}
+      onClick={() => {
+        if (moved.current) {
+          moved.current = false;
+          pointerStart.current = null;
+          return;
+        }
+        pointerStart.current = null;
+        onOpen(task);
+      }}
+      style={{ position: 'absolute', inset: 0, zIndex: 1, border: 0, background: 'transparent', cursor: 'grab' }}
+    />
+    <span className="task-event-time" style={{ pointerEvents: 'none' }}>{timeFormatter.format(new Date(task.dueAt))}</span>
+    <strong style={{ pointerEvents: 'none' }}>{task.title}</strong>
+    <button
+      type="button"
       className="task-event-check"
-      role="button"
-      tabIndex={task.status === 'OPEN' ? 0 : -1}
       aria-label={task.status === 'COMPLETED' ? 'Tarefa concluída' : 'Concluir tarefa'}
-      onPointerDown={(event) => event.stopPropagation()}
-      onClick={(event) => { event.stopPropagation(); onComplete(task); }}
-    >{task.status === 'COMPLETED' ? <Check size={12} /> : <Circle size={12} />}</span>
-  </button>;
+      disabled={task.status !== 'OPEN'}
+      onClick={() => onComplete(task)}
+      style={{ position: 'relative', zIndex: 2 }}
+    >{task.status === 'COMPLETED' ? <Check size={12} /> : <Circle size={12} />}</button>
+  </div>;
 }
 
 function WeekCalendar({
@@ -373,14 +382,14 @@ function WeekCalendar({
   dropIndicator,
   onCreate,
   onOpen,
-}: {
+}: Readonly<{
   range: { start: Date; end: Date };
   tasks: Task[];
   movingTaskId?: string;
   dropIndicator: TaskDropIndicator | null;
   onCreate(date: Date): void;
   onOpen(task: Task): void;
-}) {
+}>) {
   const scrollRef = useRef<HTMLDivElement>(null);
   const days = datesBetween(range.start, range.end);
   const todayKey = localDateKey(new Date());
@@ -392,8 +401,7 @@ function WeekCalendar({
   useEffect(() => {
     if (scrollRef.current) scrollRef.current.scrollTop = Math.max(0, (new Date().getHours() - 1) * 52);
   }, [range.start]);
-  const createFromPosition = (event: MouseEvent<HTMLDivElement>, day: Date) => {
-    if (event.target !== event.currentTarget && !(event.target as HTMLElement).classList.contains('task-week-hour-slot')) return;
+  const createFromPosition = (event: MouseEvent<HTMLButtonElement>, day: Date) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const rawMinutes = Math.max(0, Math.min(1439, ((event.clientY - rect.top) / rect.height) * 1440));
     const roundedMinutes = Math.min(1410, Math.round(rawMinutes / 30) * 30);
@@ -445,15 +453,15 @@ function WeekDay({
   dropMinute,
   onCreateFromPosition,
   onOpen,
-}: {
+}: Readonly<{
   day: Date;
   tasks: Task[];
   today: boolean;
   movingTaskId?: string;
   dropMinute?: number;
-  onCreateFromPosition(event: MouseEvent<HTMLDivElement>, day: Date): void;
+  onCreateFromPosition(event: MouseEvent<HTMLButtonElement>, day: Date): void;
   onOpen(task: Task): void;
-}) {
+}>) {
   const dateKey = localDateKey(day);
   const drop = useDroppable({ id: `task-week-${dateKey}`, data: { view: 'week', dateKey } satisfies TaskDropTarget });
   const taskLayout = new Map(
@@ -462,9 +470,15 @@ function WeekDay({
   return <div
     ref={drop.setNodeRef}
     className={`task-week-day${today ? ' today' : ''}${drop.isOver ? ' drop-over' : ''}`}
-    onClick={(event) => onCreateFromPosition(event, day)}
+    style={{ position: 'relative' }}
   >
-    {hours.map((hour) => <div className="task-week-hour-slot" key={hour} />)}
+    <button
+      type="button"
+      aria-label={`Criar tarefa em ${fullDateFormatter.format(day)}`}
+      onClick={(event) => onCreateFromPosition(event, day)}
+      style={{ position: 'absolute', inset: 0, zIndex: 0, border: 0, background: 'transparent', cursor: 'pointer' }}
+    />
+    {hours.map((hour) => <div className="task-week-hour-slot" key={hour} style={{ pointerEvents: 'none' }} />)}
     {drop.isOver && dropMinute !== undefined && <span
       className="task-week-drop-line"
       style={{ top: `${(dropMinute / 1440) * 100}%` }}
@@ -486,14 +500,14 @@ function WeekDay({
   </div>;
 }
 
-function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: {
+function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: Readonly<{
   task: Task;
   column: number;
   columnCount: number;
   stack: number;
   saving: boolean;
   onOpen(task: Task): void;
-}) {
+}>) {
   const drag = useDraggable({
     id: task.id,
     data: { taskId: task.id },
@@ -507,6 +521,7 @@ function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: {
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const moved = useRef(false);
   return <button
+    type="button"
     ref={drag.setNodeRef}
     {...drag.attributes}
     {...drag.listeners}
@@ -545,7 +560,7 @@ function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: {
   </button>;
 }
 
-function TaskDragPreview({ task, view }: { task: Task; view: CalendarView }) {
+function TaskDragPreview({ task, view }: Readonly<{ task: Task; view: CalendarView }>) {
   const date = new Date(task.dueAt);
   return <div className={`task-drag-preview ${view}`}>
     <strong>{task.title}</strong>
@@ -565,13 +580,13 @@ function TaskModal({
   users,
   onClose,
   onSaved,
-}: {
+}: Readonly<{
   initialDueAt: Date;
   task?: Task;
   users: Metadata['users'];
   onClose(): void;
   onSaved(): void;
-}) {
+}>) {
   const { user } = useAuth();
   const [form, setForm] = useState(() => ({
     title: task?.title || '',

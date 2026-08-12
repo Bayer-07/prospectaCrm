@@ -17,7 +17,8 @@ const quickReplyInclude = {
 } as const;
 
 function normalizedShortcut(value: unknown) {
-  return String(value || '')
+  const raw = typeof value === 'string' || typeof value === 'number' ? String(value) : '';
+  return raw
     .trim()
     .replace(/^\/+/, '')
     .normalize('NFD')
@@ -74,7 +75,7 @@ export class QuickRepliesService {
 
   async update(auth: AuthContext, id: string, input: Partial<QuickReplyInput>) {
     const current = await this.find(auth, id);
-    const replacingMedia = Object.prototype.hasOwnProperty.call(input, 'mediaAssetId');
+    const replacingMedia = Object.hasOwn(input, 'mediaAssetId');
     const mediaAssetId = replacingMedia ? String(input.mediaAssetId || '').trim() || null : current.mediaAssetId;
     const data = this.validate({
       title: input.title ?? current.title,

@@ -5,6 +5,31 @@ import { EvolutionClient } from './evolution-client.js';
 let server: ReturnType<typeof createServer>;
 let requests: Array<{ url: string; apiKey?: string; body: Record<string, unknown> }> = [];
 
+type SimulatedRequestBody = Record<string, unknown> & {
+  where?: { key?: { id?: string } };
+};
+
+function simulatedResponse(url: string | undefined, parsedBody: SimulatedRequestBody) {
+  if (url?.includes('getBase64FromMediaMessage')) {
+    return { mediaType: 'stickerMessage', mimetype: 'image/webp', fileName: 'figurinha.webp', base64: 'UklGRg==' };
+  }
+  if (url?.includes('findMessages')) {
+    return {
+      messages: {
+        total: 1,
+        records: [{
+          key: { id: parsedBody.where?.key?.id || 'document-caption-1' },
+          message: { documentMessage: { caption: 'Legenda recuperada' } },
+        }],
+      },
+    };
+  }
+  if (url?.includes('whatsappNumbers')) {
+    return { numbers: [{ number: '5511999999999', exists: true }] };
+  }
+  return { key: { id: `simulated-${requests.length}` } };
+}
+
 beforeAll(async () => {
   server = createServer((request, response) => {
     if (request.method === 'GET' && request.url === '/audio-gravado.webm') {
@@ -15,26 +40,10 @@ beforeAll(async () => {
     let body = '';
     request.on('data', (chunk) => { body += chunk; });
     request.on('end', () => {
-      const parsedBody = JSON.parse(body);
+      const parsedBody = JSON.parse(body) as SimulatedRequestBody;
       requests.push({ url: request.url || '', apiKey: request.headers.apikey as string, body: parsedBody });
       response.setHeader('content-type', 'application/json');
-      response.end(JSON.stringify(
-        request.url?.includes('getBase64FromMediaMessage')
-          ? { mediaType: 'stickerMessage', mimetype: 'image/webp', fileName: 'figurinha.webp', base64: 'UklGRg==' }
-          : request.url?.includes('findMessages')
-            ? {
-              messages: {
-                total: 1,
-                records: [{
-                  key: { id: parsedBody.where?.key?.id || 'document-caption-1' },
-                  message: { documentMessage: { caption: 'Legenda recuperada' } },
-                }],
-              },
-            }
-            : request.url?.includes('whatsappNumbers')
-              ? { numbers: [{ number: '5511999999999', exists: true }] }
-            : { key: { id: `simulated-${requests.length}` } },
-      ));
+      response.end(JSON.stringify(simulatedResponse(request.url, parsedBody)));
     });
   });
   await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));

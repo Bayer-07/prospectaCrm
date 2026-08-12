@@ -44,7 +44,7 @@ export function SettingsPage() {
   if (requestedTab === 'whatsapp') return <Navigate to="/conexoes" replace />;
   const tab = requestedTab && ['users', 'roles'].includes(requestedTab) ? requestedTab : 'users';
   const selectTab = (next: string) => setSearchParams({ tab: next }, { replace: true });
-  return <div className="settings-layout"><aside className="settings-nav"><button className={tab === 'users' ? 'active' : ''} onClick={() => selectTab('users')}><Users size={16} />Usuários e equipes</button><button className={tab === 'roles' ? 'active' : ''} onClick={() => selectTab('roles')}><ShieldCheck size={16} />Papéis e permissões</button></aside><section className="settings-content">{tab === 'users' && <UsersSettings />}{tab === 'roles' && <RolesSettings />}</section></div>;
+  return <div className="settings-layout"><aside className="settings-nav"><button type="button" className={tab === 'users' ? 'active' : ''} onClick={() => selectTab('users')}><Users size={16} />Usuários e equipes</button><button type="button" className={tab === 'roles' ? 'active' : ''} onClick={() => selectTab('roles')}><ShieldCheck size={16} />Papéis e permissões</button></aside><section className="settings-content">{tab === 'users' && <UsersSettings />}{tab === 'roles' && <RolesSettings />}</section></div>;
 }
 
 export function ConnectionsPage() {
@@ -102,14 +102,14 @@ function UsersSettings() {
         <td>{user.team?.name || 'Sem equipe'}</td>
         <td><Status value={user.status} /></td>
         <td>{dateTime(user.lastLoginAt)}</td>
-        <td className="user-actions-cell"><button className="icon-button" onClick={(event) => openMenu(event, user)} aria-label={`Ações de ${user.name}`} aria-haspopup="menu" aria-expanded={menu?.user.id === user.id}><MoreHorizontal size={17} /></button></td>
+        <td className="user-actions-cell"><button type="button" className="icon-button" onClick={(event) => openMenu(event, user)} aria-label={`Ações de ${user.name}`} aria-haspopup="menu" aria-expanded={menu?.user.id === user.id}><MoreHorizontal size={17} /></button></td>
       </tr>)}</tbody>
     </table></div>
     {menu && <>
-      <button className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
+      <button type="button" className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
       <div className="contact-action-menu user-action-menu" role="menu" style={{ top: menu.top, right: menu.right }}>
-        <button role="menuitem" onClick={() => { setEditing(menu.user); setMenu(null); }}><Pencil size={16} />Editar usuário</button>
-        {currentUser?.userId !== menu.user.id && <button className="danger" role="menuitem" onClick={() => { setDeleting(menu.user); setMenu(null); }}><Trash2 size={16} />Excluir usuário</button>}
+        <button type="button" role="menuitem" onClick={() => { setEditing(menu.user); setMenu(null); }}><Pencil size={16} />Editar usuário</button>
+        {currentUser?.userId !== menu.user.id && <button type="button" className="danger" role="menuitem" onClick={() => { setDeleting(menu.user); setMenu(null); }}><Trash2 size={16} />Excluir usuário</button>}
       </div>
     </>}
     {modal && <InviteModal metadata={settingsMetadata} onClose={() => setModal(false)} onCreated={(result) => { setModal(false); setInvite(result); refresh(); }} />}
@@ -133,7 +133,7 @@ function RolesSettings() {
   return <><div className="settings-heading"><div><h2>Papéis e permissões</h2><p>Defina funcionalidades e escopo de dados para cada papel.</p></div></div><div className="settings-table"><table><thead><tr><th>Papel</th><th>Tipo</th><th>Permissões</th><th /></tr></thead><tbody>{metadata.data?.data.roles.map((role) => <tr key={role.id}><td><strong>{role.name}</strong></td><td>{role.key === 'admin' ? 'Protegido' : 'Customizável'}</td><td>{role.permissions.some((item) => item.resource === '*') ? 'Acesso global' : `${role.permissions.length} regras`}</td><td><Button variant="secondary" disabled={role.key === 'admin'} onClick={() => setEditing(role)}>Configurar</Button></td></tr>)}</tbody></table></div>{editing && <RolePermissionsModal role={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void client.invalidateQueries({ queryKey: ['user-metadata'] }); }} />}</>;
 }
 
-function RolePermissionsModal({ role, onClose, onSaved }: { role: Metadata['roles'][number]; onClose(): void; onSaved(): void }) {
+function RolePermissionsModal({ role, onClose, onSaved }: Readonly<{ role: Metadata['roles'][number]; onClose(): void; onSaved(): void }>) {
   const initial = Object.fromEntries(permissionRows.flatMap(([resource]) => ['read', 'write', ...(resource === 'campaigns' ? ['launch'] : [])].map((action) => {
     const permission = role.permissions.find((item) => (item.resource === resource || item.resource === '*') && (item.action === action || item.action === '*'));
     return [`${resource}:${action}`, permission?.scope || 'NONE'];
@@ -143,13 +143,13 @@ function RolePermissionsModal({ role, onClose, onSaved }: { role: Metadata['role
   return <Modal title={`Permissões · ${role.name}`} onClose={onClose}><div className="settings-table permissions-table"><table><thead><tr><th>Funcionalidade</th><th>Leitura</th><th>Alteração</th><th>Extra</th></tr></thead><tbody>{permissionRows.map(([resource, label]) => <tr key={resource}><td><strong>{label}</strong></td>{['read', 'write'].map((action) => <td key={action}><select value={scopes[`${resource}:${action}`]} onChange={(event) => setScopes({ ...scopes, [`${resource}:${action}`]: event.target.value })}><option value="NONE">Sem acesso</option><option value="OWN">Próprios</option><option value="TEAM">Equipe</option><option value="ALL">Todos</option></select></td>)}<td>{resource === 'campaigns' ? <select value={scopes['campaigns:launch']} onChange={(event) => setScopes({ ...scopes, 'campaigns:launch': event.target.value })}><option value="NONE">Não inicia</option><option value="OWN">Próprios</option><option value="TEAM">Equipe</option><option value="ALL">Todos</option></select> : '—'}</td></tr>)}</tbody></table></div><div className="modal-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button loading={mutation.isPending} onClick={() => mutation.mutate()}>Salvar permissões</Button></div></Modal>;
 }
 
-function InviteModal({ metadata, onClose, onCreated }: { metadata: Metadata; onClose(): void; onCreated(result: InviteResult): void }) {
+function InviteModal({ metadata, onClose, onCreated }: Readonly<{ metadata: Metadata; onClose(): void; onCreated(result: InviteResult): void }>) {
   const [form, setForm] = useState({ name: '', email: '', roleId: metadata.roles[0]?.id || '', teamId: metadata.teams[0]?.id || '' });
   const mutation = useMutation({ mutationFn: () => api<Envelope<InviteResult>>('/users/invite', { method: 'POST', body: JSON.stringify(form) }), onSuccess: (result) => { toast.success(`Convite enviado para ${result.data.email}.`); onCreated(result.data); } });
   return <Modal title="Convidar usuário" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /><Field label="E-mail" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /><div className="form-grid"><SelectField label="Papel" value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>{metadata.roles.map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}</SelectField><SelectField label="Equipe" value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{metadata.teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</SelectField></div><div className="consent-note"><Mail size={17} /><p><strong>Envio automático por e-mail</strong><span>O usuário receberá um convite pessoal para criar a senha. O link será válido por 72 horas.</span></p></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Enviar convite</Button></div></form></Modal>;
 }
 
-function EditUserModal({ user, metadata, onClose, onSaved }: { user: User; metadata: Metadata; onClose(): void; onSaved(): void }) {
+function EditUserModal({ user, metadata, onClose, onSaved }: Readonly<{ user: User; metadata: Metadata; onClose(): void; onSaved(): void }>) {
   const [form, setForm] = useState({
     name: user.name,
     email: user.email,
@@ -184,7 +184,7 @@ function EditUserModal({ user, metadata, onClose, onSaved }: { user: User; metad
   </Modal>;
 }
 
-function DeleteUserModal({ user, onClose, onDeleted }: { user: User; onClose(): void; onDeleted(): void }) {
+function DeleteUserModal({ user, onClose, onDeleted }: Readonly<{ user: User; onClose(): void; onDeleted(): void }>) {
   const mutation = useMutation({
     mutationFn: () => api(`/users/${user.id}`, { method: 'DELETE' }),
     onSuccess: () => { toast.success('Usuário excluído e acesso revogado.'); onDeleted(); },
@@ -254,31 +254,35 @@ function WhatsappSettings() {
       <div className="instance-actions">
         <Button variant="secondary" onClick={() => connect.mutate(instance.id)} loading={connect.isPending && connect.variables === instance.id}><QrCode size={16} />{instance.status === 'CONNECTED' ? 'Novo QR' : 'Conectar'}</Button>
         {instance.status === 'CONNECTED' && <Button variant="secondary" onClick={() => setDisconnecting(instance)}><Unplug size={16} />Desconectar</Button>}
-        <button className="icon-button danger-icon" onClick={() => setDeleting(instance)} aria-label={`Excluir conexão ${instance.name}`} title="Excluir conexão"><Trash2 size={18} /></button>
+        <button type="button" className="icon-button danger-icon" onClick={() => setDeleting(instance)} aria-label={`Excluir conexão ${instance.name}`} title="Excluir conexão"><Trash2 size={18} /></button>
       </div>
     </article>) : <Empty icon={<Smartphone />} title="Nenhum número conectado" description="Adicione uma instância Baileys e escaneie o QR Code pelo WhatsApp." />}</div>
-    {modal && <InstanceModal teams={metadata.data!.data.teams} onClose={() => setModal(false)} onCreated={(qrcode) => { setModal(false); if (qrcode) setQr(qrcode); void client.invalidateQueries({ queryKey: ['instances'] }); }} />}
+    {modal && <InstanceModal teams={metadata.data!.data.teams} onClose={() => setModal(false)} onCreated={(qrcode) => {
+      setModal(false);
+      if (qrcode) setQr(qrcode);
+      void client.invalidateQueries({ queryKey: ['instances'] });
+    }} />}
     {qr && <QrModal value={qr} onClose={() => setQr('')} />}
     {disconnecting && <DisconnectInstanceModal instance={disconnecting} loading={disconnect.isPending} onClose={() => setDisconnecting(null)} onConfirm={() => disconnect.mutate(disconnecting.id)} />}
     {deleting && <DeleteInstanceModal instance={deleting} loading={remove.isPending} onClose={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting.id)} />}
   </>;
 }
 
-function DisconnectInstanceModal({ instance, loading, onClose, onConfirm }: { instance: Instance; loading: boolean; onClose(): void; onConfirm(): void }) {
+function DisconnectInstanceModal({ instance, loading, onClose, onConfirm }: Readonly<{ instance: Instance; loading: boolean; onClose(): void; onConfirm(): void }>) {
   return <Modal title="Desconectar número do WhatsApp" onClose={onClose}><div className="delete-confirm"><div className="disconnect-confirm-icon"><Unplug size={22} /></div><div><h3>Desconectar “{instance.name}”?</h3><p>O número deixará de receber e enviar mensagens pelo sistema até ser conectado novamente por QR Code.</p><small>A conexão e todo o histórico de conversas serão preservados.</small></div></div><div className="modal-actions delete-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button variant="danger" loading={loading} onClick={onConfirm}><Unplug size={16} />Desconectar número</Button></div></Modal>;
 }
 
-function DeleteInstanceModal({ instance, loading, onClose, onConfirm }: { instance: Instance; loading: boolean; onClose(): void; onConfirm(): void }) {
+function DeleteInstanceModal({ instance, loading, onClose, onConfirm }: Readonly<{ instance: Instance; loading: boolean; onClose(): void; onConfirm(): void }>) {
   return <Modal title="Excluir conexão do WhatsApp" onClose={onClose}><div className="delete-confirm"><div className="delete-confirm-icon"><Trash2 size={22} /></div><div><h3>Excluir “{instance.name}”?</h3><p>A sessão será removida da Evolution API e deixará de aparecer nas conexões. Conversas já registradas serão preservadas no histórico.</p>{instance._count?.conversations ? <small>{instance._count.conversations} conversa(s) permanecerão no CRM.</small> : null}</div></div><div className="modal-actions delete-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir conexão</Button></div></Modal>;
 }
 
-function InstanceModal({ teams, onClose, onCreated }: { teams: Metadata['teams']; onClose(): void; onCreated(qr?: string): void }) {
+function InstanceModal({ teams, onClose, onCreated }: Readonly<{ teams: Metadata['teams']; onClose(): void; onCreated(qr?: string): void }>) {
   const [form, setForm] = useState({ name: '', instanceKey: '', teamId: teams[0]?.id || '' });
   const mutation = useMutation({ mutationFn: () => api<Envelope<any>>('/whatsapp/instances', { method: 'POST', body: JSON.stringify({ name: form.name, instanceKey: form.instanceKey, teamIds: [form.teamId] }) }), onSuccess: (result) => { toast.success('Conexão criada. Escaneie o QR Code.'); onCreated(qrImageValue(result.data.qrcode)); } });
   return <Modal title="Adicionar número" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome da caixa" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Comercial SP" required /><Field label="Identificador da instância" value={form.instanceKey} onChange={(event) => setForm({ ...form, instanceKey: event.target.value.replace(/[^a-zA-Z0-9_-]/g, '') })} placeholder="comercial-sp" required /><SelectField label="Equipe principal" value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</SelectField><div className="risk-note"><AlertTriangle size={16} /><span>A conexão por QR pode sofrer restrições do WhatsApp. Use consentimento e aquecimento.</span></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Criar e conectar</Button></div></form></Modal>;
 }
 
-function QrModal({ value, onClose }: { value: string; onClose(): void }) { return <Modal title="Conectar WhatsApp" onClose={onClose}><div className="qr-content"><img src={value} alt="QR Code de conexão" /><h3>Escaneie pelo WhatsApp</h3><p>Abra Aparelhos conectados → Conectar um aparelho. O código expira em aproximadamente 30 segundos.</p></div></Modal>; }
+function QrModal({ value, onClose }: Readonly<{ value: string; onClose(): void }>) { return <Modal title="Conectar WhatsApp" onClose={onClose}><div className="qr-content"><img src={value} alt="QR Code de conexão" /><h3>Escaneie pelo WhatsApp</h3><p>Abra Aparelhos conectados → Conectar um aparelho. O código expira em aproximadamente 30 segundos.</p></div></Modal>; }
 
 function ApiSettings() {
   const [key, setKey] = useState('');
@@ -438,12 +442,12 @@ function WebhookEditorModal({
   actions,
   onClose,
   onSaved,
-}: {
+}: Readonly<{
   webhook?: OutboundWebhook;
   actions: WebhookActionOption[];
   onClose(): void;
   onSaved(secret?: string): void;
-}) {
+}>) {
   const [form, setForm] = useState({
     name: webhook?.name || '',
     endpoint: webhook?.endpoint || '',
@@ -482,7 +486,7 @@ function WebhookEditorModal({
   </Modal>;
 }
 
-function DeleteWebhookModal({ webhook, onClose, onDeleted }: { webhook: OutboundWebhook; onClose(): void; onDeleted(): void }) {
+function DeleteWebhookModal({ webhook, onClose, onDeleted }: Readonly<{ webhook: OutboundWebhook; onClose(): void; onDeleted(): void }>) {
   const mutation = useMutation({
     mutationFn: () => api(`/outbound-webhooks/${webhook.id}`, { method: 'DELETE' }),
     onSuccess: () => {
@@ -502,7 +506,7 @@ function SwaggerDocsSettings() {
   return <div className="swagger-settings"><div className="settings-heading"><div><h2>Swagger</h2><p>Consulte e teste os endpoints disponíveis na API do BZS One.</p></div><div className="swagger-actions"><Button variant="secondary" onClick={() => window.open('/docs', '_blank', 'noopener,noreferrer')}><ExternalLink size={16} />Abrir em nova aba</Button></div></div><div className="swagger-frame-shell"><iframe src="/docs" title="Documentação Swagger da API BZS One" /></div></div>;
 }
 
-function InviteSentModal({ invite, onClose }: { invite: InviteResult; onClose(): void }) {
+function InviteSentModal({ invite, onClose }: Readonly<{ invite: InviteResult; onClose(): void }>) {
   const [copied, setCopied] = useState(false);
   const copy = async () => {
     await navigator.clipboard.writeText(invite.inviteUrl);

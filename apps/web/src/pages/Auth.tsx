@@ -31,7 +31,7 @@ export function LoginPage() {
   };
   if (authLoading) return <PageLoading />;
   if (user) return <Navigate to="/" replace />;
-  return <main className="auth-page auth-page-simple"><button className="auth-theme-toggle icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button><section className="auth-panel auth-panel-simple"><img className="auth-logo" src="/brand-logo.png" alt="Logo BZS One" /><div className="auth-copy"><span className="eyebrow">BZS One</span><h1>Acesse sua conta</h1><p>Use seu e-mail corporativo e senha.</p></div><form onSubmit={submit} className="auth-form"><Field label="E-mail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" autoFocus /><label className="field"><span>Senha</span><div className="password-field"><input type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" /><button type="button" onClick={() => setShow(!show)} aria-label="Mostrar senha">{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label><div className="auth-form-options"><Link to="/recuperar-senha">Esqueci minha senha</Link></div><Button type="submit" loading={loading}>Entrar <ArrowRight size={17} /></Button></form><p className="auth-internal-note">Uso exclusivo da equipe.</p></section></main>;
+  return <main className="auth-page auth-page-simple"><button type="button" className="auth-theme-toggle icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button><section className="auth-panel auth-panel-simple"><img className="auth-logo" src="/brand-logo.png" alt="Logo BZS One" /><div className="auth-copy"><span className="eyebrow">BZS One</span><h1>Acesse sua conta</h1><p>Use seu e-mail corporativo e senha.</p></div><form onSubmit={submit} className="auth-form"><Field label="E-mail" type="email" value={email} onChange={(event) => setEmail(event.target.value)} required autoComplete="email" autoFocus /><label className="field"><span>Senha</span><div className="password-field"><input type={show ? 'text' : 'password'} value={password} onChange={(event) => setPassword(event.target.value)} required autoComplete="current-password" /><button type="button" onClick={() => setShow(!show)} aria-label="Mostrar senha">{show ? <EyeOff size={18} /> : <Eye size={18} />}</button></div></label><div className="auth-form-options"><Link to="/recuperar-senha">Esqueci minha senha</Link></div><Button type="submit" loading={loading}>Entrar <ArrowRight size={17} /></Button></form><p className="auth-internal-note">Uso exclusivo da equipe.</p></section></main>;
 }
 
 export function ForgotPasswordPage() {
@@ -54,7 +54,7 @@ export function ForgotPasswordPage() {
     }
   };
   return <main className="auth-page auth-page-simple">
-    <button className="auth-theme-toggle icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button>
+    <button type="button" className="auth-theme-toggle icon-button" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}>{theme === 'dark' ? <Sun size={19} /> : <Moon size={19} />}</button>
     <section className="auth-panel auth-panel-simple">
       <img className="auth-logo" src="/brand-logo.png" alt="Logo BZS One" />
       {sent
@@ -77,7 +77,7 @@ export function ForgotPasswordPage() {
   </main>;
 }
 
-function TokenPage({ mode }: { mode: 'invite' | 'reset' }) {
+function TokenPage({ mode }: Readonly<{ mode: 'invite' | 'reset' }>) {
   const [params] = useSearchParams(); const token = params.get('token') || '';
   const [name, setName] = useState(''); const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);

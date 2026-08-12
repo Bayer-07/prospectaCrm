@@ -60,7 +60,7 @@ export function QuickRepliesPage() {
   </div>;
 }
 
-function QuickReplyModal({ reply, onClose, onSaved }: { reply: QuickReply | null; onClose(): void; onSaved(): void }) {
+function QuickReplyModal({ reply, onClose, onSaved }: Readonly<{ reply: QuickReply | null; onClose(): void; onSaved(): void }>) {
   const [title, setTitle] = useState(reply?.title || '');
   const [shortcut, setShortcut] = useState(reply?.shortcut || '');
   const [text, setText] = useState(reply?.text || '');
@@ -119,7 +119,7 @@ function QuickReplyModal({ reply, onClose, onSaved }: { reply: QuickReply | null
   </Modal>;
 }
 
-function DeleteQuickReplyModal({ reply, onClose, onDeleted }: { reply: QuickReply; onClose(): void; onDeleted(): void }) {
+function DeleteQuickReplyModal({ reply, onClose, onDeleted }: Readonly<{ reply: QuickReply; onClose(): void; onDeleted(): void }>) {
   const mutation = useMutation({
     mutationFn: () => api(`/quick-replies/${reply.id}`, { method: 'DELETE' }),
     onSuccess: () => { toast.success('Resposta rápida excluída.'); onDeleted(); },

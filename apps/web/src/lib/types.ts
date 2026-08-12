@@ -23,7 +23,7 @@ export type Message = {
   status: string;
   createdAt: string;
   payload?: Record<string, unknown>;
-  transcriptionStatus?: 'IDLE' | 'PROCESSING' | 'COMPLETED' | 'FAILED' | string;
+  transcriptionStatus?: string;
   transcriptionText?: string;
   transcriptionError?: string;
   transcriptionProvider?: string;

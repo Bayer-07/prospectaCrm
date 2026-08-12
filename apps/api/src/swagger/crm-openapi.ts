@@ -33,7 +33,7 @@ export class CompanyCreateRequest {
 
   @ApiPropertyOptional({
     description: 'CNPJ válido. Aceita somente 14 dígitos ou a máscara padrão.',
-    pattern: '^(?:\\d{14}|\\d{2}\\.\\d{3}\\.\\d{3}\\/\\d{4}-\\d{2})$',
+    pattern: String.raw`^(?:\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$`,
     example: '29.277.764/0001-00',
   })
   cnpj?: string;
@@ -98,7 +98,7 @@ export class ContactCreateRequest {
 
   @ApiPropertyOptional({
     description: 'Telefone no padrão internacional E.164, incluindo o sinal +.',
-    pattern: '^\\+[1-9]\\d{7,14}$',
+    pattern: String.raw`^\+[1-9]\d{7,14}$`,
     example: '+5545999225389',
   })
   phone?: string;

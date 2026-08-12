@@ -22,4 +22,8 @@ async function bootstrap() {
   console.log(`Administrador ${user.email} pronto.`);
 }
 
-bootstrap().finally(() => db.$disconnect());
+try {
+  await bootstrap();
+} finally {
+  await db.$disconnect();
+}

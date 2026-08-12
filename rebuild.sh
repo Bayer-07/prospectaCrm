@@ -62,12 +62,14 @@ on_error() {
 trap on_error ERR
 
 log() {
-  printf '\n\033[1;36m==> %s\033[0m\n' "$1"
+  local message="$1"
+  printf '\n\033[1;36m==> %s\033[0m\n' "$message"
 }
 
 require_command() {
-  if ! command -v "$1" >/dev/null 2>&1; then
-    printf 'Comando obrigatório não encontrado: %s\n' "$1" >&2
+  local command_name="$1"
+  if ! command -v "$command_name" >/dev/null 2>&1; then
+    printf 'Comando obrigatório não encontrado: %s\n' "$command_name" >&2
     exit 1
   fi
 }

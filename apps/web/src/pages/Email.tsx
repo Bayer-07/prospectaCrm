@@ -41,6 +41,25 @@ type EmailDeleteTarget = {
   status?: string;
 };
 
+function emailTemplatePreview(html: string) {
+  const document = new DOMParser().parseFromString(html, 'text/html');
+  return (document.body.textContent || '').slice(0, 140);
+}
+
+function emailSearchStatus(pending: boolean, search: string) {
+  if (pending) return 'Atualizando filtro…';
+  if (search) return `Filtro: ${search}`;
+  return 'Todos os contatos com e-mail';
+}
+
+function emailSelectionSummary(selectedSearches: number, selected: number, excluded: number) {
+  if (!selectedSearches) return `${selected} destinatário(s) selecionado(s)`;
+  let summary = `Todos os resultados de ${selectedSearches} busca(s)`;
+  if (selected) summary += ` + ${selected} individual(is)`;
+  if (excluded) summary += `, exceto ${excluded}`;
+  return summary;
+}
+
 export function EmailPage() {
   const client = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -102,40 +121,48 @@ export function EmailPage() {
 
   if (templates.isLoading || provider.isLoading || campaigns.isLoading) return <PageLoading />;
 
+  let toolbarAction = <Button onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}><Plus size={15} />Nova campanha</Button>;
+  if (view === 'templates') {
+    toolbarAction = <Button onClick={() => setTemplateModal(true)}><Plus size={15} />Novo modelo</Button>;
+  }
+
+  let viewContent;
+  if (view === 'templates' && templateData.length) {
+    viewContent = <div className="template-grid">{templateData.map((template) => <article key={template.id}>
+      <span><Mail size={18} /></span>
+      <h3>{template.name}</h3>
+      <strong>{template.subject}</strong>
+      <p>{emailTemplatePreview(template.html)}</p>
+      <footer><small>Atualizado {dateTime(template.updatedAt)}</small><div className="template-card-actions"><Button variant="secondary" onClick={() => setCampaignTemplate(template)}><Send size={14} />Usar</Button><button type="button" className="icon-button danger-icon" title="Excluir modelo" aria-label={`Excluir modelo ${template.name}`} onClick={() => setDeleting({ type: 'template', id: template.id, name: template.name })}><Trash2 size={16} /></button></div></footer>
+    </article>)}</div>;
+  } else if (view === 'templates') {
+    viewContent = <Empty icon={<FileText />} title="Nenhum modelo de e-mail" description="Crie um modelo com assunto e conteúdo para utilizá-lo em campanhas." action={<Button onClick={() => setTemplateModal(true)}>Criar modelo</Button>} />;
+  } else if (emailCampaigns.length) {
+    viewContent = <div className="campaign-list email-campaign-list">{emailCampaigns.map((campaign) => <article key={campaign.id}>
+      <div className="campaign-channel"><Mail size={18} /></div>
+      <div className="campaign-info"><div><strong>{campaign.name}</strong><Status value={campaign.status} /></div><p>{campaign.emailSubject || 'Sem assunto'}</p><small>Criada em {dateTime(campaign.createdAt)}</small></div>
+      <div className="campaign-numbers"><div><span>Destinatários</span><strong>{campaign.stats?.audience ?? campaign._count?.recipients ?? 0}</strong></div><div><span>Elegíveis</span><strong>{campaign.stats?.eligible ?? 0}</strong></div><div><span>Enviados</span><strong>{campaign.sentRecipientCount || 0}</strong></div></div>
+      <div className="campaign-actions">
+        {campaign.status === 'DRAFT' && <button type="button" className="campaign-start-button" title={providerData?.configured ? 'Validar e iniciar' : 'Configure o Gmail para iniciar'} disabled={!providerData?.configured || schedule.isPending} onClick={() => schedule.mutate(campaign.id)}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
+        {campaign.status === 'RUNNING' && <button type="button" title="Pausar" onClick={() => status.mutate({ id: campaign.id, action: 'pause' })}><Pause size={16} /></button>}
+        {campaign.status === 'PAUSED' && <button type="button" title="Retomar" disabled={!providerData?.configured} onClick={() => status.mutate({ id: campaign.id, action: 'resume' })}><Play size={16} /></button>}
+        <button type="button" className="campaign-delete-button" title="Excluir campanha" aria-label={`Excluir campanha ${campaign.name}`} onClick={() => setDeleting({ type: 'campaign', id: campaign.id, name: campaign.name, status: campaign.status })}><Trash2 size={16} /></button>
+      </div>
+    </article>)}</div>;
+  } else {
+    viewContent = <Empty icon={<Mail />} title="Nenhuma campanha de e-mail" description="Crie uma campanha usando um modelo e os contatos que possuem e-mail cadastrado." action={<Button onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}>Criar campanha</Button>} />;
+  }
+
   return <div className="email-page">
     <div className="toolbar">
-      <div className="segmented" role="group" aria-label="Alternar visão de e-mail">
-        <button className={view === 'templates' ? 'active' : ''} aria-pressed={view === 'templates'} onClick={() => setView('templates')}>Modelos</button>
-        <button className={view === 'campaigns' ? 'active' : ''} aria-pressed={view === 'campaigns'} onClick={() => setView('campaigns')}>Campanhas</button>
-      </div>
-      {view === 'templates'
-        ? <Button onClick={() => setTemplateModal(true)}><Plus size={15} />Novo modelo</Button>
-        : <Button onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}><Plus size={15} />Nova campanha</Button>}
+      <fieldset className="segmented" aria-label="Alternar visão de e-mail" style={{ margin: 0, minWidth: 0 }}>
+        <button type="button" className={view === 'templates' ? 'active' : ''} aria-pressed={view === 'templates'} onClick={() => setView('templates')}>Modelos</button>
+        <button type="button" className={view === 'campaigns' ? 'active' : ''} aria-pressed={view === 'campaigns'} onClick={() => setView('campaigns')}>Campanhas</button>
+      </fieldset>
+      {toolbarAction}
     </div>
 
-    {view === 'templates'
-      ? templateData.length
-        ? <div className="template-grid">{templateData.map((template) => <article key={template.id}>
-          <span><Mail size={18} /></span>
-          <h3>{template.name}</h3>
-          <strong>{template.subject}</strong>
-          <p>{template.html.replace(/<[^>]+>/g, '').slice(0, 140)}</p>
-          <footer><small>Atualizado {dateTime(template.updatedAt)}</small><div className="template-card-actions"><Button variant="secondary" onClick={() => setCampaignTemplate(template)}><Send size={14} />Usar</Button><button type="button" className="icon-button danger-icon" title="Excluir modelo" aria-label={`Excluir modelo ${template.name}`} onClick={() => setDeleting({ type: 'template', id: template.id, name: template.name })}><Trash2 size={16} /></button></div></footer>
-        </article>)}</div>
-        : <Empty icon={<FileText />} title="Nenhum modelo de e-mail" description="Crie um modelo com assunto e conteúdo para utilizá-lo em campanhas." action={<Button onClick={() => setTemplateModal(true)}>Criar modelo</Button>} />
-      : emailCampaigns.length
-        ? <div className="campaign-list email-campaign-list">{emailCampaigns.map((campaign) => <article key={campaign.id}>
-          <div className="campaign-channel"><Mail size={18} /></div>
-          <div className="campaign-info"><div><strong>{campaign.name}</strong><Status value={campaign.status} /></div><p>{campaign.emailSubject || 'Sem assunto'}</p><small>Criada em {dateTime(campaign.createdAt)}</small></div>
-          <div className="campaign-numbers"><div><span>Destinatários</span><strong>{campaign.stats?.audience ?? campaign._count?.recipients ?? 0}</strong></div><div><span>Elegíveis</span><strong>{campaign.stats?.eligible ?? 0}</strong></div><div><span>Enviados</span><strong>{campaign.sentRecipientCount || 0}</strong></div></div>
-          <div className="campaign-actions">
-            {campaign.status === 'DRAFT' && <button className="campaign-start-button" title={providerData?.configured ? 'Validar e iniciar' : 'Configure o Gmail para iniciar'} disabled={!providerData?.configured || schedule.isPending} onClick={() => schedule.mutate(campaign.id)}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
-            {campaign.status === 'RUNNING' && <button title="Pausar" onClick={() => status.mutate({ id: campaign.id, action: 'pause' })}><Pause size={16} /></button>}
-            {campaign.status === 'PAUSED' && <button title="Retomar" disabled={!providerData?.configured} onClick={() => status.mutate({ id: campaign.id, action: 'resume' })}><Play size={16} /></button>}
-            <button type="button" className="campaign-delete-button" title="Excluir campanha" aria-label={`Excluir campanha ${campaign.name}`} onClick={() => setDeleting({ type: 'campaign', id: campaign.id, name: campaign.name, status: campaign.status })}><Trash2 size={16} /></button>
-          </div>
-        </article>)}</div>
-        : <Empty icon={<Mail />} title="Nenhuma campanha de e-mail" description="Crie uma campanha usando um modelo e os contatos que possuem e-mail cadastrado." action={<Button onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}>Criar campanha</Button>} />}
+    {viewContent}
 
     {templateModal && <TemplateModal onClose={() => setTemplateModal(false)} onCreated={() => { setTemplateModal(false); client.invalidateQueries({ queryKey: ['email-templates'] }); }} />}
     {deleting && <DeleteEmailItemModal
@@ -159,12 +186,12 @@ export function EmailPage() {
   </div>;
 }
 
-function DeleteEmailItemModal({ target, loading, onClose, onConfirm }: {
+function DeleteEmailItemModal({ target, loading, onClose, onConfirm }: Readonly<{
   target: EmailDeleteTarget;
   loading: boolean;
   onClose(): void;
   onConfirm(): void;
-}) {
+}>) {
   const campaign = target.type === 'campaign';
   return <Modal title={campaign ? 'Excluir campanha' : 'Excluir modelo de e-mail'} onClose={onClose}>
     <div className="delete-confirm">
@@ -183,7 +210,7 @@ function DeleteEmailItemModal({ target, loading, onClose, onConfirm }: {
   </Modal>;
 }
 
-function TemplateModal({ onClose, onCreated }: { onClose(): void; onCreated(): void }) {
+function TemplateModal({ onClose, onCreated }: Readonly<{ onClose(): void; onCreated(): void }>) {
   const [form, setForm] = useState({ name: '', subject: '', html: '' });
   const mutation = useMutation({
     mutationFn: () => api('/email/templates', { method: 'POST', body: JSON.stringify(form) }),
@@ -200,13 +227,13 @@ function TemplateModal({ onClose, onCreated }: { onClose(): void; onCreated(): v
   </form></Modal>;
 }
 
-function EmailCampaignModal({ templates, initialTemplate, initialContactId, onClose, onCreated }: {
+function EmailCampaignModal({ templates, initialTemplate, initialContactId, onClose, onCreated }: Readonly<{
   templates: Template[];
   initialTemplate: Template;
   initialContactId?: string;
   onClose(): void;
   onCreated(): void;
-}) {
+}>) {
   const [search, setSearch] = useState('');
   const debouncedSearch = useDebouncedValue(search);
   const [selected, setSelected] = useState<Contact[]>([]);
@@ -317,6 +344,18 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
     }
   };
 
+  let contactResults;
+  if (contacts.isLoading) {
+    contactResults = <div className="campaign-picker-state">Buscando contatos…</div>;
+  } else if (available.length) {
+    contactResults = available.map((contact) => {
+      const isSelected = contactIsSelected(contact, selectedIds, selectedSearches, excludedIds);
+      return <button type="button" key={contact.id} className={isSelected ? 'selected' : ''} onClick={() => toggleContact(contact)}><span className="contact-avatar">{initials(contact.name)}</span><span><strong>{contact.name}</strong><small>{contact.email}</small></span><span>{isSelected ? <CheckCircle2 size={17} /> : <Plus size={17} />}</span></button>;
+    });
+  } else {
+    contactResults = <div className="campaign-picker-state">Nenhum contato com e-mail encontrado.</div>;
+  }
+
   return <Modal title="Nova campanha de e-mail" onClose={onClose} width={820}><form className="modal-form email-campaign-form" onSubmit={(event: FormEvent) => { event.preventDefault(); create.mutate(); }}>
     <div className="form-grid two">
       <Field label="Título da campanha" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
@@ -336,21 +375,12 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
           <CheckCircle2 size={15} />
           {currentSearchSelected ? 'Desmarcar resultados desta busca' : 'Selecionar todos os resultados'}
         </button>
-        <small>{contactSearchPending ? 'Atualizando filtro…' : currentContactSearch ? `Filtro: ${currentContactSearch}` : 'Todos os contatos com e-mail'}</small>
+        <small>{emailSearchStatus(contactSearchPending, currentContactSearch)}</small>
       </div>
       {selectedSearches.length > 0 && <div className="campaign-selected-searches">{selectedSearches.map((selectedSearch) => <span key={selectedSearch || '__all__'}><b>{selectedSearch ? `Todos com “${selectedSearch}”` : 'Todos os contatos com e-mail'}</b><button type="button" onClick={() => removeSelectedSearch(selectedSearch)} aria-label={`Remover seleção ${selectedSearch || 'de todos os contatos'}`}>×</button></span>)}</div>}
       {selected.length > 0 && <div className="campaign-selected-contacts">{selected.map((contact) => <span key={contact.id}><i>{initials(contact.name)}</i><b>{contact.name}</b><button type="button" onClick={() => toggleContact(contact)}>×</button></span>)}</div>}
-      <div className="campaign-contact-results">{contacts.isLoading
-        ? <div className="campaign-picker-state">Buscando contatos…</div>
-        : available.length
-          ? available.map((contact) => {
-            const isSelected = contactIsSelected(contact, selectedIds, selectedSearches, excludedIds);
-            return <button type="button" key={contact.id} className={isSelected ? 'selected' : ''} onClick={() => toggleContact(contact)}><span className="contact-avatar">{initials(contact.name)}</span><span><strong>{contact.name}</strong><small>{contact.email}</small></span><span>{isSelected ? <CheckCircle2 size={17} /> : <Plus size={17} />}</span></button>;
-          })
-          : <div className="campaign-picker-state">Nenhum contato com e-mail encontrado.</div>}</div>
-      <small className="campaign-selection-count"><Users size={13} /> {selectedSearches.length
-        ? `Todos os resultados de ${selectedSearches.length} busca(s)${selected.length ? ` + ${selected.length} individual(is)` : ''}${excluded.length ? `, exceto ${excluded.length}` : ''}`
-        : `${selected.length} destinatário(s) selecionado(s)`}</small>
+      <div className="campaign-contact-results">{contactResults}</div>
+      <small className="campaign-selection-count"><Users size={13} /> {emailSelectionSummary(selectedSearches.length, selected.length, excluded.length)}</small>
     </div>
     <div className="form-grid two">
       <Field label="Intervalo mínimo entre contatos (s)" type="number" min={1} value={form.contactMin} onChange={(event) => setForm({ ...form, contactMin: Number(event.target.value) })} />

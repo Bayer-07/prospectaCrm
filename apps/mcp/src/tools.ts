@@ -395,8 +395,17 @@ function safeTool<T extends Record<string, unknown>>(handler: (input: T) => Prom
 function withQuery(path: string, values: Record<string, unknown>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(values)) {
-    if (value !== undefined && value !== null && value !== '') params.set(key, String(value));
+    const serialized = queryValue(value);
+    if (serialized) params.set(key, serialized);
   }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
+}
+
+function queryValue(value: unknown) {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return `${value}`;
+  }
+  return '';
 }

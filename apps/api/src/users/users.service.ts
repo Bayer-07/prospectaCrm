@@ -12,6 +12,20 @@ import { MediaService } from '../media/media.service.js';
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const deletedUserEmail = (userId: string) => `deleted.${userId}@users.invalid`;
 
+function isValidEmailAddress(value: string) {
+  if (!value || value.length > 254 || /\s/u.test(value)) return false;
+  const separator = value.indexOf('@');
+  if (separator <= 0 || separator !== value.lastIndexOf('@')) return false;
+  const domain = value.slice(separator + 1);
+  return domain.length > 2 && domain.includes('.') && !domain.startsWith('.') && !domain.endsWith('.');
+}
+
+function withoutTrailingSlash(value: string) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 @Injectable()
 export class UsersService {
   constructor(
@@ -48,7 +62,7 @@ export class UsersService {
     const name = input.name?.trim();
     const email = input.email?.trim().toLowerCase();
     if (!name || name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido');
-    if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BadRequestException('Informe um e-mail válido');
+    if (!isValidEmailAddress(email)) throw new BadRequestException('Informe um e-mail válido');
     const duplicate = await this.db.user.findFirst({
       where: { organizationId: auth.organizationId, email, id: { not: auth.userId } },
       select: { id: true },
@@ -176,7 +190,7 @@ export class UsersService {
     const name = input.name?.trim();
     const email = input.email?.trim().toLowerCase() || '';
     if (!name || name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido');
-    if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BadRequestException('Informe um e-mail válido');
+    if (!isValidEmailAddress(email)) throw new BadRequestException('Informe um e-mail válido');
     const role = await this.db.role.findFirst({ where: { id: input.roleId, organizationId: auth.organizationId } });
     if (!role) throw new NotFoundException('Papel não encontrado');
     if (input.teamId) {
@@ -241,14 +255,14 @@ export class UsersService {
           userId: invitedUser.id,
           createdById: creatorId,
           tokenHash: hash(rawToken),
-          expiresAt: new Date(Date.now() + 72 * 3600_000),
+          expiresAt: new Date(Date.now() + 72 * 3_600_000),
         },
       });
       return { user: invitedUser, invite, archivedUserId };
     });
     if (archivedUserId) this.authCache?.invalidateUser(archivedUserId);
     this.authCache?.invalidateUser(user.id);
-    const inviteUrl = `${(process.env.APP_URL || 'http://localhost:5173').replace(/\/+$/, '')}/aceitar-convite?token=${rawToken}`;
+    const inviteUrl = `${withoutTrailingSlash(process.env.APP_URL || 'http://localhost:5173')}/aceitar-convite?token=${rawToken}`;
     try {
       await this.transactionalEmails.add('send-user-invite', {
         inviteTokenId: invite.id,
@@ -287,7 +301,7 @@ export class UsersService {
     const email = input.email?.trim().toLowerCase() || '';
     const teamId = input.teamId?.trim() || null;
     if (!name || name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido');
-    if (!email || email.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new BadRequestException('Informe um e-mail válido');
+    if (!isValidEmailAddress(email)) throw new BadRequestException('Informe um e-mail válido');
 
     const [user, role, team] = await Promise.all([
       this.db.user.findFirst({
@@ -434,7 +448,7 @@ export class UsersService {
     await this.db.passwordResetToken.updateMany({ where: { userId, usedAt: null }, data: { usedAt: new Date() } });
     const rawToken = randomBytes(32).toString('base64url');
     await this.db.passwordResetToken.create({
-      data: { userId, createdById: auth.userId, tokenHash: hash(rawToken), expiresAt: new Date(Date.now() + 3600_000) },
+      data: { userId, createdById: auth.userId, tokenHash: hash(rawToken), expiresAt: new Date(Date.now() + 3_600_000) },
     });
     await this.audit(auth, 'user.reset_created', 'User', user.id, { email: user.email });
     return { resetUrl: `${process.env.APP_URL || 'http://localhost:5173'}/redefinir-senha?token=${rawToken}`, expiresInMinutes: 60 };

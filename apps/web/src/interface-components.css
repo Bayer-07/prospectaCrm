@@ -1,0 +1,230 @@
+/* Sistema tipográfico unificado */
+:root {
+  --font-caption: 12px;
+  --font-secondary: 13px;
+  --font-body: 14px;
+  --font-emphasis: 15px;
+  --font-section: 18px;
+  --font-page: 24px;
+}
+
+body { font-size: 16px; line-height: 1.5; }
+button, input, select, textarea { font-family: inherit; }
+small { font-size: var(--font-secondary) !important; line-height: 1.4; }
+
+/* Navegação, cabeçalhos e controles compartilhados */
+.brand span, .nav-section, .global-search-section { font-size: var(--font-caption); }
+.nav-item { font-size: var(--font-emphasis); }
+.nav-item b, .icon-button i { font-size: 10px; }
+.sidebar-footer strong, .profile-button strong { font-size: var(--font-body); }
+.sidebar-footer span, .profile-button small, .global-search kbd { font-size: var(--font-caption) !important; }
+.global-search input { font-size: var(--font-emphasis); }
+.global-search-result strong, .quick-add-popover > button strong { font-size: var(--font-body); }
+.global-search-result small, .quick-add-popover > button small { font-size: var(--font-secondary) !important; }
+.quick-add, .button, .filter-button, .compact-select select, .segmented button, .text-button, .profile-popover button { font-size: var(--font-body); }
+.page-heading h1 { font-size: var(--font-page); }
+.page-heading p { font-size: var(--font-body); }
+.panel-header h2 { font-size: 16px; }
+.panel-header p { font-size: var(--font-secondary); }
+.eyebrow { font-size: 11px; }
+.status, .neutral-pill, .tag-list span { font-size: var(--font-caption); }
+.inline-search input, .form-error, .form-message, .page-loading, .empty-state p { font-size: var(--font-secondary); }
+.empty-state h3 { font-size: 17px; }
+
+/* Formulários, modais e tabelas */
+.field { font-size: var(--font-secondary); }
+.field > span { font-size: var(--font-secondary); }
+.field input, .field select, .field textarea, .password-field input { font-size: var(--font-body); }
+.field small { font-size: var(--font-caption) !important; }
+.modal > header h2 { font-size: var(--font-section); }
+th { font-size: var(--font-caption); }
+td { font-size: var(--font-body); }
+.entity-cell strong { font-size: var(--font-emphasis); }
+.entity-cell small { font-size: var(--font-secondary) !important; }
+.contact-action-menu button, .conversation-action-menu > :is(button, a) { font-size: var(--font-body); }
+
+/* Dashboard */
+.metric-label > span, .metric-card > span, .metric-card > p, .funnel-label, .funnel-label b,
+.focus-list strong, .activity-list strong, .live-indicator, .channel-score span,
+.channel-stats span, .channel-stats strong, .channel-footer { font-size: var(--font-body); }
+.focus-list small, .activity-list small, .funnel-row > small { font-size: var(--font-secondary) !important; }
+
+/* Pipeline e drawers */
+.kanban-column > header strong { font-size: var(--font-body); }
+.kanban-column > header span, .kanban-column > header b { font-size: var(--font-caption); }
+.company-mini, .opportunity-meta > span:first-child { font-size: var(--font-secondary); }
+.opportunity-card h3 { font-size: var(--font-emphasis); }
+.opportunity-card > strong { font-size: 16px; }
+.kanban-empty { font-size: var(--font-secondary); }
+.drawer-summary span, .contact-detail-list span { font-size: var(--font-caption); }
+.drawer-summary strong, .drawer-entity strong, .drawer-contact-list strong { font-size: var(--font-emphasis); }
+.drawer-content section > h3, .drawer-grid h3 { font-size: var(--font-secondary); }
+.drawer-grid p, .drawer-muted, .drawer-error, .drawer-empty-copy,
+.contact-detail-list strong, .contact-detail-list a { font-size: var(--font-body); }
+.contact-opportunity-list strong, .company-opportunity-list strong { font-size: var(--font-body); }
+.contact-opportunity-list small, .company-opportunity-list small,
+.contact-opportunity-list > div > span, .company-opportunity-list > div > span { font-size: var(--font-caption) !important; }
+
+/* Agenda */
+.task-month-weekdays span, .task-calendar-event strong, .task-week-event strong { font-size: var(--font-caption); }
+.task-event-time, .task-more-events, .task-week-header > div span,
+.task-week-time-axis span, .task-week-event span, .task-drag-preview span { font-size: var(--font-caption); }
+.task-week-timezone, .task-week-drop-line i { font-size: 11px; }
+.task-modal-context span { font-size: var(--font-secondary); }
+
+/* Inbox e mensagens */
+.conversation-sidebar-heading > strong { font-size: var(--font-emphasis); }
+.conversation-sidebar-heading .button, .inbox-tabs button { font-size: var(--font-secondary); }
+.conversation-search > input { font-size: var(--font-body); }
+.conversation-list strong { font-size: var(--font-emphasis); }
+.conversation-list p { font-size: var(--font-body); }
+.conversation-list time { font-size: var(--font-caption); }
+.conversation-list small { font-size: var(--font-secondary) !important; }
+.conversation-person strong { font-size: 16px; }
+.conversation-person span, .conversation-actions .button, .conversation-status-button { font-size: var(--font-secondary); }
+.conversation-event > span { font-size: var(--font-secondary); }
+.conversation-event time { font-size: var(--font-caption); }
+.message-bubble p { font-size: var(--font-emphasis); }
+.message-bubble > small, .message-delivery, .message-delivery button { font-size: var(--font-caption) !important; }
+.composer .whatsapp-composer { font-size: var(--font-emphasis); }
+.composer-file, .message-file, .composer-error, .automation-command-options > button strong { font-size: var(--font-secondary); }
+.automation-command-options > button small, .automation-command-footer { font-size: var(--font-caption) !important; }
+.audio-transcription-button { font-size: var(--font-caption); }
+.audio-transcription-text > strong, .audio-transcription-error { font-size: var(--font-caption); }
+.audio-transcription-text > p { font-size: var(--font-body) !important; }
+
+/* Campanhas */
+.campaign-overview small, .campaign-overview span { font-size: var(--font-secondary) !important; }
+.campaign-overview strong { font-size: 19px; }
+.campaign-info strong { font-size: var(--font-emphasis); }
+.campaign-info p { font-size: var(--font-secondary) !important; }
+.campaign-info small { font-size: var(--font-caption) !important; }
+.campaign-numbers span { font-size: var(--font-caption); }
+.campaign-numbers strong { font-size: var(--font-body); }
+.campaign-actions .campaign-start-button, .stepper span, .stepper i { font-size: var(--font-caption); }
+.inline-alert strong, .channel-disabled strong { font-size: var(--font-body); }
+.inline-alert p, .channel-disabled p { font-size: var(--font-secondary); }
+.campaign-form-section-title h3, .cadence-section h3, .consent-note strong { font-size: var(--font-emphasis); }
+.campaign-form-section-title p, .consent-note span, .variable-list, .variable-list button, .risk-note { font-size: var(--font-secondary); }
+
+/* Automações, chatbots, relatórios, e-mail e configurações */
+.workflow-grid h3, .builder-header h2 { font-size: 16px; }
+.workflow-grid p, .node-palette strong, .flow-node strong, .builder-header span,
+.workflow-card-header > span { font-size: var(--font-body); }
+.workflow-grid footer, .node-palette small, .flow-node small,
+.chatbot-node .branch-label, .palette-tip { font-size: var(--font-secondary) !important; }
+.report-toolbar button, .delivery-funnel span, .delivery-funnel strong, .recharts-text { font-size: var(--font-secondary); }
+.template-grid h3 { font-size: 16px; }
+.template-grid > article > strong { font-size: var(--font-emphasis); }
+.template-grid p, .template-grid small { font-size: var(--font-secondary) !important; }
+.settings-nav button { font-size: var(--font-body); }
+.settings-heading h2 { font-size: 20px; }
+.settings-heading p { font-size: var(--font-body); }
+.settings-card h3, .instance-info strong { font-size: var(--font-emphasis); }
+.settings-card p, .instance-info p, .instance-info small,
+.warmup-meter span, .warmup-meter small, .qr-content p { font-size: var(--font-secondary); }
+.secret-output, .api-doc-link strong, .api-doc-link p, .link-result code, .link-result p { font-size: var(--font-secondary); }
+
+/* Servidor MCP */
+.mcp-settings { min-width: 0; }
+.mcp-key-warning, .mcp-config-card { margin-bottom: 12px; padding: 14px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.mcp-key-warning > div { min-width: 0; display: flex; flex-direction: column; gap: 3px; }
+.mcp-key-warning strong, .mcp-config-card h3 { color: var(--ink); font-size: var(--font-emphasis); }
+.mcp-key-warning span, .mcp-config-card p { color: var(--muted); font-size: var(--font-secondary); line-height: 1.45; }
+.mcp-endpoint-card .secret-output { max-width: min(680px, 72vw); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mcp-key-warning { display: grid; grid-template-columns: 28px minmax(0, 1fr) auto; align-items: start; gap: 10px; border-color: color-mix(in srgb, var(--amber) 42%, var(--line)); background: color-mix(in srgb, var(--amber-soft) 55%, var(--surface)); color: var(--amber); }
+.mcp-key-warning .secret-output { max-width: min(760px, 70vw); overflow-wrap: anywhere; white-space: pre-wrap; }
+.mcp-config-card { display: grid; gap: 12px; }
+.mcp-config-card pre { max-height: 330px; margin: 0; padding: 14px; overflow: auto; border: 1px solid var(--line); border-radius: 9px; background: #15191d; color: #d7e2ea; color-scheme: dark; }
+.mcp-config-card code { font: 13px/1.55 ui-monospace, SFMono-Regular, Consolas, monospace; white-space: pre; }
+.mcp-config-card > .button { justify-self: end; }
+
+@media (max-width: 680px) {
+  .page-heading h1 { font-size: 21px; }
+  .page-heading p { font-size: var(--font-secondary); }
+  .nav-item { font-size: var(--font-body); }
+  .mcp-key-warning { grid-template-columns: 24px minmax(0, 1fr); }
+  .mcp-key-warning > .button { grid-column: 1 / -1; }
+  .mcp-endpoint-card .secret-output, .mcp-key-warning .secret-output { max-width: 75vw; }
+  .mcp-config-card > .button { width: 100%; justify-self: stretch; }
+}
+
+/* Webhooks */
+.webhook-heading { align-items: center; }
+.webhook-secret { margin-bottom: 12px; padding: 13px 14px; border: 1px solid color-mix(in srgb, var(--amber) 38%, var(--line)); border-radius: 11px; background: color-mix(in srgb, var(--amber-soft) 48%, var(--surface)); display: grid; grid-template-columns: minmax(150px, .7fr) minmax(220px, 1.3fr) auto auto; align-items: center; gap: 10px; }
+.webhook-secret strong { color: var(--ink); font-size: var(--font-emphasis); }
+.webhook-secret p { margin-top: 3px; color: var(--muted); font-size: var(--font-secondary); line-height: 1.45; }
+.webhook-secret code { min-width: 0; padding: 8px 10px; overflow: hidden; border-radius: 7px; background: #17191d; color: #e8edf1; font: 12px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.webhook-list { display: flex; flex-direction: column; gap: 9px; }
+.webhook-card { min-height: 92px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); display: grid; grid-template-columns: 40px minmax(0, 1fr) auto auto; align-items: center; gap: 12px; transition: border-color .15s, box-shadow .15s; }
+.webhook-card.active { border-color: color-mix(in srgb, var(--green) 36%, var(--line)); box-shadow: inset 3px 0 0 var(--green); }
+.webhook-card-icon { width: 38px; height: 38px; border-radius: 10px; background: var(--violet-soft); color: var(--violet); display: grid; place-items: center; }
+.webhook-card.active .webhook-card-icon { background: var(--green-soft); color: var(--green); }
+.webhook-card-content { min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.webhook-card-content > div { display: flex; align-items: center; gap: 8px; }
+.webhook-card-content h3 { overflow: hidden; color: var(--ink); font-size: var(--font-emphasis); text-overflow: ellipsis; white-space: nowrap; }
+.webhook-card-content p { color: var(--muted); display: flex; align-items: center; gap: 7px; font-size: var(--font-secondary); }
+.webhook-card-content p strong { color: var(--ink); font-size: inherit; }
+.webhook-card-content code { max-width: min(720px, 58vw); overflow: hidden; color: var(--muted); font: 12px/1.35 ui-monospace, SFMono-Regular, Consolas, monospace; text-overflow: ellipsis; white-space: nowrap; }
+.webhook-method { padding: 2px 6px; border-radius: 5px; background: var(--violet-soft); color: var(--violet); font-size: 10px; font-weight: 800; letter-spacing: .03em; }
+.webhook-switch { position: relative; width: 38px; height: 22px; padding: 0; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-soft); cursor: pointer; transition: background .15s, border-color .15s; }
+.webhook-switch span { position: absolute; top: 3px; left: 3px; width: 14px; height: 14px; border-radius: 50%; background: var(--muted); transition: left .15s, background .15s; }
+.webhook-switch.active { border-color: var(--green); background: var(--green-soft); }
+.webhook-switch.active span { left: 19px; background: var(--green); }
+.webhook-switch:disabled { opacity: .55; cursor: wait; }
+.webhook-card-actions { display: flex; gap: 4px; }
+.webhook-card-actions .danger { color: var(--red); }
+.webhook-form .field small { line-height: 1.4; }
+.webhook-create-note { padding: 10px 11px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); color: var(--muted); display: flex; align-items: center; gap: 8px; font-size: var(--font-secondary); }
+.webhook-create-note svg { flex: 0 0 auto; color: var(--violet); }
+.delete-confirmation { padding: 12px; border: 1px solid color-mix(in srgb, var(--red) 28%, var(--line)); border-radius: 10px; background: color-mix(in srgb, var(--red-soft) 45%, var(--surface)); color: var(--red); display: flex; align-items: flex-start; gap: 10px; }
+.delete-confirmation strong { color: var(--ink); font-size: var(--font-emphasis); }
+.delete-confirmation p { margin-top: 3px; color: var(--muted); font-size: var(--font-secondary); line-height: 1.45; }
+
+@media (max-width: 720px) {
+  .webhook-secret { grid-template-columns: minmax(0, 1fr) auto; }
+  .webhook-secret > div, .webhook-secret code { grid-column: 1 / -1; }
+  .webhook-card { grid-template-columns: 36px minmax(0, 1fr) auto; }
+  .webhook-card-actions { grid-column: 2 / -1; justify-content: flex-end; }
+  .webhook-card-content code { max-width: 62vw; }
+}
+
+/* Importação de contatos */
+.contact-import-content { padding: 18px 20px 4px; display: flex; flex-direction: column; gap: 14px; }
+.contact-import-options { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.contact-import-options > button { min-height: 88px; padding: 13px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); color: var(--ink); display: grid; grid-template-columns: 42px minmax(0, 1fr); align-items: center; gap: 11px; text-align: left; transition: border-color .15s, background .15s, transform .15s; }
+.contact-import-options > button:hover, .contact-import-options > button.dragging { border-color: var(--violet); background: var(--violet-soft); transform: translateY(-1px); }
+.contact-import-options > button > span { width: 42px; height: 42px; border-radius: 10px; background: var(--surface); color: var(--violet); display: grid; place-items: center; }
+.contact-import-options > button > div { min-width: 0; display: flex; flex-direction: column; gap: 4px; }
+.contact-import-options strong { font-size: var(--font-body); }
+.contact-import-options small { color: var(--muted); font-size: var(--font-caption) !important; line-height: 1.4; }
+.contact-import-file { overflow: hidden; border: 1px solid var(--line); border-radius: 11px; background: var(--surface); }
+.contact-import-file > header { min-height: 60px; padding: 9px 12px; border-bottom: 1px solid var(--line); background: var(--surface-soft); display: grid; grid-template-columns: 36px minmax(0, 1fr) auto; align-items: center; gap: 9px; }
+.contact-import-file > header > span { width: 34px; height: 34px; border-radius: 8px; background: var(--green-soft); color: var(--green); display: grid; place-items: center; }
+.contact-import-file > header > div { min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.contact-import-file > header strong { overflow: hidden; font-size: var(--font-body); text-overflow: ellipsis; white-space: nowrap; }
+.contact-import-file > header small { color: var(--muted); }
+.contact-import-file > header button { min-height: 31px; padding: 0 9px; border: 1px solid var(--line); border-radius: 7px; background: var(--surface); color: var(--violet); font-size: var(--font-caption); font-weight: 700; }
+.contact-import-file > header button:hover { border-color: var(--violet); background: var(--violet-soft); }
+.contact-import-mapping { padding: 14px; }
+.contact-import-mapping > div:first-child h3 { font-size: var(--font-emphasis); }
+.contact-import-mapping > div:first-child p { margin-top: 2px; color: var(--muted); font-size: var(--font-secondary); }
+.contact-import-mapping-grid { margin-top: 12px; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+.contact-import-required { margin-top: 10px; color: var(--amber); font-size: var(--font-secondary); font-weight: 650; }
+.contact-import-preview { padding: 12px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.contact-import-preview > div { min-height: 62px; padding: 8px 10px; border: 1px solid var(--line); border-radius: 9px; background: var(--surface); display: grid; grid-template-columns: 25px 1fr; align-items: center; column-gap: 5px; }
+.contact-import-preview > div > span { grid-row: 1 / 3; width: 25px; height: 25px; border-radius: 7px; display: grid; place-items: center; }
+.contact-import-preview > div > span.valid { background: var(--green-soft); color: var(--green); }
+.contact-import-preview > div > span.invalid { background: var(--red-soft); color: var(--red); }
+.contact-import-preview > div > span.muted { background: var(--surface-soft); color: var(--muted); }
+.contact-import-preview > div > strong { font-size: 17px; line-height: 1; }
+.contact-import-preview > div > small { color: var(--muted); font-size: var(--font-caption) !important; }
+.contact-import-preview > details { grid-column: 1 / -1; padding: 9px 10px; border-top: 1px solid var(--line); color: var(--muted); font-size: var(--font-caption); }
+.contact-import-preview summary { color: var(--red); font-weight: 700; cursor: pointer; }
+.contact-import-preview details p { margin-top: 5px; overflow-wrap: anywhere; }
+.contact-import-actions { padding: 12px 20px 18px; }
+
+@media (max-width: 680px) {
+  .contact-import-options, .contact-import-mapping-grid, .contact-import-preview { grid-template-columns: 1fr; }
+  .contact-import-preview > details { grid-column: 1; }
+}

@@ -25,7 +25,7 @@ export class BzsApiClient {
     private readonly token: string,
     baseUrl = process.env.MCP_API_URL || 'http://localhost:3000/api/v1',
   ) {
-    this.baseUrl = baseUrl.replace(/\/+$/, '');
+    this.baseUrl = trimTrailingSlashes(baseUrl);
   }
 
   getContext() {
@@ -90,6 +90,12 @@ export class BzsApiClient {
     }
     return data as T;
   }
+}
+
+function trimTrailingSlashes(value: string) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
 
 function objectMessage(value: unknown) {

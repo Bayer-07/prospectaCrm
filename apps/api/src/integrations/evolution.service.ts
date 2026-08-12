@@ -35,6 +35,111 @@ const PDF_TRANSCRIPTION_TIMEOUT_MS = Math.min(
   15 * 60_000,
 );
 
+function primitiveText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+}
+
+function teamAccessWhere(scope: string, teamId?: string | null) {
+  if (scope === 'ALL') return {};
+  return teamId ? { teams: { some: { teamId } } } : { id: '__none__' };
+}
+
+function providerNumbers(response: Record<string, any>) {
+  if (Array.isArray(response)) return response;
+  if (Array.isArray(response.numbers)) return response.numbers;
+  return Array.isArray(response.data) ? response.data : [];
+}
+
+function conversationStatusFilter(requested?: string): Prisma.ConversationWhereInput {
+  if (requested === 'ACTIVE') return { status: { in: ['WAITING', 'OPEN'] } };
+  return requested && ['WAITING', 'OPEN', 'CLOSED'].includes(requested)
+    ? { status: requested as never }
+    : {};
+}
+
+function interactionDate(value: string | undefined, label: string) {
+  if (!value) return undefined;
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) throw new BadRequestException(`${label} inválida`);
+  return parsed;
+}
+
+function assigneeFilter(auth: AuthContext, assigneeId?: string, assignee?: string): Prisma.ConversationWhereInput {
+  if (assigneeId === 'unassigned') return { assigneeId: null };
+  if (assigneeId) return { assigneeId };
+  return assignee === 'me' ? { assigneeId: auth.userId } : {};
+}
+
+function trimCharacter(value: string, character: string) {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === character) start += 1;
+  while (end > start && value[end - 1] === character) end -= 1;
+  return value.slice(start, end);
+}
+
+function preferredPhoneJid(contactPhone: string | null | undefined, phoneJid: string | null, remoteJid: string) {
+  const contactNumber = contactPhone?.replace(/\D/g, '') || '';
+  if (contactNumber) return `${contactNumber}@s.whatsapp.net`;
+  if (phoneJid) return phoneJid;
+  return remoteJid.endsWith('@s.whatsapp.net') ? remoteJid : '';
+}
+
+function startedConversationEvent(
+  operatorName: string,
+  existing: { assigneeId: string | null; status: string } | null,
+  assigneeId: string,
+) {
+  if (!existing) return { type: 'started', text: `${operatorName} iniciou o atendimento` };
+  const tookOwnership = Boolean(existing.assigneeId && existing.assigneeId !== assigneeId);
+  if (existing.status === 'CLOSED') {
+    return { type: 'reopened', text: `${operatorName} reabriu${tookOwnership ? ' e assumiu' : ''} o atendimento` };
+  }
+  if (existing.status !== 'OPEN' || !existing.assigneeId) {
+    return { type: 'started', text: `${operatorName} iniciou o atendimento` };
+  }
+  return tookOwnership ? { type: 'transferred', text: `${operatorName} assumiu o atendimento` } : null;
+}
+
+function assignmentEvent(
+  operatorName: string,
+  currentAssigneeId: string | null,
+  requestedAssigneeId: string | null,
+  assignee: { name: string } | null,
+) {
+  if (requestedAssigneeId === currentAssigneeId) return null;
+  if (!assignee) return { type: 'unassigned', text: `${operatorName} devolveu o atendimento para a fila de espera` };
+  if (currentAssigneeId) return { type: 'transferred', text: `${operatorName} transferiu o atendimento para ${assignee.name}` };
+  return { type: 'assigned', text: `${operatorName} assumiu o atendimento` };
+}
+
+function conversationStatusTransition(
+  status: 'OPEN' | 'CLOSED',
+  userId: string | null | undefined,
+  currentAssigneeId: string | null,
+) {
+  const assigneeId = status === 'OPEN' ? userId || currentAssigneeId : currentAssigneeId;
+  let nextStatus: 'OPEN' | 'CLOSED' | 'WAITING' = 'WAITING';
+  if (status === 'CLOSED') nextStatus = 'CLOSED';
+  else if (assigneeId) nextStatus = 'OPEN';
+  return { assigneeId, nextStatus };
+}
+
+function conversationStatusEvent(
+  operatorName: string,
+  previousStatus: string,
+  nextStatus: string,
+  tookOwnership: boolean,
+) {
+  if (nextStatus === 'CLOSED' && previousStatus !== 'CLOSED') {
+    return { type: 'closed', text: `${operatorName} finalizou o atendimento` };
+  }
+  if (nextStatus === 'OPEN' && previousStatus === 'CLOSED') {
+    return { type: 'reopened', text: `${operatorName} reabriu${tookOwnership ? ' e assumiu' : ''} o atendimento` };
+  }
+  return tookOwnership ? { type: 'transferred', text: `${operatorName} assumiu o atendimento` } : null;
+}
+
 @Injectable()
 export class EvolutionService {
   private readonly baseUrl = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
@@ -54,7 +159,7 @@ export class EvolutionService {
   async listInstances(auth: AuthContext) {
     const scope = permissionScope(auth, 'integrations');
     const instances = await this.db.whatsappInstance.findMany({
-      where: { organizationId: auth.organizationId, archivedAt: null, ...(scope === 'ALL' ? {} : auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' }) },
+      where: { organizationId: auth.organizationId, archivedAt: null, ...teamAccessWhere(scope, auth.teamId) },
       include: { teams: { include: { team: true } }, warmupProfile: true, _count: { select: { conversations: true } } },
       orderBy: { createdAt: 'asc' },
     });
@@ -75,15 +180,9 @@ export class EvolutionService {
           method: 'POST',
           body: JSON.stringify({ numbers: batch }),
         });
-        const responseNumbers = Array.isArray(response)
-          ? response
-          : Array.isArray(response.numbers)
-            ? response.numbers
-            : Array.isArray(response.data)
-              ? response.data
-              : [];
+        const responseNumbers = providerNumbers(response);
         const byNumber = new Map(responseNumbers.map((item: Record<string, unknown>) => {
-          const number = String(item.number || item.jid || '').split('@')[0].replace(/\D/g, '');
+          const number = primitiveText(item.number || item.jid).split('@')[0].replace(/\D/g, '');
           return [number, item];
         }));
         return batch.map((number) => {
@@ -209,12 +308,7 @@ export class EvolutionService {
     lastInteractionFrom?: string;
     lastInteractionTo?: string;
   }) {
-    const requestedStatus = query.status?.toUpperCase();
-    const statusWhere: Prisma.ConversationWhereInput = requestedStatus === 'ACTIVE'
-      ? { status: { in: ['WAITING', 'OPEN'] } }
-      : requestedStatus && ['WAITING', 'OPEN', 'CLOSED'].includes(requestedStatus)
-        ? { status: requestedStatus as never }
-        : {};
+    const statusWhere = conversationStatusFilter(query.status?.toUpperCase());
     const search = query.search?.trim().slice(0, 120);
     const requestedLimit = Number.parseInt(query.limit || '', 10);
     const limit = Number.isFinite(requestedLimit) ? Math.min(Math.max(requestedLimit, 1), 100) : 100;
@@ -228,14 +322,8 @@ export class EvolutionService {
         { instance: { name: { contains: search, mode: 'insensitive' } } },
       ],
     } : {};
-    const parseInteractionDate = (value: string | undefined, label: string) => {
-      if (!value) return undefined;
-      const parsed = new Date(value);
-      if (Number.isNaN(parsed.getTime())) throw new BadRequestException(`${label} inválida`);
-      return parsed;
-    };
-    const lastInteractionFrom = parseInteractionDate(query.lastInteractionFrom, 'Data inicial');
-    const lastInteractionTo = parseInteractionDate(query.lastInteractionTo, 'Data final');
+    const lastInteractionFrom = interactionDate(query.lastInteractionFrom, 'Data inicial');
+    const lastInteractionTo = interactionDate(query.lastInteractionTo, 'Data final');
     if (lastInteractionFrom && lastInteractionTo && lastInteractionFrom >= lastInteractionTo) {
       throw new BadRequestException('A data final deve ser posterior à data inicial');
     }
@@ -250,13 +338,7 @@ export class EvolutionService {
     const instanceWhere: Prisma.ConversationWhereInput = query.instanceId
       ? { instanceId: query.instanceId }
       : {};
-    const assigneeWhere: Prisma.ConversationWhereInput = query.assigneeId === 'unassigned'
-      ? { assigneeId: null }
-      : query.assigneeId
-        ? { assigneeId: query.assigneeId }
-        : query.assignee === 'me'
-          ? { assigneeId: auth.userId }
-          : {};
+    const assigneeWhere = assigneeFilter(auth, query.assigneeId, query.assignee);
     const where: Prisma.ConversationWhereInput = {
       organizationId: auth.organizationId,
       AND: [
@@ -356,14 +438,12 @@ export class EvolutionService {
     return result;
   }
 
-  async conversationFilterOptions(auth: AuthContext, view?: string) {
-    void view;
+  async conversationFilterOptions(auth: AuthContext, _view?: string) {
     const canViewAllUsers = auth.roleKey === 'admin';
-    const instanceScope: Prisma.WhatsappInstanceWhereInput = auth.roleKey === 'admin'
-      ? {}
-      : auth.teamId
-        ? { teams: { some: { teamId: auth.teamId } } }
-        : { id: '__none__' };
+    const instanceScope: Prisma.WhatsappInstanceWhereInput = teamAccessWhere(
+      canViewAllUsers ? 'ALL' : 'TEAM',
+      auth.teamId,
+    );
     const [instances, users] = await Promise.all([
       this.db.whatsappInstance.findMany({
         where: {
@@ -426,13 +506,15 @@ export class EvolutionService {
       throw new NotFoundException('Conversa não encontrada');
     }
 
-    const conversation = existing
-      ? await this.db.conversation.update({
+    let conversation;
+    if (existing) {
+      conversation = await this.db.conversation.update({
         where: { id: existing.id },
         data: { contactId: contact.id, assigneeId, status: 'OPEN', closedAt: null },
         include: { assignee: { select: { id: true, name: true } } },
-      })
-      : await this.db.conversation.create({
+      });
+    } else {
+      conversation = await this.db.conversation.create({
         data: {
           organizationId: auth.organizationId,
           instanceId: instance.id,
@@ -443,16 +525,8 @@ export class EvolutionService {
         },
         include: { assignee: { select: { id: true, name: true } } },
       });
-    const tookOwnership = Boolean(existing?.assigneeId && existing.assigneeId !== assigneeId);
-    const event = !existing
-      ? { type: 'started', text: `${auth.name} iniciou o atendimento` }
-      : existing.status === 'CLOSED'
-        ? { type: 'reopened', text: `${auth.name} reabriu${tookOwnership ? ' e assumiu' : ''} o atendimento` }
-        : existing.status !== 'OPEN' || !existing.assigneeId
-          ? { type: 'started', text: `${auth.name} iniciou o atendimento` }
-          : tookOwnership
-            ? { type: 'transferred', text: `${auth.name} assumiu o atendimento` }
-            : null;
+    }
+    const event = startedConversationEvent(auth.name, existing, assigneeId);
     if (event) await this.conversationEvent(auth, conversation.id, event.type, event.text, {
       contactId: contact.id,
       instanceId: instance.id,
@@ -576,11 +650,14 @@ export class EvolutionService {
   }
 
   conversationAssignees(auth: AuthContext) {
+    let accessWhere: Prisma.UserWhereInput = { id: auth.userId || '__none__' };
+    if (auth.roleKey === 'admin') accessWhere = {};
+    else if (auth.teamId) accessWhere = { teamId: auth.teamId };
     return this.db.user.findMany({
       where: {
         organizationId: auth.organizationId,
         status: 'ACTIVE',
-        ...(auth.roleKey === 'admin' ? {} : auth.teamId ? { teamId: auth.teamId } : { id: auth.userId || '__none__' }),
+        ...accessWhere,
       },
       select: { id: true, name: true, email: true, team: { select: { id: true, name: true, color: true } } },
       orderBy: { name: 'asc' },
@@ -727,18 +804,24 @@ export class EvolutionService {
     if (!this.transcriptions) {
       throw new ServiceUnavailableException('O serviço de transcrição não está disponível para gerar o PDF');
     }
-
-    const requests = await Promise.allSettled(
-      missing.map((message) => this.transcriptions!.request(auth, conversationId, message.id)),
-    );
+    const requests = await Promise.allSettled(missing.map((message) => this.transcriptions!.request(auth, conversationId, message.id)));
     const rejected = requests.find((request) => request.status === 'rejected');
     if (rejected?.status === 'rejected') {
       const detail = rejected.reason instanceof Error ? rejected.reason.message : String(rejected.reason);
       throw new ServiceUnavailableException(`Não foi possível iniciar a transcrição dos áudios: ${detail}`);
     }
 
-    const pendingIds = new Set(missing.map((message) => message.id));
-    const transcriptions = new Map<string, string>();
+    const transcriptions = await this.waitForPdfTranscriptions(conversationId, missing.map((message) => message.id));
+    return messages.map((message) => ({
+      ...message,
+      transcriptionText: transcriptions.get(message.id) || message.transcriptionText,
+      transcriptionStatus: transcriptions.has(message.id) ? 'COMPLETED' : message.transcriptionStatus,
+    }));
+  }
+
+  private async waitForPdfTranscriptions(conversationId: string, messageIds: string[]) {
+    const pendingIds = new Set(messageIds);
+    const completed = new Map<string, string>();
     const deadline = Date.now() + PDF_TRANSCRIPTION_TIMEOUT_MS;
     while (pendingIds.size && Date.now() < deadline) {
       const states = await this.db.message.findMany({
@@ -750,31 +833,30 @@ export class EvolutionService {
           transcriptionError: true,
         },
       });
-      for (const state of states) {
-        if (state.transcriptionStatus === 'COMPLETED' && state.transcriptionText?.trim()) {
-          transcriptions.set(state.id, state.transcriptionText.trim());
-          pendingIds.delete(state.id);
-          continue;
-        }
-        if (state.transcriptionStatus === 'FAILED') {
-          throw new ServiceUnavailableException(
-            `Não foi possível transcrever um áudio do atendimento: ${state.transcriptionError || 'erro desconhecido'}`,
-          );
-        }
-      }
-      if (pendingIds.size) {
-        await new Promise((resolve) => setTimeout(resolve, PDF_TRANSCRIPTION_POLL_INTERVAL_MS));
-      }
+      this.collectPdfTranscriptionStates(states, pendingIds, completed);
+      if (pendingIds.size) await new Promise((resolve) => setTimeout(resolve, PDF_TRANSCRIPTION_POLL_INTERVAL_MS));
     }
     if (pendingIds.size) {
       throw new ServiceUnavailableException('A transcrição dos áudios não terminou a tempo. Tente exportar novamente.');
     }
+    return completed;
+  }
 
-    return messages.map((message) => ({
-      ...message,
-      transcriptionText: transcriptions.get(message.id) || message.transcriptionText,
-      transcriptionStatus: transcriptions.has(message.id) ? 'COMPLETED' : message.transcriptionStatus,
-    }));
+  private collectPdfTranscriptionStates(
+    states: Array<{ id: string; transcriptionStatus: string | null; transcriptionText: string | null; transcriptionError: string | null }>,
+    pendingIds: Set<string>,
+    completed: Map<string, string>,
+  ) {
+    for (const state of states) {
+      if (state.transcriptionStatus === 'COMPLETED' && state.transcriptionText?.trim()) {
+        completed.set(state.id, state.transcriptionText.trim());
+        pendingIds.delete(state.id);
+      } else if (state.transcriptionStatus === 'FAILED') {
+        throw new ServiceUnavailableException(
+          `Não foi possível transcrever um áudio do atendimento: ${state.transcriptionError || 'erro desconhecido'}`,
+        );
+      }
+    }
   }
 
   async profilePicture(auth: AuthContext, id: string) {
@@ -832,22 +914,8 @@ export class EvolutionService {
   async assign(auth: AuthContext, id: string, assigneeId: string | null) {
     const conversation = await this.assertConversation(auth, id);
     if (conversation.status === 'CLOSED') throw new BadRequestException('Reabra a conversa antes de alterar o responsável');
-    let assignee: { id: string; name: string } | null = null;
-    if (assigneeId) {
-      if (auth.roleKey !== 'admin' && !auth.teamId && assigneeId !== auth.userId) throw new BadRequestException('Responsável inválido');
-      assignee = await this.db.user.findFirst({ where: {
-        id: assigneeId,
-        organizationId: auth.organizationId,
-        status: 'ACTIVE',
-        ...(auth.roleKey !== 'admin' && auth.teamId ? { teamId: auth.teamId } : {}),
-      }, select: { id: true, name: true } });
-      if (!assignee) throw new BadRequestException('Responsável inválido');
-    }
-    const event = assigneeId === conversation.assigneeId
-      ? null
-      : assignee
-        ? { type: conversation.assigneeId ? 'transferred' : 'assigned', text: conversation.assigneeId ? `${auth.name} transferiu o atendimento para ${assignee.name}` : `${auth.name} assumiu o atendimento` }
-        : { type: 'unassigned', text: `${auth.name} devolveu o atendimento para a fila de espera` };
+    const assignee = await this.resolveConversationAssignee(auth, assigneeId);
+    const event = assignmentEvent(auth.name, conversation.assigneeId, assigneeId, assignee);
     const [updated] = await this.db.$transaction([
       this.db.conversation.update({ where: { id }, data: {
         assigneeId,
@@ -866,6 +934,21 @@ export class EvolutionService {
     } });
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId: id });
     return updated;
+  }
+
+  private async resolveConversationAssignee(auth: AuthContext, assigneeId: string | null) {
+    if (!assigneeId) return null;
+    if (auth.roleKey !== 'admin' && !auth.teamId && assigneeId !== auth.userId) {
+      throw new BadRequestException('Responsável inválido');
+    }
+    const assignee = await this.db.user.findFirst({ where: {
+      id: assigneeId,
+      organizationId: auth.organizationId,
+      status: 'ACTIVE',
+      ...(auth.roleKey !== 'admin' && auth.teamId ? { teamId: auth.teamId } : {}),
+    }, select: { id: true, name: true } });
+    if (!assignee) throw new BadRequestException('Responsável inválido');
+    return assignee;
   }
 
   async changeConversationInstance(auth: AuthContext, id: string, instanceId: string) {
@@ -912,10 +995,11 @@ export class EvolutionService {
     });
     if (!target) throw new BadRequestException('Selecione uma conexão do WhatsApp ativa');
 
-    const contactNumber = conversation.contact.phone?.replace(/\D/g, '') || '';
-    const phoneJid = contactNumber
-      ? `${contactNumber}@s.whatsapp.net`
-      : conversation.phoneJid || (conversation.remoteJid.endsWith('@s.whatsapp.net') ? conversation.remoteJid : '');
+    const phoneJid = preferredPhoneJid(
+      conversation.contact.phone,
+      conversation.phoneJid,
+      conversation.remoteJid,
+    );
     if (!phoneJid) {
       throw new BadRequestException('O contato precisa ter um telefone válido para trocar a conexão');
     }
@@ -996,20 +1080,11 @@ export class EvolutionService {
 
   async setConversationStatus(auth: AuthContext, id: string, status: 'OPEN' | 'CLOSED') {
     const conversation = await this.assertConversation(auth, id);
-    const nextAssigneeId = status === 'OPEN'
-      ? auth.userId || conversation.assigneeId
-      : conversation.assigneeId;
-    const nextStatus = status === 'CLOSED' ? 'CLOSED' : nextAssigneeId ? 'OPEN' : 'WAITING';
+    const { assigneeId: nextAssigneeId, nextStatus } = conversationStatusTransition(status, auth.userId, conversation.assigneeId);
     const tookOwnership = nextStatus === 'OPEN'
       && Boolean(nextAssigneeId)
       && nextAssigneeId !== conversation.assigneeId;
-    const event = nextStatus === 'CLOSED' && conversation.status !== 'CLOSED'
-      ? { type: 'closed', text: `${auth.name} finalizou o atendimento` }
-      : nextStatus === 'OPEN' && conversation.status === 'CLOSED'
-        ? { type: 'reopened', text: `${auth.name} reabriu${tookOwnership ? ' e assumiu' : ''} o atendimento` }
-        : tookOwnership
-          ? { type: 'transferred', text: `${auth.name} assumiu o atendimento` }
-          : null;
+    const event = conversationStatusEvent(auth.name, conversation.status, nextStatus, tookOwnership);
     const [updated] = await this.db.$transaction([
       this.db.conversation.update({
         where: { id },
@@ -1045,34 +1120,10 @@ export class EvolutionService {
     const conversation = await this.assertConversation(auth, conversationId);
     if (conversation.status !== 'OPEN' || !conversation.assigneeId) throw new BadRequestException('Assuma a conversa antes de responder');
     if (!input.text && !input.mediaKey) throw new BadRequestException('Informe texto ou mídia');
-    const [media, replyTarget] = await Promise.all([
-      input.mediaKey
-        ? this.db.mediaAsset.findUnique({ where: { key: input.mediaKey }, select: { id: true, key: true } })
-        : null,
-      input.replyToMessageId
-        ? this.db.message.findFirst({
-            where: { id: input.replyToMessageId, conversationId },
-            select: { id: true, providerMessageId: true, status: true },
-          })
-        : null,
-    ]);
-    if (input.mediaKey && (!media || !media.key.startsWith(`${auth.organizationId}/`))) throw new BadRequestException('Mídia inválida');
-    if (input.replyToMessageId && !replyTarget) throw new BadRequestException('A mensagem respondida não pertence a esta conversa');
-    if (replyTarget && (replyTarget.providerMessageId.startsWith('local:') || ['QUEUED', 'PENDING', 'FAILED', 'SKIPPED'].includes(replyTarget.status))) {
-      throw new BadRequestException('Aguarde a mensagem ser enviada antes de respondê-la');
-    }
-    // The request value mirrors the checkbox that was visible when the operator
-    // clicked send. Falling back to the persisted preference keeps older clients
-    // working and avoids a race while that preference is being saved.
+    const { media, replyTarget } = await this.validateMessageReferences(auth, conversationId, input);
     const signatureEnabled = auth.type === 'session'
-      ? input.signatureEnabled ?? auth.messageSignatureEnabled
-      : false;
-    const renderedText = input.text
-      ? await this.renderConversationTemplate(conversationId, conversation.contactId, input.text)
-      : input.text;
-    const signedText = renderedText && signatureEnabled
-      ? `*${auth.name.trim()}:*\n${renderedText}`
-      : renderedText;
+      && Boolean(input.signatureEnabled ?? auth.messageSignatureEnabled);
+    const signedText = await this.outgoingMessageText(auth, conversationId, conversation.contactId, input.text, signatureEnabled);
     const localMessageId = randomUUID();
     const message = await this.db.message.create({ data: {
       instanceId: conversation.instanceId, conversationId, providerMessageId: `local:${localMessageId}`,
@@ -1088,6 +1139,47 @@ export class EvolutionService {
     await this.outboundQueue.add('send-message', { messageId: message.id }, { jobId: `message-${message.id}`, attempts: 5, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: 1000 });
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId });
     return message;
+  }
+
+  private async validateMessageReferences(
+    auth: AuthContext,
+    conversationId: string,
+    input: { mediaKey?: string; replyToMessageId?: string },
+  ) {
+    const [media, replyTarget] = await Promise.all([
+      input.mediaKey
+        ? this.db.mediaAsset.findUnique({ where: { key: input.mediaKey }, select: { id: true, key: true } })
+        : null,
+      input.replyToMessageId
+        ? this.db.message.findFirst({
+            where: { id: input.replyToMessageId, conversationId },
+            select: { id: true, providerMessageId: true, status: true },
+          })
+        : null,
+    ]);
+    if (input.mediaKey && !media?.key.startsWith(`${auth.organizationId}/`)) throw new BadRequestException('Mídia inválida');
+    if (input.replyToMessageId && !replyTarget) throw new BadRequestException('A mensagem respondida não pertence a esta conversa');
+    if (replyTarget && (replyTarget.providerMessageId.startsWith('local:') || ['QUEUED', 'PENDING', 'FAILED', 'SKIPPED'].includes(replyTarget.status))) {
+      throw new BadRequestException('Aguarde a mensagem ser enviada antes de respondê-la');
+    }
+    return { media, replyTarget };
+  }
+
+  private async outgoingMessageText(
+    auth: AuthContext,
+    conversationId: string,
+    contactId: string,
+    text: string | undefined,
+    signatureEnabled: boolean,
+  ) {
+    // The request value mirrors the checkbox that was visible when the operator
+    // clicked send. Falling back to the persisted preference keeps older clients
+    // working and avoids a race while that preference is being saved.
+    const renderedText = text ? await this.renderConversationTemplate(conversationId, contactId, text) : text;
+    const signedText = renderedText && signatureEnabled
+      ? `*${auth.name.trim()}:*\n${renderedText}`
+      : renderedText;
+    return signedText;
   }
 
   async reactToMessage(auth: AuthContext, conversationId: string, messageId: string, reaction: string) {
@@ -1131,7 +1223,7 @@ export class EvolutionService {
     if (sourceText.length > 4096) throw new BadRequestException('A mensagem deve ter no máximo 4096 caracteres');
     const text = await this.renderConversationTemplate(conversationId, conversation.contactId, sourceText);
     const message = await this.db.message.findFirst({ where: { id: messageId, conversationId, direction: 'OUTBOUND' } });
-    if (!message || message.type !== 'text') throw new BadRequestException('Apenas mensagens de texto enviadas podem ser editadas');
+    if (message?.type !== 'text') throw new BadRequestException('Apenas mensagens de texto enviadas podem ser editadas');
     if (message.providerMessageId.startsWith('local:') || ['QUEUED', 'PENDING', 'FAILED', 'SKIPPED'].includes(message.status)) {
       throw new BadRequestException('Esta mensagem ainda não pode ser editada');
     }
@@ -1267,19 +1359,19 @@ export class EvolutionService {
   async ingestWebhook(headers: Record<string, string | string[] | undefined>, body: Record<string, unknown>) {
     const expected = process.env.EVOLUTION_WEBHOOK_SECRET || '';
     if (expected && headers['x-prospecta-webhook-secret'] !== expected) throw new BadRequestException('Assinatura de webhook inválida');
-    const instanceKey = String(body.instance || body.instanceName || body.instanceId || 'unknown');
+    const instanceKey = primitiveText(body.instance || body.instanceName || body.instanceId) || 'unknown';
     // Evolution emits dotted names (for example `messages.upsert`) even when
     // the configured webhook event is written as `MESSAGES_UPSERT`.
-    const eventType = String(body.event || body.type || 'UNKNOWN').toUpperCase().replace(/[-.]/g, '_');
+    const eventType = (primitiveText(body.event || body.type) || 'UNKNOWN').toUpperCase().replace(/[-.]/g, '_');
     const data = (body.data || body) as Record<string, unknown>;
-    const messageId = String((data.key as Record<string, unknown> | undefined)?.id || data.id || '');
+    const messageId = primitiveText((data.key as Record<string, unknown> | undefined)?.id || data.id);
     const payloadHash = createHash('sha256').update(JSON.stringify(body)).digest('hex');
     // MESSAGES_EDITED points to the original message ID, so distinct edits of
     // the same message need the payload hash to remain distinct and replayable.
     const eventIdentity = eventType.includes('MESSAGES_EDITED')
       ? [messageId, payloadHash].filter(Boolean).join(':')
       : messageId || payloadHash;
-    const eventKey = String(body.eventId || `${eventType}:${eventIdentity}`);
+    const eventKey = primitiveText(body.eventId) || `${eventType}:${eventIdentity}`;
     const event = await this.db.inboundWebhookEvent.upsert({
       where: { provider_instanceKey_eventKey: { provider: 'evolution', instanceKey, eventKey } },
       update: {}, create: { provider: 'evolution', instanceKey, eventKey, eventType, payload: body as never },
@@ -1298,14 +1390,18 @@ export class EvolutionService {
     if (!this.apiKey) throw new BadGatewayException('EVOLUTION_API_KEY não configurada');
     let response: Response;
     try {
+      const headers = new Headers(init.headers);
+      headers.set('Content-Type', 'application/json');
+      headers.set('apikey', this.apiKey);
       response = await fetch(`${this.baseUrl}${path}`, {
-        ...init, headers: { 'Content-Type': 'application/json', apikey: this.apiKey, ...(init.headers || {}) },
+        ...init,
+        headers,
         signal: AbortSignal.timeout(20_000),
       });
     } catch (error) {
       throw new BadGatewayException({
         message: 'Evolution API indisponível',
-        details: error instanceof Error ? error.message : String(error),
+        details: this.errorMessage(error),
       });
     }
     const text = await response.text();
@@ -1316,7 +1412,7 @@ export class EvolutionService {
 
   private getInstance(auth: AuthContext, id: string) {
     const scope = permissionScope(auth, 'integrations', 'write');
-    return this.db.whatsappInstance.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...(scope === 'ALL' ? {} : auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' }) } }).then((instance) => {
+    return this.db.whatsappInstance.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...teamAccessWhere(scope, auth.teamId) } }).then((instance) => {
       if (!instance) throw new NotFoundException('Instância não encontrada');
       return instance;
     });
@@ -1385,12 +1481,11 @@ export class EvolutionService {
       organizationId: auth.organizationId,
       archivedAt: null,
       status: 'CONNECTED',
-      ...(scope === 'ALL' ? {} : auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' }),
+      ...teamAccessWhere(scope, auth.teamId),
     };
   }
 
-  private conversationScope(auth: AuthContext, action = 'read') {
-    void action;
+  private conversationScope(auth: AuthContext, _action = 'read') {
     return conversationVisibilityWhere(auth, auth.roleKey === 'admin');
   }
 
@@ -1515,7 +1610,11 @@ export class EvolutionService {
   private tryJson(text: string) { try { return JSON.parse(text); } catch { return { message: text }; } }
 
   private createProviderInstance(instanceKey: string) {
-    const webhookUrl = `${process.env.API_INTERNAL_URL || 'http://api:3000'}/webhooks/evolution`;
+    const apiInternalUrl = process.env.API_INTERNAL_URL?.replace(/\/$/, '');
+    if (!apiInternalUrl) {
+      throw new ServiceUnavailableException('API_INTERNAL_URL não configurada para receber webhooks da Evolution');
+    }
+    const webhookUrl = `${apiInternalUrl}/webhooks/evolution`;
     return this.request('/instance/create', {
       method: 'POST',
       body: JSON.stringify({

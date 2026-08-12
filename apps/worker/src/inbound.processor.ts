@@ -14,6 +14,10 @@ type StoredMessageResult = {
     assigneeId: string | null;
   };
 };
+type ProcessedInboundEvent = Partial<StoredMessageResult>;
+type HandledMessage =
+  | { handled: false }
+  | { handled: true; result: StoredMessageResult | undefined };
 
 const MEDIA_TYPES = new Set(['sticker', 'image', 'audio', 'video', 'document']);
 const CAPTION_MEDIA_TYPES = new Set(['image', 'video', 'document']);
@@ -55,6 +59,7 @@ type SyncInstance = {
   connectedAt: Date | null;
   teams: Array<{ teamId: string }>;
 };
+type InboundInstance = Omit<SyncInstance, 'connectedAt'>;
 
 type RecentSyncState = {
   nextAt: number;
@@ -93,7 +98,10 @@ export const normalizeEvolutionEventType = (eventType: string) => eventType.toUp
 export const evolutionMessageUpdateId = (data: AnyObject) => String(data.keyId || data.key?.id || data.key?.ID || data.id || '');
 export const evolutionMessageUpdateStatus = (data: AnyObject): MessageStatus => {
   const rawStatus = String(data.status || data.update?.status || '').toUpperCase();
-  return rawStatus.includes('READ') ? 'READ' : rawStatus.includes('DELIVER') ? 'DELIVERED' : rawStatus.includes('ERROR') || rawStatus.includes('FAIL') ? 'FAILED' : 'SENT';
+  if (rawStatus.includes('READ')) return 'READ';
+  if (rawStatus.includes('DELIVER')) return 'DELIVERED';
+  if (rawStatus.includes('ERROR') || rawStatus.includes('FAIL')) return 'FAILED';
+  return 'SENT';
 };
 const deliveryStatusRank: Record<string, number> = { PENDING: 0, QUEUED: 1, SENT: 2, DELIVERED: 3, READ: 4 };
 export const advanceEvolutionMessageStatus = (current: string, incoming: string): MessageStatus => {
@@ -103,6 +111,11 @@ export const advanceEvolutionMessageStatus = (current: string, incoming: string)
   const incomingRank = deliveryStatusRank[incoming];
   if (currentRank === undefined || incomingRank === undefined) return current as MessageStatus;
   return (incomingRank > currentRank ? incoming : current) as MessageStatus;
+};
+const storedMessageDeliveryStatus = (message: { status: MessageStatus; deliveredAt: Date | null; readAt: Date | null }) => {
+  if (message.readAt) return 'READ';
+  if (message.deliveredAt) return 'DELIVERED';
+  return message.status;
 };
 export const incomingConversationStatus = (assigneeId?: string | null): 'OPEN' | 'WAITING' => assigneeId ? 'OPEN' : 'WAITING';
 type IncomingConversationRoute = { status: 'OPEN' | 'WAITING'; assigneeId: string | null; reopened: boolean };
@@ -203,8 +216,19 @@ const mediaNode = (record: AnyObject, type: string) => {
   return content[`${type}Message`] || {};
 };
 
-const normalizedFilename = (value: unknown) => String(value || '').normalize('NFC').toLocaleLowerCase('pt-BR');
-const mediaSha = (value: unknown) => value && typeof value === 'object' ? JSON.stringify(value) : String(value || '');
+const serializedValue = (value: unknown) => {
+  if (value === null || value === undefined) return '';
+  if (typeof value === 'object') return JSON.stringify(value);
+  return String(value);
+};
+
+const isUniqueContactRace = (error: unknown, phoneKey: string | null) => {
+  if (!phoneKey || !error || typeof error !== 'object') return false;
+  return 'code' in error && error.code === 'P2002';
+};
+
+const normalizedFilename = (value: unknown) => serializedValue(value).normalize('NFC').toLocaleLowerCase('pt-BR');
+const mediaSha = (value: unknown) => serializedValue(value);
 
 export const evolutionMediaCaptionCandidate = (stored: AnyObject, candidates: AnyObject[]) => {
   const storedContent = stored.message || stored.Message || stored;
@@ -262,6 +286,9 @@ type DecodedMessageEdit = {
   providerMessageId?: string;
 };
 
+type ProtobufField = { field: number; wire: number; bytes?: Buffer; value?: bigint };
+type ProtobufCursor = { offset: number };
+
 const evolutionBytes = (value: unknown): Buffer | null => {
   if (Buffer.isBuffer(value)) return value;
   if (value instanceof Uint8Array) return Buffer.from(value);
@@ -274,43 +301,44 @@ const evolutionBytes = (value: unknown): Buffer | null => {
   return numericKeys.length ? Buffer.from(numericKeys.map((key) => Number(record[key]) || 0)) : null;
 };
 
-const protobufFields = (input: Buffer) => {
-  const fields: Array<{ field: number; wire: number; bytes?: Buffer; value?: bigint }> = [];
-  let offset = 0;
-  const readVarint = () => {
-    let value = 0n;
-    let shift = 0n;
-    for (let count = 0; count < 10 && offset < input.length; count += 1) {
-      const byte = input[offset++];
-      value |= BigInt(byte & 0x7f) << shift;
-      if ((byte & 0x80) === 0) return value;
-      shift += 7n;
-    }
-    throw new Error('Protobuf inválido');
-  };
-  while (offset < input.length) {
-    const tag = readVarint();
-    const field = Number(tag >> 3n);
-    const wire = Number(tag & 7n);
-    if (!field) throw new Error('Campo protobuf inválido');
-    if (wire === 0) fields.push({ field, wire, value: readVarint() });
-    else if (wire === 1) {
-      if (offset + 8 > input.length) throw new Error('Protobuf truncado');
-      offset += 8;
-      fields.push({ field, wire });
-    } else if (wire === 2) {
-      const length = Number(readVarint());
-      if (!Number.isSafeInteger(length) || length < 0 || offset + length > input.length) throw new Error('Protobuf truncado');
-      fields.push({ field, wire, bytes: input.subarray(offset, offset + length) });
-      offset += length;
-    } else if (wire === 5) {
-      if (offset + 4 > input.length) throw new Error('Protobuf truncado');
-      offset += 4;
-      fields.push({ field, wire });
-    } else {
-      throw new Error(`Wire type protobuf não suportado: ${wire}`);
-    }
+const readProtobufVarint = (input: Buffer, cursor: ProtobufCursor) => {
+  let value = 0n;
+  let shift = 0n;
+  for (let count = 0; count < 10 && cursor.offset < input.length; count += 1) {
+    const byte = input[cursor.offset++];
+    value |= BigInt(byte & 0x7f) << shift;
+    if ((byte & 0x80) === 0) return value;
+    shift += 7n;
   }
+  throw new Error('Protobuf inválido');
+};
+
+const readProtobufField = (input: Buffer, cursor: ProtobufCursor): ProtobufField => {
+  const tag = readProtobufVarint(input, cursor);
+  const field = Number(tag >> 3n);
+  const wire = Number(tag & 7n);
+  if (!field) throw new Error('Campo protobuf inválido');
+  if (wire === 0) return { field, wire, value: readProtobufVarint(input, cursor) };
+  let fixedLength = 0;
+  if (wire === 1) fixedLength = 8;
+  else if (wire === 5) fixedLength = 4;
+  if (fixedLength) {
+    if (cursor.offset + fixedLength > input.length) throw new Error('Protobuf truncado');
+    cursor.offset += fixedLength;
+    return { field, wire };
+  }
+  if (wire !== 2) throw new Error(`Wire type protobuf não suportado: ${wire}`);
+  const length = Number(readProtobufVarint(input, cursor));
+  if (!Number.isSafeInteger(length) || length < 0 || cursor.offset + length > input.length) throw new Error('Protobuf truncado');
+  const bytes = input.subarray(cursor.offset, cursor.offset + length);
+  cursor.offset += length;
+  return { field, wire, bytes };
+};
+
+const protobufFields = (input: Buffer) => {
+  const fields: ProtobufField[] = [];
+  const cursor = { offset: 0 };
+  while (cursor.offset < input.length) fields.push(readProtobufField(input, cursor));
   return fields;
 };
 
@@ -371,7 +399,7 @@ export const evolutionSecretEditEnvelope = (input: AnyObject): SecretEditEnvelop
 };
 
 const normalizedJid = (value: unknown) => {
-  const jid = String(value || '').trim();
+  const jid = serializedValue(value).trim();
   if (!jid.includes('@')) return '';
   return jid.replace(/:\d+@/, '@');
 };
@@ -485,17 +513,7 @@ export class InboundProcessor {
       const eventType = normalizeEvolutionEventType(event.eventType);
       await this.touchInstanceEvent(instance.id);
       this.markEvolutionActivity(instance.id);
-      let conversationId: string | undefined;
-      let newMessage: StoredMessageResult['newMessage'];
-      if (eventType.includes('CONNECTION')) await this.connection(instance.id, payload);
-      else if (eventType.includes('MESSAGES_UPSERT') || eventType === 'MESSAGE' || eventType.includes('SEND_MESSAGE')) {
-        const result = await this.message(instance, payload);
-        conversationId = result?.conversationId;
-        newMessage = result?.newMessage;
-      }
-      else if (eventType.includes('MESSAGES_EDITED')) conversationId = await this.messageEdited(instance.id, payload);
-      else if (eventType.includes('MESSAGES_UPDATE')) conversationId = await this.messageUpdate(instance.id, payload);
-      else if (eventType.includes('MESSAGES_DELETE')) conversationId = await this.messageDelete(instance.id, payload);
+      const { conversationId, newMessage } = await this.dispatchEvent(instance, payload, eventType);
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'processed', processedAt: new Date() } });
       return {
         organizationId: instance.organizationId,
@@ -508,6 +526,20 @@ export class InboundProcessor {
     }
   }
 
+  private async dispatchEvent(instance: SyncInstance, payload: AnyObject, eventType: string): Promise<ProcessedInboundEvent> {
+    if (eventType.includes('CONNECTION')) {
+      await this.connection(instance.id, payload);
+      return {};
+    }
+    if (eventType.includes('MESSAGES_UPSERT') || eventType === 'MESSAGE' || eventType.includes('SEND_MESSAGE')) {
+      return await this.message(instance, payload) || {};
+    }
+    if (eventType.includes('MESSAGES_EDITED')) return { conversationId: await this.messageEdited(instance.id, payload) };
+    if (eventType.includes('MESSAGES_UPDATE')) return { conversationId: await this.messageUpdate(instance.id, payload) };
+    if (eventType.includes('MESSAGES_DELETE')) return { conversationId: await this.messageDelete(instance.id, payload) };
+    return {};
+  }
+
   async syncRecentMessages(windowMs = 5 * 60_000) {
     const events: Array<{ organizationId: string; event: 'inbox.updated'; payload: { instanceId: string } }> = [];
     const now = Date.now();
@@ -516,79 +548,92 @@ export class InboundProcessor {
     for (const instanceId of this.recentSyncState.keys()) {
       if (!connectedIds.has(instanceId)) this.recentSyncState.delete(instanceId);
     }
-
     for (const instance of instances) {
-      const state = this.recentSyncState.get(instance.id) || {
-        nextAt: 0,
-        delayMs: RECENT_SYNC_BASE_DELAY_MS,
-        fingerprint: '',
-        fetchedAt: 0,
-        records: [],
-      };
-      this.recentSyncState.set(instance.id, state);
-      if (state.nextAt > now) continue;
+      const event = await this.syncRecentInstance(instance, now, windowMs);
+      if (event) events.push(event);
+    }
+    return events;
+  }
 
-      try {
-        const connectedAt = instance.connectedAt?.getTime() || 0;
-        const since = new Date(Math.max(now - windowMs, connectedAt));
-        const recent = (await this.evolution.findMessages(instance.instanceKey, undefined, 50))
-          .filter((record) => isSynchronizableEvolutionMessage(record, since))
-          .sort((left, right) => evolutionMessageDate(left, new Date(0)).getTime() - evolutionMessageDate(right, new Date(0)).getTime());
-        const fingerprint = evolutionMessagesFingerprint(recent);
-        const changed = fingerprint !== state.fingerprint;
-        state.records = recent;
-        state.fetchedAt = now;
-        state.delayMs = nextEvolutionSyncDelay(state.delayMs, changed);
-        state.nextAt = now + state.delayMs;
-        if (!changed) continue;
-        if (!recent.length) {
-          state.fingerprint = fingerprint;
-          continue;
-        }
+  private recentState(instanceId: string) {
+    const existing = this.recentSyncState.get(instanceId);
+    if (existing) return existing;
+    const state: RecentSyncState = {
+      nextAt: 0,
+      delayMs: RECENT_SYNC_BASE_DELAY_MS,
+      fingerprint: '',
+      fetchedAt: 0,
+      records: [],
+    };
+    this.recentSyncState.set(instanceId, state);
+    return state;
+  }
 
-        const providerIds = recent.map((record) => String(record.key?.id || record.key?.ID || record.id || '')).filter(Boolean);
-        const existing = await this.db.message.findMany({
-          where: { instanceId: instance.id, providerMessageId: { in: providerIds } },
-          select: {
-            providerMessageId: true,
-            type: true,
-            text: true,
-            media: { select: { id: true }, take: 1 },
-          },
-        });
-        const knownMessages = new Map(existing.map((message) => [message.providerMessageId, message]));
-        let imported = 0;
-
-        for (const record of recent) {
-          const providerMessageId = String(record.key?.id || record.key?.ID || record.id || '');
-          if (!providerMessageId) continue;
-          const knownMessage = knownMessages.get(providerMessageId);
-          if (knownMessage && !evolutionMessageNeedsReconciliation(knownMessage, record)) continue;
-          try {
-            await this.message(instance, { data: record });
-            if (!knownMessage) imported += 1;
-          } catch (error) {
-            if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-              continue;
-            }
-            throw error;
-          }
-        }
+  private async syncRecentInstance(instance: SyncInstance, now: number, windowMs: number) {
+    const state = this.recentState(instance.id);
+    if (state.nextAt > now) return;
+    try {
+      const connectedAt = instance.connectedAt?.getTime() || 0;
+      const since = new Date(Math.max(now - windowMs, connectedAt));
+      const recent = (await this.evolution.findMessages(instance.instanceKey, undefined, 50))
+        .filter((record) => isSynchronizableEvolutionMessage(record, since))
+        .sort((left, right) => evolutionMessageDate(left, new Date(0)).getTime() - evolutionMessageDate(right, new Date(0)).getTime());
+      const fingerprint = evolutionMessagesFingerprint(recent);
+      const changed = fingerprint !== state.fingerprint;
+      this.updateRecentState(state, recent, changed, now);
+      if (!changed) return;
+      if (!recent.length) {
         state.fingerprint = fingerprint;
+        return;
+      }
+      const imported = await this.importRecentMessages(instance, recent);
+      state.fingerprint = fingerprint;
+      if (!imported) return;
+      await this.db.whatsappInstance.update({ where: { id: instance.id }, data: { lastEventAt: new Date() } });
+      console.log(`[evolution-sync] ${imported} mensagem(ns) recente(s) importada(s) de ${instance.instanceKey}.`);
+      return { organizationId: instance.organizationId, event: 'inbox.updated' as const, payload: { instanceId: instance.id } };
+    } catch (error) {
+      state.delayMs = nextEvolutionSyncDelay(state.delayMs, false, true);
+      state.nextAt = now + state.delayMs;
+      console.error(`[evolution-sync] Falha ao sincronizar ${instance.instanceKey}:`, error instanceof Error ? error.message : error);
+      return;
+    }
+  }
 
-        if (imported > 0) {
-          await this.db.whatsappInstance.update({ where: { id: instance.id }, data: { lastEventAt: new Date() } });
-          console.log(`[evolution-sync] ${imported} mensagem(ns) recente(s) importada(s) de ${instance.instanceKey}.`);
-          events.push({ organizationId: instance.organizationId, event: 'inbox.updated', payload: { instanceId: instance.id } });
-        }
+  private updateRecentState(state: RecentSyncState, recent: AnyObject[], changed: boolean, now: number) {
+    state.records = recent;
+    state.fetchedAt = now;
+    state.delayMs = nextEvolutionSyncDelay(state.delayMs, changed);
+    state.nextAt = now + state.delayMs;
+  }
+
+  private async importRecentMessages(instance: SyncInstance, recent: AnyObject[]) {
+    const providerIds = recent.map((record) => String(record.key?.id || record.key?.ID || record.id || '')).filter(Boolean);
+    const existing = await this.db.message.findMany({
+      where: { instanceId: instance.id, providerMessageId: { in: providerIds } },
+      select: {
+        providerMessageId: true,
+        type: true,
+        text: true,
+        media: { select: { id: true }, take: 1 },
+      },
+    });
+    const knownMessages = new Map(existing.map((message) => [message.providerMessageId, message]));
+    let imported = 0;
+    for (const record of recent) {
+      const providerMessageId = String(record.key?.id || record.key?.ID || record.id || '');
+      if (!providerMessageId) continue;
+      const knownMessage = knownMessages.get(providerMessageId);
+      if (knownMessage && !evolutionMessageNeedsReconciliation(knownMessage, record)) continue;
+      try {
+        await this.message(instance, { data: record });
+        if (!knownMessage) imported += 1;
       } catch (error) {
-        state.delayMs = nextEvolutionSyncDelay(state.delayMs, false, true);
-        state.nextAt = now + state.delayMs;
-        console.error(`[evolution-sync] Falha ao sincronizar ${instance.instanceKey}:`, error instanceof Error ? error.message : error);
+        const duplicated = error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
+        if (!duplicated) throw error;
       }
     }
-
-    return events;
+    return imported;
   }
 
   private async connection(instanceId: string, payload: AnyObject) {
@@ -625,32 +670,110 @@ export class InboundProcessor {
   }
 
   private async message(instance: { id: string; organizationId: string; instanceKey: string; teams: Array<{ teamId: string }> }, payload: AnyObject): Promise<StoredMessageResult | undefined> {
-    const data = Array.isArray(payload.data) ? payload.data[0] : payload.data || payload;
+    const data = this.messageData(payload);
     const occurredAt = evolutionMessageDate(data);
-    const key = data.key || data.Info || data.info || {};
+    const secretEdit = await this.handleSecretEdit(instance, data, occurredAt);
+    if (secretEdit.handled) return secretEdit.result;
+    const identity = this.messageIdentity(data);
+    if (!identity) return;
+    const { key, remoteJid, providerMessageId, fromMe } = identity;
+    const reaction = await this.handleReaction(instance.id, data, key, fromMe);
+    if (reaction.handled) return reaction.result;
+    const { phone, text, type, replyProviderMessageId } = this.messageContent(data, remoteJid);
+    const [existing, replyTarget] = await this.relatedMessages(instance.id, providerMessageId, replyProviderMessageId);
+    if (existing) return this.reconcileExistingMessage({
+      existing,
+      replyTarget,
+      type,
+      text,
+      data,
+      replyProviderMessageId,
+      instance,
+      providerMessageId,
+    });
+    const pushName = String(data.pushName || key.PushName || data.senderName || phone || 'Contato WhatsApp');
+    const teamId = instance.teams[0]?.teamId;
+    const { ensuredContact, knownConversation } = await this.resolveInboundContact(instance, remoteJid, phone, pushName, teamId);
+    const conversation = await this.upsertInboundConversation({
+      instance,
+      ensuredContact,
+      knownConversation,
+      remoteJid,
+      occurredAt,
+      fromMe,
+    });
+    const storedMessage = await this.storeInboundMessage({
+      instance,
+      conversation,
+      providerMessageId,
+      fromMe,
+      type,
+      text,
+      data,
+      replyTarget,
+      replyProviderMessageId,
+      occurredAt,
+    });
+    if (!fromMe) await this.handleInboundEffects(instance, conversation, ensuredContact, storedMessage.id, text);
+    return {
+      conversationId: conversation.id,
+      newMessage: {
+        id: storedMessage.id,
+        direction: fromMe ? 'OUTBOUND' : 'INBOUND',
+        assigneeId: conversation.assigneeId,
+      },
+    };
+  }
+
+  private messageData(payload: AnyObject): AnyObject {
+    if (Array.isArray(payload.data)) return payload.data[0] || {};
+    return payload.data || payload;
+  }
+
+  private async handleSecretEdit(instance: InboundInstance, data: AnyObject, occurredAt: Date): Promise<HandledMessage> {
     const secretEdit = evolutionSecretEditEnvelope(data);
-    if (secretEdit) {
-      const conversationId = await this.secretMessageEdited(instance, data, secretEdit, occurredAt);
-      return conversationId ? { conversationId } : undefined;
-    }
+    if (!secretEdit) return { handled: false };
+    const conversationId = await this.secretMessageEdited(instance, data, secretEdit, occurredAt);
+    const result = conversationId ? { conversationId } : undefined;
+    return { handled: true, result };
+  }
+
+  private messageIdentity(data: AnyObject) {
+    const key = data.key || data.Info || data.info || {};
     const remoteJid = String(key.remoteJid || key.Chat || data.remoteJid || data.from || '');
-    if (!remoteJid || remoteJid.includes('@g.us')) return;
+    if (!remoteJid || remoteJid.includes('@g.us')) return null;
     const providerMessageId = String(key.id || key.ID || data.id || '');
-    if (!providerMessageId) return;
+    if (!providerMessageId) return null;
     const fromMe = Boolean(key.fromMe ?? key.IsFromMe ?? data.fromMe);
+    return { key, remoteJid, providerMessageId, fromMe };
+  }
+
+  private async handleReaction(instanceId: string, data: AnyObject, key: AnyObject, fromMe: boolean): Promise<HandledMessage> {
     const reaction = evolutionReaction(data);
-    if (reaction) {
-      const conversationId = await this.applyReaction(instance.id, reaction, fromMe, String(data.pushName || key.PushName || data.senderName || (fromMe ? 'WhatsApp conectado' : 'Contato')));
-      return conversationId ? { conversationId } : undefined;
-    }
+    if (!reaction) return { handled: false };
+    const fallbackName = fromMe ? 'WhatsApp conectado' : 'Contato';
+    const actorName = String(data.pushName || key.PushName || data.senderName || fallbackName);
+    const conversationId = await this.applyReaction(instanceId, reaction, fromMe, actorName);
+    const result = conversationId ? { conversationId } : undefined;
+    return { handled: true, result };
+  }
+
+  private messageContent(data: AnyObject, remoteJid: string) {
     const phoneDigits = remoteJid.includes('@s.whatsapp.net') ? remoteJid.split('@')[0].split(':')[0].replace(/\D/g, '') : '';
     const phone = phoneDigits ? `+${phoneDigits}` : undefined;
-    const text = this.extractText(data.message || data.Message || data);
-    const type = this.extractType(data.message || data.Message || data);
-    const replyProviderMessageId = evolutionReplyProviderMessageId(data);
-    const [existing, replyTarget] = await Promise.all([
+    const content = data.message || data.Message || data;
+    return {
+      phone,
+      text: this.extractText(content),
+      type: this.extractType(content),
+      replyProviderMessageId: evolutionReplyProviderMessageId(data),
+    };
+  }
+
+  private relatedMessages(instanceId: string, providerMessageId: string, replyProviderMessageId: string | null) {
+    return Promise.all([
       this.db.message.findUnique({
-        where: { instanceId_providerMessageId: { instanceId: instance.id, providerMessageId } },
+        where: { instanceId_providerMessageId: { instanceId, providerMessageId } },
         select: {
           id: true,
           conversationId: true,
@@ -662,44 +785,44 @@ export class InboundProcessor {
       }),
       replyProviderMessageId
         ? this.db.message.findUnique({
-          where: { instanceId_providerMessageId: { instanceId: instance.id, providerMessageId: replyProviderMessageId } },
+          where: { instanceId_providerMessageId: { instanceId, providerMessageId: replyProviderMessageId } },
           select: { id: true, conversationId: true },
         })
         : null,
     ]);
-    if (existing) {
-      const resolvedReply = replyTarget?.conversationId === existing.conversationId ? replyTarget : null;
-      const storedPayload = resolvedReply
-        ? { ...data, replyToMessageId: resolvedReply.id, replyToProviderMessageId: replyProviderMessageId }
-        : data;
-      const existingPayload = existing.payload as AnyObject;
-      const shouldRefresh = (existing.type !== type && type !== 'text')
-        || (!existing.text && Boolean(text))
-        || Boolean(resolvedReply && existingPayload.replyToMessageId !== resolvedReply.id);
-      const storedMessage = shouldRefresh
-        ? await this.db.message.update({
-          where: { id: existing.id },
-          data: { type, text, payload: storedPayload as Prisma.InputJsonValue },
-          select: { id: true },
-        })
-        : existing;
-      if (this.isMediaType(type) && existing.media.length === 0) {
-        try {
-          await this.attachMedia(instance, storedMessage.id, data, type);
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          await this.db.message.update({
-            where: { id: storedMessage.id },
-            data: { payload: { ...storedPayload, mediaError: detail } as Prisma.InputJsonValue },
-          });
-          console.error(`[inbound-media] Falha ao armazenar ${type} ${providerMessageId}: ${detail}`);
-        }
-      }
-      if (!text && CAPTION_MEDIA_TYPES.has(type)) await this.scheduleCaptionRepairs(storedMessage.id);
-      return { conversationId: existing.conversationId };
+  }
+
+  private async reconcileExistingMessage(context: AnyObject): Promise<StoredMessageResult> {
+    const { existing, replyTarget, type, text, data, replyProviderMessageId, instance, providerMessageId } = context;
+    const resolvedReply = replyTarget?.conversationId === existing.conversationId ? replyTarget : null;
+    const storedPayload = resolvedReply
+      ? { ...data, replyToMessageId: resolvedReply.id, replyToProviderMessageId: replyProviderMessageId }
+      : data;
+    const existingPayload = existing.payload as AnyObject;
+    const shouldRefresh = (existing.type !== type && type !== 'text')
+      || (!existing.text && Boolean(text))
+      || Boolean(resolvedReply && existingPayload.replyToMessageId !== resolvedReply.id);
+    const storedMessage = shouldRefresh
+      ? await this.db.message.update({
+        where: { id: existing.id },
+        data: { type, text, payload: storedPayload as Prisma.InputJsonValue },
+        select: { id: true },
+      })
+      : existing;
+    if (this.isMediaType(type) && existing.media.length === 0) {
+      await this.attachMediaSafely(instance, storedMessage.id, data, type, storedPayload, providerMessageId);
     }
-    const pushName = String(data.pushName || key.PushName || data.senderName || phone || 'Contato WhatsApp');
-    const teamId = instance.teams[0]?.teamId;
+    if (!text && CAPTION_MEDIA_TYPES.has(type)) await this.scheduleCaptionRepairs(storedMessage.id);
+    return { conversationId: existing.conversationId };
+  }
+
+  private async resolveInboundContact(
+    instance: InboundInstance,
+    remoteJid: string,
+    phone: string | undefined,
+    pushName: string,
+    teamId: string | undefined,
+  ) {
     const knownConversation = await this.db.conversation.findFirst({
       where: { instanceId: instance.id, OR: [{ remoteJid }, { phoneJid: remoteJid }] },
       select: {
@@ -718,133 +841,176 @@ export class InboundProcessor {
         select: { id: true, name: true },
       })
       : null;
-    // A LID is a provider address, not a telephone number. When it is received
-    // from a message sent on the linked phone, preserve the CRM contact already
-    // associated with the conversation instead of creating a fake LID contact.
-    let ensuredContact = phoneContact || knownConversation?.contact;
-    if (!ensuredContact) {
-      try {
-        ensuredContact = await this.db.contact.create({
-          data: { organizationId: instance.organizationId, name: pushName, phone, phoneKey, source: 'WhatsApp recebido', teamId },
-          select: { id: true, name: true },
-        });
-      } catch (error) {
-        const uniqueRace = phoneKey && error && typeof error === 'object' && 'code' in error && error.code === 'P2002';
-        if (!uniqueRace) throw error;
-        const racedContact = await this.db.contact.findFirst({
-          where: { organizationId: instance.organizationId, phoneKey, archivedAt: null },
-          select: { id: true, name: true },
-        });
-        if (!racedContact) throw error;
-        ensuredContact = racedContact;
-      }
+    const existingContact = phoneContact || knownConversation?.contact;
+    if (existingContact) return { ensuredContact: existingContact, knownConversation };
+    const ensuredContact = await this.createInboundContact(instance, phone, phoneKey, pushName, teamId);
+    return { ensuredContact, knownConversation };
+  }
+
+  private async createInboundContact(
+    instance: InboundInstance,
+    phone: string | undefined,
+    phoneKey: string | null,
+    pushName: string,
+    teamId: string | undefined,
+  ) {
+    try {
+      return await this.db.contact.create({
+        data: { organizationId: instance.organizationId, name: pushName, phone, phoneKey, source: 'WhatsApp recebido', teamId },
+        select: { id: true, name: true },
+      });
+    } catch (error) {
+      if (!isUniqueContactRace(error, phoneKey)) throw error;
+      const racedContact = await this.db.contact.findFirst({
+        where: { organizationId: instance.organizationId, phoneKey, archivedAt: null },
+        select: { id: true, name: true },
+      });
+      if (!racedContact) throw error;
+      return racedContact;
     }
-    // Evolution can expose the same person as a phone JID on message upserts and
-    // as a LID on delivery updates. Keep a single conversation for that contact
-    // instead of creating one conversation for each provider address.
+  }
+
+  private async upsertInboundConversation(context: AnyObject) {
+    const { instance, ensuredContact, knownConversation } = context;
     const currentConversation = knownConversation || await this.db.conversation.findFirst({
-      where: {
-        instanceId: instance.id,
-        contactId: ensuredContact.id,
-      },
+      where: { instanceId: instance.id, contactId: ensuredContact.id },
       select: { id: true, status: true, assigneeId: true, lastMessageAt: true },
       orderBy: { updatedAt: 'desc' },
     });
-    const incomingRoute = currentConversation
-      ? incomingConversationRoute(currentConversation.status, currentConversation.assigneeId)
-      : incomingConversationRoute('WAITING', null);
-    const conversation = currentConversation
-      ? await this.db.conversation.update({
-        where: { id: currentConversation.id },
-        data: {
-          contactId: ensuredContact.id,
-          lastMessageAt: !currentConversation.lastMessageAt || occurredAt > currentConversation.lastMessageAt ? occurredAt : currentConversation.lastMessageAt,
-          ...(!fromMe ? {
-            status: incomingRoute.status,
-            assigneeId: incomingRoute.assigneeId,
-            closedAt: null,
-            ...(incomingRoute.reopened ? { firstResponseAt: null } : {}),
-            unreadCount: { increment: 1 },
-          } : {}),
-        },
-        select: { id: true, assigneeId: true },
-      })
-      : await this.db.conversation.create({
-        data: {
-          organizationId: instance.organizationId, instanceId: instance.id, contactId: ensuredContact.id,
-          remoteJid, phoneJid: remoteJid.includes('@s.whatsapp.net') ? remoteJid : null,
-          status: incomingConversationStatus(null), unreadCount: fromMe ? 0 : 1, lastMessageAt: occurredAt,
-        },
-        select: { id: true, assigneeId: true },
-      });
-    if (!currentConversation) {
-      await this.db.conversationEvent.create({ data: {
-        organizationId: instance.organizationId,
-        conversationId: conversation.id,
-        type: 'started',
-        text: fromMe ? 'Atendimento iniciado pelo WhatsApp conectado' : 'Atendimento iniciado por nova mensagem',
-        createdAt: occurredAt,
-      } });
-    } else if (!fromMe && currentConversation.status === 'CLOSED') {
-      await this.db.conversationEvent.create({ data: {
-        organizationId: instance.organizationId,
-        conversationId: conversation.id,
-        type: 'started',
-        text: 'Novo atendimento iniciado por mensagem do cliente',
-        createdAt: occurredAt,
-      } });
+    if (currentConversation) return this.updateInboundConversation(context, currentConversation);
+    return this.createInboundConversation(context);
+  }
+
+  private async updateInboundConversation(context: AnyObject, currentConversation: AnyObject) {
+    const { instance, ensuredContact, occurredAt, fromMe } = context;
+    const incomingRoute = incomingConversationRoute(currentConversation.status, currentConversation.assigneeId);
+    const conversation = await this.db.conversation.update({
+      where: { id: currentConversation.id },
+      data: {
+        contactId: ensuredContact.id,
+        lastMessageAt: !currentConversation.lastMessageAt || occurredAt > currentConversation.lastMessageAt ? occurredAt : currentConversation.lastMessageAt,
+        ...(!fromMe ? {
+          status: incomingRoute.status,
+          assigneeId: incomingRoute.assigneeId,
+          closedAt: null,
+          ...(incomingRoute.reopened ? { firstResponseAt: null } : {}),
+          unreadCount: { increment: 1 },
+        } : {}),
+      },
+      select: { id: true, assigneeId: true },
+    });
+    if (!fromMe && currentConversation.status === 'CLOSED') {
+      await this.createConversationStartEvent(instance.organizationId, conversation.id, occurredAt, 'Novo atendimento iniciado por mensagem do cliente');
     }
+    return conversation;
+  }
+
+  private async createInboundConversation(context: AnyObject) {
+    const { instance, ensuredContact, remoteJid, occurredAt, fromMe } = context;
+    const conversation = await this.db.conversation.create({
+      data: {
+        organizationId: instance.organizationId,
+        instanceId: instance.id,
+        contactId: ensuredContact.id,
+        remoteJid,
+        phoneJid: remoteJid.includes('@s.whatsapp.net') ? remoteJid : null,
+        status: incomingConversationStatus(null),
+        unreadCount: fromMe ? 0 : 1,
+        lastMessageAt: occurredAt,
+      },
+      select: { id: true, assigneeId: true },
+    });
+    const eventText = fromMe ? 'Atendimento iniciado pelo WhatsApp conectado' : 'Atendimento iniciado por nova mensagem';
+    await this.createConversationStartEvent(instance.organizationId, conversation.id, occurredAt, eventText);
+    return conversation;
+  }
+
+  private createConversationStartEvent(organizationId: string, conversationId: string, createdAt: Date, text: string) {
+    return this.db.conversationEvent.create({ data: { organizationId, conversationId, type: 'started', text, createdAt } });
+  }
+
+  private async storeInboundMessage(context: AnyObject) {
+    const {
+      instance, conversation, providerMessageId, fromMe, type, text, data,
+      replyTarget, replyProviderMessageId, occurredAt,
+    } = context;
     const resolvedReply = replyTarget?.conversationId === conversation.id ? replyTarget : null;
     const storedPayload = resolvedReply
       ? { ...data, replyToMessageId: resolvedReply.id, replyToProviderMessageId: replyProviderMessageId }
       : data;
     const storedMessage = await this.db.message.create({ data: {
-      instanceId: instance.id, conversationId: conversation.id, providerMessageId,
-      direction: fromMe ? 'OUTBOUND' : 'INBOUND', type, text, status: fromMe ? 'SENT' : 'DELIVERED',
-      payload: storedPayload as Prisma.InputJsonValue, sentAt: occurredAt, deliveredAt: fromMe ? undefined : occurredAt, createdAt: occurredAt,
+      instanceId: instance.id,
+      conversationId: conversation.id,
+      providerMessageId,
+      direction: fromMe ? 'OUTBOUND' : 'INBOUND',
+      type,
+      text,
+      status: fromMe ? 'SENT' : 'DELIVERED',
+      payload: storedPayload as Prisma.InputJsonValue,
+      sentAt: occurredAt,
+      deliveredAt: fromMe ? undefined : occurredAt,
+      createdAt: occurredAt,
     } });
     if (this.isMediaType(type)) {
-      try {
-        await this.attachMedia(instance, storedMessage.id, data, type);
-      } catch (error) {
-        const detail = error instanceof Error ? error.message : String(error);
-        await this.db.message.update({
-          where: { id: storedMessage.id },
-          data: { payload: { ...storedPayload, mediaError: detail } as Prisma.InputJsonValue },
-        });
-        console.error(`[inbound-media] Falha ao armazenar ${type} ${providerMessageId}: ${detail}`);
-      }
+      await this.attachMediaSafely(instance, storedMessage.id, data, type, storedPayload, providerMessageId);
     }
     if (!text && CAPTION_MEDIA_TYPES.has(type)) await this.scheduleCaptionRepairs(storedMessage.id);
-    if (!fromMe) {
-      const optOut = this.isOptOut(text);
-      await this.db.$transaction(async (tx) => {
-        if (optOut) {
-          await tx.contact.update({ where: { id: ensuredContact.id }, data: { consentStatus: 'REVOKED', consentRevokedAt: new Date() } });
-          await tx.consentEvent.create({ data: { contactId: ensuredContact.id, status: 'REVOKED', source: 'WhatsApp', evidence: text || 'Palavra de descadastro' } });
-          await tx.suppression.upsert({ where: { contactId_channel: { contactId: ensuredContact.id, channel: 'WHATSAPP' } }, update: { reason: `Opt-out: ${text}` }, create: { contactId: ensuredContact.id, channel: 'WHATSAPP', reason: `Opt-out: ${text}` } });
-        }
-        await tx.campaignRecipient.updateMany({ where: { contactId: ensuredContact.id, status: { in: ['PENDING', 'QUEUED', 'SENT', 'DELIVERED', 'READ'] } }, data: { status: optOut ? 'OPTED_OUT' : 'REPLIED', repliedAt: new Date(), exclusionReason: optOut ? 'Descadastro recebido' : null } });
-        await tx.workflowEnrollment.updateMany({ where: { contactId: ensuredContact.id, status: { in: ['ACTIVE', 'WAITING'] } }, data: { status: 'STOPPED', stopReason: optOut ? 'Descadastro recebido' : 'Contato respondeu', completedAt: new Date() } });
-        if (conversation.assigneeId) await tx.notification.create({ data: {
-          organizationId: instance.organizationId, userId: conversation.assigneeId, type: 'conversation.message',
-          title: `Nova mensagem de ${ensuredContact.name}`, body: text?.slice(0, 180), actionUrl: `/inbox/${conversation.id}`,
-        } });
+    return storedMessage;
+  }
+
+  private async attachMediaSafely(
+    instance: InboundInstance,
+    messageId: string,
+    data: AnyObject,
+    type: string,
+    storedPayload: AnyObject,
+    providerMessageId: string,
+  ) {
+    try {
+      await this.attachMedia(instance, messageId, data, type);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.db.message.update({
+        where: { id: messageId },
+        data: { payload: { ...storedPayload, mediaError: detail } as Prisma.InputJsonValue },
       });
-      if (!optOut && !conversation.assigneeId) {
-        await this.chatbotQueue?.add('process-chatbot-message', { messageId: storedMessage.id }, {
-          jobId: `chatbot-inbound-${storedMessage.id}`, attempts: 5, backoff: { type: 'exponential', delay: 2000 }, removeOnComplete: 1000,
-        });
-      }
+      console.error(`[inbound-media] Falha ao armazenar ${type} ${providerMessageId}: ${detail}`);
     }
-    return {
-      conversationId: conversation.id,
-      newMessage: {
-        id: storedMessage.id,
-        direction: fromMe ? 'OUTBOUND' : 'INBOUND',
-        assigneeId: conversation.assigneeId,
-      },
-    };
+  }
+
+  private async handleInboundEffects(
+    instance: InboundInstance,
+    conversation: { id: string; assigneeId: string | null },
+    contact: { id: string; name: string },
+    messageId: string,
+    text: string | null,
+  ) {
+    const optOut = this.isOptOut(text);
+    await this.db.$transaction(async (tx) => {
+      if (optOut) {
+        await tx.contact.update({ where: { id: contact.id }, data: { consentStatus: 'REVOKED', consentRevokedAt: new Date() } });
+        await tx.consentEvent.create({ data: { contactId: contact.id, status: 'REVOKED', source: 'WhatsApp', evidence: text || 'Palavra de descadastro' } });
+        await tx.suppression.upsert({ where: { contactId_channel: { contactId: contact.id, channel: 'WHATSAPP' } }, update: { reason: `Opt-out: ${text}` }, create: { contactId: contact.id, channel: 'WHATSAPP', reason: `Opt-out: ${text}` } });
+      }
+      await tx.campaignRecipient.updateMany({ where: { contactId: contact.id, status: { in: ['PENDING', 'QUEUED', 'SENT', 'DELIVERED', 'READ'] } }, data: { status: optOut ? 'OPTED_OUT' : 'REPLIED', repliedAt: new Date(), exclusionReason: optOut ? 'Descadastro recebido' : null } });
+      await tx.workflowEnrollment.updateMany({ where: { contactId: contact.id, status: { in: ['ACTIVE', 'WAITING'] } }, data: { status: 'STOPPED', stopReason: optOut ? 'Descadastro recebido' : 'Contato respondeu', completedAt: new Date() } });
+      if (conversation.assigneeId) await tx.notification.create({ data: {
+        organizationId: instance.organizationId,
+        userId: conversation.assigneeId,
+        type: 'conversation.message',
+        title: `Nova mensagem de ${contact.name}`,
+        body: text?.slice(0, 180),
+        actionUrl: `/inbox/${conversation.id}`,
+      } });
+    });
+    if (!optOut && !conversation.assigneeId) {
+      await this.chatbotQueue?.add('process-chatbot-message', { messageId }, {
+        jobId: `chatbot-inbound-${messageId}`,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 2000 },
+        removeOnComplete: 1000,
+      });
+    }
   }
 
   private async applyReaction(instanceId: string, reaction: { targetProviderMessageId: string; emoji: string }, fromMe: boolean, actorName: string) {
@@ -933,7 +1099,7 @@ export class InboundProcessor {
       where: { id: messageId },
       include: { instance: true, conversation: true, media: true },
     });
-    if (!stored || !stored.media.length || !['image', 'video', 'document'].includes(stored.type)) return;
+    if (!stored?.media.length || !['image', 'video', 'document'].includes(stored.type)) return;
     const payload = (stored.payload || {}) as AnyObject;
     if (payload.captionCompanionProviderMessageId || (stored.text && payload.recoveredCaption !== true)) return;
     const addresses = [...new Set([stored.conversation.remoteJid, stored.conversation.phoneJid].filter(Boolean))] as string[];
@@ -945,50 +1111,7 @@ export class InboundProcessor {
     }
     if (!match?.text) return;
     if (evolutionCaptionRelation(payload, match.candidate) === 'companion') {
-      const providerMessageId = String(match.candidate.key?.id || '');
-      if (!providerMessageId) return;
-      const type = evolutionMessageType(match.candidate.message || match.candidate.Message || match.candidate);
-      const timestamp = Number(match.candidate.messageTimestamp || 0);
-      const occurredAt = timestamp > 0 ? new Date(timestamp * 1000) : new Date(stored.createdAt.getTime() - 1);
-      const companion = await this.db.message.upsert({
-        where: { instanceId_providerMessageId: { instanceId: stored.instanceId, providerMessageId } },
-        update: { text: match.text, payload: match.candidate as Prisma.InputJsonValue },
-        create: {
-          instanceId: stored.instanceId,
-          conversationId: stored.conversationId,
-          providerMessageId,
-          direction: match.candidate.key?.fromMe ? 'OUTBOUND' : 'INBOUND',
-          type,
-          text: match.text,
-          status: match.candidate.key?.fromMe ? 'SENT' : 'DELIVERED',
-          payload: match.candidate as Prisma.InputJsonValue,
-          sentAt: occurredAt,
-          deliveredAt: match.candidate.key?.fromMe ? undefined : occurredAt,
-          createdAt: occurredAt,
-        },
-        include: { media: true },
-      });
-      if (!companion.media.length) {
-        try {
-          await this.attachMedia(stored.instance, companion.id, match.candidate, type);
-        } catch (error) {
-          const detail = error instanceof Error ? error.message : String(error);
-          await this.db.message.update({ where: { id: companion.id }, data: { payload: { ...match.candidate, mediaError: detail } as Prisma.InputJsonValue } });
-        }
-      }
-      const { recoveredCaption: _recoveredCaption, captionProviderMessageId: _captionProviderMessageId, captionRecoveredAt: _captionRecoveredAt, ...originalPayload } = payload;
-      await this.db.message.update({
-        where: { id: stored.id },
-        data: {
-          text: payload.recoveredCaption === true ? null : stored.text,
-          payload: {
-            ...originalPayload,
-            captionCompanionProviderMessageId: providerMessageId,
-            captionReconciledAt: new Date().toISOString(),
-          } as Prisma.InputJsonValue,
-        },
-      });
-      return { organizationId: stored.instance.organizationId, event: 'inbox.updated', payload: { conversationId: stored.conversationId } };
+      return this.repairCompanionCaption(stored, payload, match);
     }
     await this.db.message.update({
       where: { id: stored.id },
@@ -1003,6 +1126,61 @@ export class InboundProcessor {
       },
     });
     return { organizationId: stored.instance.organizationId, event: 'inbox.updated', payload: { conversationId: stored.conversationId } };
+  }
+
+  private async repairCompanionCaption(stored: AnyObject, payload: AnyObject, match: { candidate: AnyObject; text: string | null }) {
+    const providerMessageId = String(match.candidate.key?.id || '');
+    if (!providerMessageId || !match.text) return;
+    const type = evolutionMessageType(match.candidate.message || match.candidate.Message || match.candidate);
+    const timestamp = Number(match.candidate.messageTimestamp || 0);
+    const occurredAt = timestamp > 0 ? new Date(timestamp * 1000) : new Date(stored.createdAt.getTime() - 1);
+    const fromMe = Boolean(match.candidate.key?.fromMe);
+    const companion = await this.db.message.upsert({
+      where: { instanceId_providerMessageId: { instanceId: stored.instanceId, providerMessageId } },
+      update: { text: match.text, payload: match.candidate as Prisma.InputJsonValue },
+      create: {
+        instanceId: stored.instanceId,
+        conversationId: stored.conversationId,
+        providerMessageId,
+        direction: fromMe ? 'OUTBOUND' : 'INBOUND',
+        type,
+        text: match.text,
+        status: fromMe ? 'SENT' : 'DELIVERED',
+        payload: match.candidate as Prisma.InputJsonValue,
+        sentAt: occurredAt,
+        deliveredAt: fromMe ? undefined : occurredAt,
+        createdAt: occurredAt,
+      },
+      include: { media: true },
+    });
+    await this.attachCompanionMedia(stored, companion, match.candidate, type);
+    await this.markCaptionCompanion(stored, payload, providerMessageId);
+    return { organizationId: stored.instance.organizationId, event: 'inbox.updated', payload: { conversationId: stored.conversationId } };
+  }
+
+  private async attachCompanionMedia(stored: AnyObject, companion: AnyObject, candidate: AnyObject, type: string) {
+    if (companion.media.length) return;
+    try {
+      await this.attachMedia(stored.instance, companion.id, candidate, type);
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.db.message.update({ where: { id: companion.id }, data: { payload: { ...candidate, mediaError: detail } as Prisma.InputJsonValue } });
+    }
+  }
+
+  private async markCaptionCompanion(stored: AnyObject, payload: AnyObject, providerMessageId: string) {
+    const { recoveredCaption: _recoveredCaption, captionProviderMessageId: _captionProviderMessageId, captionRecoveredAt: _captionRecoveredAt, ...originalPayload } = payload;
+    await this.db.message.update({
+      where: { id: stored.id },
+      data: {
+        text: payload.recoveredCaption === true ? null : stored.text,
+        payload: {
+          ...originalPayload,
+          captionCompanionProviderMessageId: providerMessageId,
+          captionReconciledAt: new Date().toISOString(),
+        } as Prisma.InputJsonValue,
+      },
+    });
   }
 
   private attachMedia(instance: { organizationId: string; instanceKey: string }, messageId: string, payload: AnyObject, type: string) {
@@ -1043,7 +1221,7 @@ export class InboundProcessor {
     // Evolution can replay SERVER_ACK after DELIVERY_ACK/READ on reconnect.
     // Delivery state must stay monotonic; timestamps also recover rows that an
     // older worker had already downgraded.
-    const currentStatus = message.readAt ? 'READ' : message.deliveredAt ? 'DELIVERED' : message.status;
+    const currentStatus = storedMessageDeliveryStatus(message);
     const status = advanceEvolutionMessageStatus(currentStatus, incomingStatus);
     const now = new Date();
     const providerJid = String(data.remoteJid || key.remoteJid || '');
@@ -1084,7 +1262,7 @@ export class InboundProcessor {
           remoteJid: lidJid,
           phoneJid,
           unreadCount: duplicate ? conversation.unreadCount + duplicate.unreadCount : undefined,
-          lastMessageAt: duplicate && duplicate.lastMessageAt && (!conversation.lastMessageAt || duplicate.lastMessageAt > conversation.lastMessageAt)
+          lastMessageAt: duplicate?.lastMessageAt && (!conversation.lastMessageAt || duplicate.lastMessageAt > conversation.lastMessageAt)
             ? duplicate.lastMessageAt
             : undefined,
         },

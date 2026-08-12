@@ -35,7 +35,7 @@ async function downloadReportPdf(query: string) {
     throw new Error(message);
   }
   const disposition = response.headers.get('Content-Disposition') || '';
-  const filename = disposition.match(/filename="?([^"]+)"?/i)?.[1] || 'relatorio-gerencial.pdf';
+  const filename = /filename="?([^"]+)"?/i.exec(disposition)?.[1] || 'relatorio-gerencial.pdf';
   const url = URL.createObjectURL(await response.blob());
   const anchor = document.createElement('a');
   anchor.href = url;
@@ -64,11 +64,11 @@ export function ReportsPage() {
   return <div className="reports-page">
     <div className="report-toolbar">
       <div>
-        <button className={period === '30' ? 'active' : ''} onClick={() => setPeriod('30')}>30 dias</button>
-        <button className={period === '90' ? 'active' : ''} onClick={() => setPeriod('90')}>90 dias</button>
-        <button className={period === 'year' ? 'active' : ''} onClick={() => setPeriod('year')}>Este ano</button>
+        <button type="button" className={period === '30' ? 'active' : ''} onClick={() => setPeriod('30')}>30 dias</button>
+        <button type="button" className={period === '90' ? 'active' : ''} onClick={() => setPeriod('90')}>90 dias</button>
+        <button type="button" className={period === 'year' ? 'active' : ''} onClick={() => setPeriod('year')}>Este ano</button>
       </div>
-      <button className="button button-secondary" disabled={exportPdf.isPending} onClick={() => exportPdf.mutate()}><Download size={15} />{exportPdf.isPending ? 'Gerando PDF…' : 'Exportar PDF'}</button>
+      <button type="button" className="button button-secondary" disabled={exportPdf.isPending} onClick={() => exportPdf.mutate()}><Download size={15} />{exportPdf.isPending ? 'Gerando PDF…' : 'Exportar PDF'}</button>
     </div>
     <section className="metric-grid report-metrics">
       <article className="metric-card"><div className="metric-icon violet"><CircleDollarSign /></div><span>Receita ganha</span><strong>{money(report.sales.wonValueCents)}</strong><p className="positive"><ArrowUpRight size={13} />{report.sales.won} oportunidade(s) ganha(s)</p></article>

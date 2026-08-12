@@ -1,10 +1,11 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type ReactNode } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { ArrowRight, Building2, ContactRound, KanbanSquare, LoaderCircle, MessageCircle, Search, X } from 'lucide-react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { useAuth } from '../App';
 import { api, money, type Envelope } from '../lib/api';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
+import type { UserContext } from '../lib/types';
 
 type SearchCompany = {
   id: string;
@@ -56,6 +57,83 @@ const resultIcons = {
   opportunity: KanbanSquare,
 } satisfies Record<SearchResult['type'], typeof Search>;
 
+function canReadResource(user: UserContext | null, resource: string) {
+  return Boolean(user?.permissions.some((permission) =>
+    (permission.resource === '*' || permission.resource === resource)
+    && (permission.action === '*' || permission.action === 'read')));
+}
+
+function opportunityTarget(opportunity: SearchOpportunity) {
+  const pipeline = opportunity.pipeline?.id
+    ? `&pipeline=${encodeURIComponent(opportunity.pipeline.id)}`
+    : '';
+  return `/pipeline?opportunity=${encodeURIComponent(opportunity.id)}${pipeline}`;
+}
+
+function searchState(ready: boolean, loading: boolean, failed: boolean, results: SearchResult[], term: string): ReactNode {
+  if (!ready) return <div className="global-search-state"><Search size={18} /><span>Digite pelo menos 2 caracteres para buscar.</span></div>;
+  if (loading && !results.length) return <div className="global-search-state"><LoaderCircle className="spin" size={18} /><span>Buscando no CRM…</span></div>;
+  if (failed && !results.length) return null;
+  if (!results.length) return <div className="global-search-state"><span>Nenhum resultado encontrado para “{term}”.</span></div>;
+  return undefined;
+}
+
+function SearchResultList({ results, activeIndex, onActivate, onOpen }: Readonly<{
+  results: SearchResult[];
+  activeIndex: number;
+  onActivate(index: number): void;
+  onOpen(result: SearchResult): void;
+}>) {
+  return <div className="global-search-list">
+    {results.map((result, index) => {
+      const Icon = resultIcons[result.type];
+      const showSection = index === 0 || results[index - 1].section !== result.section;
+      return <div className="global-search-group" key={`${result.type}-${result.id}`}>
+        {showSection && <span className="global-search-section">{result.section}</span>}
+        <button
+          id={`global-result-${result.type}-${result.id}`}
+          type="button"
+          className={`global-search-result${activeIndex === index ? ' active' : ''}`}
+          role="option"
+          aria-selected={activeIndex === index}
+          onMouseEnter={() => onActivate(index)}
+          onClick={() => onOpen(result)}
+        >
+          <span className={`global-search-result-icon ${result.type}`}><Icon size={16} /></span>
+          <span><strong>{result.title}</strong><small>{result.subtitle}</small></span>
+          <ArrowRight size={15} />
+        </button>
+      </div>;
+    })}
+  </div>;
+}
+
+function handleSearchNavigation(
+  event: ReactKeyboardEvent<HTMLInputElement>,
+  results: SearchResult[],
+  activeIndex: number,
+  setActiveIndex: React.Dispatch<React.SetStateAction<number>>,
+  openResult: (result: SearchResult) => void,
+  close: () => void,
+) {
+  if (event.key === 'ArrowDown' && results.length) {
+    event.preventDefault();
+    setActiveIndex((current) => Math.min(results.length - 1, current + 1));
+    return;
+  }
+  if (event.key === 'ArrowUp' && results.length) {
+    event.preventDefault();
+    setActiveIndex((current) => Math.max(0, current - 1));
+    return;
+  }
+  if (event.key === 'Enter' && results[activeIndex]) {
+    event.preventDefault();
+    openResult(results[activeIndex]);
+    return;
+  }
+  if (event.key === 'Escape') close();
+}
+
 export function GlobalSearch() {
   const { user } = useAuth();
   const navigate = useNavigate();
@@ -67,32 +145,28 @@ export function GlobalSearch() {
   const [activeIndex, setActiveIndex] = useState(0);
   const term = useDebouncedValue(query.trim(), 220);
   const ready = term.length >= 2;
-  const canRead = (resource: string) => Boolean(user?.permissions.some((permission) =>
-    (permission.resource === '*' || permission.resource === resource)
-    && (permission.action === '*' || permission.action === 'read')));
-
   const companies = useQuery({
     queryKey: ['global-search', 'companies', term],
     queryFn: () => api<Envelope<SearchCompany[]>>(`/companies?limit=5&search=${encodeURIComponent(term)}`),
-    enabled: ready && canRead('companies'),
+    enabled: ready && canReadResource(user, 'companies'),
     staleTime: 30_000,
   });
   const contacts = useQuery({
     queryKey: ['global-search', 'contacts', term],
     queryFn: () => api<Envelope<SearchContact[]>>(`/contacts?limit=5&search=${encodeURIComponent(term)}`),
-    enabled: ready && canRead('contacts'),
+    enabled: ready && canReadResource(user, 'contacts'),
     staleTime: 30_000,
   });
   const opportunities = useQuery({
     queryKey: ['global-search', 'opportunities', term],
     queryFn: () => api<Envelope<SearchOpportunity[]>>(`/opportunities?limit=5&search=${encodeURIComponent(term)}`),
-    enabled: ready && canRead('opportunities'),
+    enabled: ready && canReadResource(user, 'opportunities'),
     staleTime: 30_000,
   });
   const conversations = useQuery({
     queryKey: ['global-search', 'conversations', term],
     queryFn: () => api<Envelope<SearchConversation[]>>(`/conversations?status=active&limit=5&search=${encodeURIComponent(term)}`),
-    enabled: ready && canRead('conversations'),
+    enabled: ready && canReadResource(user, 'conversations'),
     staleTime: 15_000,
   });
 
@@ -133,7 +207,7 @@ export function GlobalSearch() {
         opportunity.stage?.name,
         money(opportunity.valueCents),
       ].filter(Boolean).join(' · '),
-      target: `/pipeline?opportunity=${encodeURIComponent(opportunity.id)}${opportunity.pipeline?.id ? `&pipeline=${encodeURIComponent(opportunity.pipeline.id)}` : ''}`,
+      target: opportunityTarget(opportunity),
     })),
   ], [companies.data, contacts.data, opportunities.data, conversations.data]);
   const loading = ready && (companies.isFetching || contacts.isFetching || opportunities.isFetching || conversations.isFetching);
@@ -185,21 +259,14 @@ export function GlobalSearch() {
         setOpen(true);
       }}
       onFocus={() => setOpen(true)}
-      onKeyDown={(event) => {
-        if (event.key === 'ArrowDown' && results.length) {
-          event.preventDefault();
-          setActiveIndex((current) => Math.min(results.length - 1, current + 1));
-        } else if (event.key === 'ArrowUp' && results.length) {
-          event.preventDefault();
-          setActiveIndex((current) => Math.max(0, current - 1));
-        } else if (event.key === 'Enter' && results[activeIndex]) {
-          event.preventDefault();
-          openResult(results[activeIndex]);
-        } else if (event.key === 'Escape') {
-          setOpen(false);
-          inputRef.current?.blur();
-        }
-      }}
+      onKeyDown={(event) => handleSearchNavigation(
+        event,
+        results,
+        activeIndex,
+        setActiveIndex,
+        openResult,
+        () => { setOpen(false); inputRef.current?.blur(); },
+      )}
       placeholder="Buscar atendimentos, empresas, contatos ou oportunidades…"
       role="combobox"
       aria-expanded={open}
@@ -221,36 +288,8 @@ export function GlobalSearch() {
       : <kbd>Ctrl + K</kbd>}
 
     {open && <div className="global-search-results" id="global-search-results" role="listbox">
-      {!ready
-        ? <div className="global-search-state"><Search size={18} /><span>Digite pelo menos 2 caracteres para buscar.</span></div>
-        : loading && !results.length
-          ? <div className="global-search-state"><LoaderCircle className="spin" size={18} /><span>Buscando no CRM…</span></div>
-          : failed && !results.length
-            ? null
-            : !results.length
-              ? <div className="global-search-state"><span>Nenhum resultado encontrado para “{term}”.</span></div>
-              : <div className="global-search-list">
-                {results.map((result, index) => {
-                  const Icon = resultIcons[result.type];
-                  const showSection = index === 0 || results[index - 1].section !== result.section;
-                  return <div className="global-search-group" key={`${result.type}-${result.id}`}>
-                    {showSection && <span className="global-search-section">{result.section}</span>}
-                    <button
-                      id={`global-result-${result.type}-${result.id}`}
-                      type="button"
-                      className={`global-search-result${activeIndex === index ? ' active' : ''}`}
-                      role="option"
-                      aria-selected={activeIndex === index}
-                      onMouseEnter={() => setActiveIndex(index)}
-                      onClick={() => openResult(result)}
-                    >
-                      <span className={`global-search-result-icon ${result.type}`}><Icon size={16} /></span>
-                      <span><strong>{result.title}</strong><small>{result.subtitle}</small></span>
-                      <ArrowRight size={15} />
-                    </button>
-                  </div>;
-                })}
-              </div>}
+      {searchState(ready, loading, failed, results, term)
+        ?? <SearchResultList results={results} activeIndex={activeIndex} onActivate={setActiveIndex} onOpen={openResult} />}
       {loading && results.length > 0 && <LoaderCircle className="global-search-inline-loader spin" size={15} />}
     </div>}
   </div>;

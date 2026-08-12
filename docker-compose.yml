@@ -46,7 +46,7 @@ services:
       HOST: 0.0.0.0
       APP_URL: ${APP_ADDRESS:-http://localhost}
       API_INTERNAL_URL: http://api:3000
-      DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:-prospecta}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
       REDIS_URL: redis://redis:6379
       EVOLUTION_API_URL: http://evolution:8080
       S3_ENDPOINT: http://minio:9000
@@ -94,7 +94,7 @@ services:
     environment:
       NODE_ENV: production
       APP_URL: ${APP_ADDRESS:-http://localhost}
-      DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:-prospecta}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
+      DATABASE_URL: postgresql://${POSTGRES_USER:-prospecta}:${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}@postgres:5432/${POSTGRES_DB:-prospecta}?schema=public
       REDIS_URL: redis://redis:6379
       EVOLUTION_API_URL: http://evolution:8080
       S3_ENDPOINT: http://minio:9000
@@ -138,7 +138,7 @@ services:
     environment:
       POSTGRES_DB: ${POSTGRES_DB:-prospecta}
       POSTGRES_USER: ${POSTGRES_USER:-prospecta}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-prospecta}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?Defina POSTGRES_PASSWORD no .env}
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
@@ -167,7 +167,7 @@ services:
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-prospecta}
-      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:-prospecta-secret}
+      MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?Defina S3_SECRET_KEY no .env}
     ports:
       - "${S3_BIND_ADDRESS:-0.0.0.0}:9000:9000"
     volumes:
@@ -202,7 +202,7 @@ services:
       AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
       DATABASE_ENABLED: "true"
       DATABASE_PROVIDER: postgresql
-      DATABASE_CONNECTION_URI: postgresql://${EVOLUTION_POSTGRES_USER:-evolution}:${EVOLUTION_POSTGRES_PASSWORD:-evolution}@evolution-postgres:5432/${EVOLUTION_POSTGRES_DB:-evolution}?schema=public
+      DATABASE_CONNECTION_URI: postgresql://${EVOLUTION_POSTGRES_USER:-evolution}:${EVOLUTION_POSTGRES_PASSWORD:?Defina EVOLUTION_POSTGRES_PASSWORD no .env}@evolution-postgres:5432/${EVOLUTION_POSTGRES_DB:-evolution}?schema=public
       DATABASE_CONNECTION_CLIENT_NAME: prospecta_evolution
       DATABASE_SAVE_DATA_INSTANCE: "true"
       DATABASE_SAVE_DATA_NEW_MESSAGE: "true"
@@ -216,7 +216,7 @@ services:
       CACHE_LOCAL_ENABLED: "false"
       S3_ENABLED: "true"
       S3_ACCESS_KEY: ${EVOLUTION_S3_ACCESS_KEY:-evolution}
-      S3_SECRET_KEY: ${EVOLUTION_S3_SECRET_KEY:-evolution-secret}
+      S3_SECRET_KEY: ${EVOLUTION_S3_SECRET_KEY:?Defina EVOLUTION_S3_SECRET_KEY no .env}
       S3_BUCKET: evolution-media
       S3_PORT: 9000
       S3_ENDPOINT: evolution-minio
@@ -250,7 +250,7 @@ services:
     command: server /data
     environment:
       MINIO_ROOT_USER: ${EVOLUTION_S3_ACCESS_KEY:-evolution}
-      MINIO_ROOT_PASSWORD: ${EVOLUTION_S3_SECRET_KEY:-evolution-secret}
+      MINIO_ROOT_PASSWORD: ${EVOLUTION_S3_SECRET_KEY:?Defina EVOLUTION_S3_SECRET_KEY no .env}
     volumes:
       - evolution_minio_data:/data
     healthcheck:
@@ -266,7 +266,7 @@ services:
     environment:
       POSTGRES_DB: ${EVOLUTION_POSTGRES_DB:-evolution}
       POSTGRES_USER: ${EVOLUTION_POSTGRES_USER:-evolution}
-      POSTGRES_PASSWORD: ${EVOLUTION_POSTGRES_PASSWORD:-evolution}
+      POSTGRES_PASSWORD: ${EVOLUTION_POSTGRES_PASSWORD:?Defina EVOLUTION_POSTGRES_PASSWORD no .env}
     volumes:
       - evolution_postgres_data:/var/lib/postgresql/data
     healthcheck:

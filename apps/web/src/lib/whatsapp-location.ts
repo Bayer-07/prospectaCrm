@@ -22,7 +22,9 @@ function firstText(...values: unknown[]) {
 
 function finiteNumber(...values: unknown[]) {
   for (const value of values) {
-    const parsed = typeof value === 'number' ? value : typeof value === 'string' ? Number(value) : Number.NaN;
+    let parsed = Number.NaN;
+    if (typeof value === 'number') parsed = value;
+    else if (typeof value === 'string') parsed = Number(value);
     if (Number.isFinite(parsed)) return parsed;
   }
   return undefined;
@@ -50,7 +52,7 @@ function thumbnailDataUrl(value: unknown) {
   if (!bytes || typeof globalThis.btoa !== 'function') return undefined;
   let binary = '';
   for (let offset = 0; offset < bytes.length; offset += 8_192) {
-    binary += String.fromCharCode(...bytes.slice(offset, offset + 8_192));
+    binary += String.fromCodePoint(...bytes.slice(offset, offset + 8_192));
   }
   return `data:image/jpeg;base64,${globalThis.btoa(binary)}`;
 }
@@ -70,12 +72,13 @@ export function extractWhatsappLocation(payload: unknown): WhatsappLocation | nu
     return null;
   }
 
+  const coordinates = `${latitude},${longitude}`;
   return {
     latitude,
     longitude,
     name: firstText(node.name, node.caption, node.comment),
     address: firstText(node.address),
     thumbnailUrl: thumbnailDataUrl(node.jpegThumbnail || node.thumbnail),
-    mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`,
+    mapsUrl: `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(coordinates)}`,
   };
 }

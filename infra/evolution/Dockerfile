@@ -15,7 +15,7 @@ COPY infra/evolution/link-preview.patch /tmp/link-preview.patch
 
 RUN git apply --check /tmp/link-preview.patch \
     && git apply /tmp/link-preview.patch \
-    && npm ci --silent \
+    && npm ci --ignore-scripts --silent \
     && cp .env.example .env \
     && chmod +x ./Docker/scripts/* \
     && ./Docker/scripts/generate_database.sh \
@@ -23,7 +23,11 @@ RUN git apply --check /tmp/link-preview.patch \
 
 FROM evoapicloud/evolution-api:v2.3.7
 
-COPY --from=builder /evolution/dist /evolution/dist
+COPY --chown=node:node --from=builder /evolution/dist /evolution/dist
+
+RUN chown -R node:node /evolution
+
+USER node
 
 LABEL org.opencontainers.image.title="BZS One Evolution API"
 LABEL org.opencontainers.image.description="Evolution API 2.3.7 com geração determinística de prévias de links"

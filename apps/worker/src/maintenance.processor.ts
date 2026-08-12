@@ -38,25 +38,33 @@ export async function runMaintenance(db: PrismaClient) {
     db.idempotencyRecord.deleteMany({ where: { expiresAt: { lt: now } } }),
   ]);
   for (const organization of organizations) {
-    const cutoff = new Date(now);
-    cutoff.setMonth(cutoff.getMonth() - organization.messageRetentionMonths);
-    for (let batch = 0; batch < MAX_RETENTION_BATCHES_PER_RUN; batch += 1) {
-      const expired = await db.message.findMany({
-        where: { conversation: { organizationId: organization.id }, createdAt: { lt: cutoff } },
-        orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
-        take: RETENTION_DELETE_BATCH_SIZE,
-        select: { id: true, media: { select: { key: true } } },
-      });
-      if (!expired.length) break;
-      const mediaKeys = expired.flatMap((message) => message.media.map((media) => media.key));
-      try {
-        await deleteStoredMedia(mediaKeys);
-      } catch (error) {
-        console.error(`[retention] Falha ao excluir mÃ­dias da organizaÃ§Ã£o ${organization.id}:`, error instanceof Error ? error.message : error);
-        break;
-      }
-      await db.message.deleteMany({ where: { id: { in: expired.map((message) => message.id) } } });
-      if (expired.length < RETENTION_DELETE_BATCH_SIZE) break;
+    await purgeExpiredMessages(db, organization, now);
+  }
+}
+
+async function purgeExpiredMessages(
+  db: PrismaClient,
+  organization: { id: string; messageRetentionMonths: number },
+  now: Date,
+) {
+  const cutoff = new Date(now);
+  cutoff.setMonth(cutoff.getMonth() - organization.messageRetentionMonths);
+  for (let batch = 0; batch < MAX_RETENTION_BATCHES_PER_RUN; batch += 1) {
+    const expired = await db.message.findMany({
+      where: { conversation: { organizationId: organization.id }, createdAt: { lt: cutoff } },
+      orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
+      take: RETENTION_DELETE_BATCH_SIZE,
+      select: { id: true, media: { select: { key: true } } },
+    });
+    if (!expired.length) break;
+    const mediaKeys = expired.flatMap((message) => message.media.map((media) => media.key));
+    try {
+      await deleteStoredMedia(mediaKeys);
+    } catch (error) {
+      console.error(`[retention] Falha ao excluir mídias da organização ${organization.id}:`, error instanceof Error ? error.message : error);
+      break;
     }
+    await db.message.deleteMany({ where: { id: { in: expired.map((message) => message.id) } } });
+    if (expired.length < RETENTION_DELETE_BATCH_SIZE) break;
   }
 }

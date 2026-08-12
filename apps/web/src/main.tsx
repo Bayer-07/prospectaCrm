@@ -5,6 +5,8 @@ import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { ToastProvider } from './components/ToastProvider';
 import './styles.css';
+import './interface-v2.css';
+import './interface-components.css';
 import './apple-ui.css';
 
 const queryClient = new QueryClient({

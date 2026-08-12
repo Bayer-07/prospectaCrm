@@ -5,7 +5,7 @@ export type BrowserAuthEvent = {
 };
 
 export const AUTH_EVENT_STORAGE_KEY = 'bzs_one_auth_event';
-const PUBLIC_AUTH_PATHS = ['/login', '/recuperar-senha', '/aceitar-convite', '/redefinir-senha'];
+const PUBLIC_AUTH_PATHS = new Set(['/login', '/recuperar-senha', '/aceitar-convite', '/redefinir-senha']);
 let redirectingToLogin = false;
 
 function browserAvailable() {
@@ -34,7 +34,7 @@ export function publishAuthEvent(type: BrowserAuthEvent['type']) {
   const event: BrowserAuthEvent = {
     type,
     at: Date.now(),
-    nonce: globalThis.crypto?.randomUUID?.() || `${Date.now()}-${Math.random()}`,
+    nonce: globalThis.crypto.randomUUID(),
   };
   window.localStorage.setItem(AUTH_EVENT_STORAGE_KEY, JSON.stringify(event));
 }
@@ -75,7 +75,7 @@ export function redirectToLogin(reason: 'logout' | 'expired' = 'expired') {
 
 export function handleUnauthorizedResponse() {
   if (!browserAvailable()) return;
-  if (PUBLIC_AUTH_PATHS.includes(window.location.pathname)) {
+  if (PUBLIC_AUTH_PATHS.has(window.location.pathname)) {
     window.sessionStorage.removeItem('prospecta_csrf');
     return;
   }

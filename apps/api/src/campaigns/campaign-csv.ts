@@ -49,6 +49,47 @@ function normalizePhone(value: string) {
   return `+${digits}`;
 }
 
+function campaignCsvColumns(records: Record<string, string>[]) {
+  const columns = Object.keys(records[0]);
+  const normalized = columns.map((column, index) => ({ column, index, normalized: normalizeHeader(column) }));
+  const findColumn = (...aliases: string[]) => normalized.find((item) => aliases.includes(item.normalized))?.column;
+  const messageColumns = normalized
+    .filter((item) => /^(mensagem|message|texto)(?:_|$)/.test(item.normalized) || ['mensagem', 'message', 'texto'].includes(item.normalized))
+    .sort((left, right) => left.index - right.index)
+    .map((item) => item.column);
+  return {
+    columns,
+    phoneColumn: findColumn('telefone', 'phone', 'numero', 'number', 'whatsapp', 'celular'),
+    nameColumn: findColumn('nome', 'name', 'contato', 'contact'),
+    emailColumn: findColumn('email', 'e_mail'),
+    messageColumns,
+  };
+}
+
+function campaignCsvRow(
+  record: Record<string, string>,
+  row: number,
+  columns: ReturnType<typeof campaignCsvColumns>,
+  seenPhones: Set<string>,
+): { value?: CampaignCsvRow; error?: string } {
+  const phone = normalizePhone(record[columns.phoneColumn!] || '');
+  if (!phone) return { error: 'Telefone inválido' };
+  const phoneKey = normalizePhoneKey(phone)!;
+  if (seenPhones.has(phoneKey)) return { error: 'Telefone duplicado no arquivo' };
+  const messages = columns.messageColumns.map((column) => String(record[column] || '').trim()).filter(Boolean);
+  if (!messages.length) return { error: 'Informe ao menos uma mensagem' };
+  seenPhones.add(phoneKey);
+  return {
+    value: {
+      row,
+      phone,
+      name: String(columns.nameColumn ? record[columns.nameColumn] || '' : '').trim() || phone,
+      email: String(columns.emailColumn ? record[columns.emailColumn] || '' : '').trim().toLowerCase() || undefined,
+      messages,
+    },
+  };
+}
+
 export function parseCampaignCsv(csv: string): CampaignCsvPreview {
   if (!csv?.trim()) throw new Error('Selecione um arquivo CSV preenchido');
 
@@ -66,56 +107,26 @@ export function parseCampaignCsv(csv: string): CampaignCsvPreview {
   }
   if (!records.length) throw new Error('O CSV não possui contatos');
 
-  const columns = Object.keys(records[0]);
-  const normalizedColumns = columns.map((column, index) => ({ column, index, normalized: normalizeHeader(column) }));
-  const findColumn = (...aliases: string[]) => normalizedColumns.find((item) => aliases.includes(item.normalized))?.column;
-  const phoneColumn = findColumn('telefone', 'phone', 'numero', 'number', 'whatsapp', 'celular');
-  const nameColumn = findColumn('nome', 'name', 'contato', 'contact');
-  const emailColumn = findColumn('email', 'e_mail');
-  const messageColumns = normalizedColumns
-    .filter((item) => /^(mensagem|message|texto)(?:_|$)/.test(item.normalized) || ['mensagem', 'message', 'texto'].includes(item.normalized))
-    .sort((left, right) => left.index - right.index)
-    .map((item) => item.column);
+  const columns = campaignCsvColumns(records);
 
-  if (!phoneColumn) throw new Error('O CSV precisa ter uma coluna “telefone”');
-  if (!messageColumns.length) throw new Error('O CSV precisa ter ao menos uma coluna “mensagem”');
+  if (!columns.phoneColumn) throw new Error('O CSV precisa ter uma coluna “telefone”');
+  if (!columns.messageColumns.length) throw new Error('O CSV precisa ter ao menos uma coluna “mensagem”');
 
   const rows: CampaignCsvRow[] = [];
   const errors: Array<{ row: number; error: string }> = [];
   const seenPhones = new Set<string>();
   for (let index = 0; index < records.length; index += 1) {
-    const record = records[index];
     const row = index + 2;
-    const phone = normalizePhone(record[phoneColumn] || '');
-    const messages = messageColumns.map((column) => String(record[column] || '').trim()).filter(Boolean);
-    if (!phone) {
-      errors.push({ row, error: 'Telefone inválido' });
-      continue;
-    }
-    const phoneKey = normalizePhoneKey(phone)!;
-    if (seenPhones.has(phoneKey)) {
-      errors.push({ row, error: 'Telefone duplicado no arquivo' });
-      continue;
-    }
-    if (!messages.length) {
-      errors.push({ row, error: 'Informe ao menos uma mensagem' });
-      continue;
-    }
-    seenPhones.add(phoneKey);
-    rows.push({
-      row,
-      phone,
-      name: String(nameColumn ? record[nameColumn] || '' : '').trim() || phone,
-      email: String(emailColumn ? record[emailColumn] || '' : '').trim().toLowerCase() || undefined,
-      messages,
-    });
+    const parsed = campaignCsvRow(records[index], row, columns, seenPhones);
+    if (parsed.error) errors.push({ row, error: parsed.error });
+    else if (parsed.value) rows.push(parsed.value);
   }
 
   return {
     total: records.length,
     valid: rows.length,
     invalid: errors.length,
-    columns,
+    columns: columns.columns,
     rows,
     errors,
   };

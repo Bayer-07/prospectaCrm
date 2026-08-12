@@ -37,16 +37,38 @@ const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', {
 });
 
 function pdfText(value: unknown) {
-  return String(value ?? '')
+  const raw = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+  const normalized = raw
     .replace(/[\u2010-\u2015]/g, '-')
     .replace(/[\u2018\u2019]/g, "'")
-    .replace(/[\u201c\u201d]/g, '"')
-    .replace(/[^\x09\x0a\x0d\x20-\x7e\xa0-\xff]/g, '')
+    .replace(/[\u201c\u201d]/g, '"');
+  return [...normalized]
+    .filter((character) => {
+      const codePoint = character.codePointAt(0) ?? 0;
+      const printableLatin = (codePoint >= 0x20 && codePoint <= 0x7e) || (codePoint >= 0xa0 && codePoint <= 0xff);
+      const layoutWhitespace = codePoint === 0x09 || codePoint === 0x0a || codePoint === 0x0d;
+      return printableLatin || layoutWhitespace;
+    })
+    .join('')
     .trim();
 }
 
 function dateTime(value: Date | string) {
   return dateTimeFormatter.format(new Date(value));
+}
+
+function splitLongWord(word: string, font: PDFFont, size: number, maxWidth: number) {
+  const parts: string[] = [];
+  let part = '';
+  for (const character of word) {
+    if (part && font.widthOfTextAtSize(`${part}${character}`, size) > maxWidth) {
+      parts.push(part);
+      part = character;
+    } else {
+      part += character;
+    }
+  }
+  return { parts, remainder: part };
 }
 
 function wrapLine(value: string, font: PDFFont, size: number, maxWidth: number) {
@@ -63,14 +85,9 @@ function wrapLine(value: string, font: PDFFont, size: number, maxWidth: number) 
       line = word;
       continue;
     }
-    let part = '';
-    for (const character of word) {
-      if (font.widthOfTextAtSize(`${part}${character}`, size) > maxWidth && part) {
-        lines.push(part);
-        part = character;
-      } else part += character;
-    }
-    line = part;
+    const split = splitLongWord(word, font, size, maxWidth);
+    lines.push(...split.parts);
+    line = split.remainder;
   }
   if (line) lines.push(line);
   return lines.length ? lines : [''];

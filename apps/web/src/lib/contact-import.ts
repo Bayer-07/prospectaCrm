@@ -31,7 +31,7 @@ export function detectCsvDelimiter(csv: string) {
   const firstLine = csv.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] || '';
   const separators = [',', ';', '\t'];
   return separators.reduce((best, current) =>
-    separatorCount(firstLine, current) > separatorCount(firstLine, best) ? current : best);
+    separatorCount(firstLine, current) > separatorCount(firstLine, best) ? current : best, separators[0]);
 }
 
 export function parseCsvHeaders(csv: string) {
@@ -76,4 +76,3 @@ export function suggestContactMapping(headers: string[]) {
     return [header, field];
   }));
 }
-

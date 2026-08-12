@@ -43,7 +43,7 @@ export async function apiFetch(path: string, init: RequestInit = {}) {
       headers: {
         ...(init.body ? { 'Content-Type': 'application/json' } : {}),
         ...(csrf ? { 'X-CSRF-Token': csrf } : {}),
-        ...(init.headers || {}),
+        ...init.headers,
       },
     });
   } catch (error) {

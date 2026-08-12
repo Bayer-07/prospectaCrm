@@ -27,7 +27,7 @@ export class ReportsService {
   constructor(private readonly db: PrismaService) {}
 
   async summary(auth: AuthContext, query: { from?: string; to?: string }) {
-    const from = query.from ? new Date(query.from) : new Date(Date.now() - 30 * 86400_000);
+    const from = query.from ? new Date(query.from) : new Date(Date.now() - 30 * 86_400_000);
     const to = query.to ? new Date(query.to) : new Date();
     const opportunityWhere = { organizationId: auth.organizationId, createdAt: { lte: to }, ...scopedWhere(auth, 'opportunities') };
     const campaignWhere = { organizationId: auth.organizationId, archivedAt: null, createdAt: { gte: from, lte: to } };
@@ -83,7 +83,10 @@ export class ReportsService {
 
   async exportCsv(auth: AuthContext) {
     const companies = await this.db.company.findMany({ where: { organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'companies') }, include: { owner: true, team: true } });
-    const escape = (value: unknown) => `"${String(value ?? '').replace(/"/g, '""')}"`;
+    const escape = (value: unknown) => {
+      const text = typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+      return `"${text.replaceAll('"', '""')}"`;
+    };
     return [
       ['id', 'empresa', 'cnpj', 'dominio', 'setor', 'responsavel', 'equipe', 'criado_em'].join(','),
       ...companies.map((company) => [company.id, company.name, company.cnpj, company.domain, company.sector, company.owner?.name, company.team?.name, company.createdAt.toISOString()].map(escape).join(',')),

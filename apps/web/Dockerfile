@@ -4,7 +4,7 @@ WORKDIR /workspace
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY apps/web/package.json apps/web/package.json
 COPY packages/contracts/package.json packages/contracts/package.json
-RUN pnpm install --frozen-lockfile --filter @prospecta/web... 
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter @prospecta/web...
 COPY apps/web apps/web
 COPY packages/contracts packages/contracts
 ARG VITE_API_URL=/api/v1
@@ -15,4 +15,7 @@ RUN pnpm --filter @prospecta/contracts build && pnpm --filter @prospecta/web bui
 FROM nginx:1.29-alpine
 COPY apps/web/nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /workspace/apps/web/dist /usr/share/nginx/html
+RUN touch /run/nginx.pid \
+  && chown -R nginx:nginx /var/cache/nginx /etc/nginx/conf.d /run/nginx.pid
+USER nginx
 HEALTHCHECK --interval=20s --timeout=3s CMD wget -qO- http://127.0.0.1/ || exit 1

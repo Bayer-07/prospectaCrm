@@ -13,6 +13,12 @@ const LOOKUP_TIMEOUT_MS = 10_000;
 const CACHE_TTL_MS = 12 * 60 * 60_000;
 const CACHE_MAX_ENTRIES = 500;
 
+function withoutTrailingSlash(value: string) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 type BrasilApiCnpjResponse = {
   cnpj?: unknown;
   razao_social?: unknown;
@@ -115,7 +121,7 @@ export class CompanyCnpjLookupService {
     if (cached && cached.expiresAt > Date.now()) return cached.value;
     if (cached) this.cache.delete(cnpj);
 
-    const baseUrl = (process.env.CNPJ_LOOKUP_API_URL || DEFAULT_CNPJ_API_URL).replace(/\/+$/, '');
+    const baseUrl = withoutTrailingSlash(process.env.CNPJ_LOOKUP_API_URL || DEFAULT_CNPJ_API_URL);
     try {
       const response = await fetch(`${baseUrl}/${encodeURIComponent(cnpj)}`, {
         headers: {

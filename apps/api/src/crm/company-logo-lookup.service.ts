@@ -30,9 +30,37 @@ function decodeHtml(value: string) {
     .replace(/&gt;/gi, '>');
 }
 
+function readAttributeValue(tag: string, start: number) {
+  let cursor = start;
+  while (cursor < tag.length && /\s/u.test(tag[cursor] ?? '')) cursor += 1;
+  if (tag[cursor] !== '=') return { value: '', next: cursor };
+  cursor += 1;
+  while (cursor < tag.length && /\s/u.test(tag[cursor] ?? '')) cursor += 1;
+  const quote = tag[cursor];
+  if (quote === '"' || quote === "'") {
+    const end = tag.indexOf(quote, cursor + 1);
+    return end < 0
+      ? { value: tag.slice(cursor + 1), next: tag.length }
+      : { value: tag.slice(cursor + 1, end), next: end + 1 };
+  }
+  let end = cursor;
+  while (end < tag.length && !/[\s>]/u.test(tag[end] ?? '')) end += 1;
+  return { value: tag.slice(cursor, end), next: end };
+}
+
 function attribute(tag: string, name: string) {
-  const match = tag.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
-  return decodeHtml(match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim();
+  const target = name.toLowerCase();
+  let cursor = 0;
+  while (cursor < tag.length) {
+    while (cursor < tag.length && /[\s</>]/u.test(tag[cursor] ?? '')) cursor += 1;
+    const start = cursor;
+    while (cursor < tag.length && !/[\s=/>]/u.test(tag[cursor] ?? '')) cursor += 1;
+    const key = tag.slice(start, cursor).toLowerCase();
+    const result = readAttributeValue(tag, cursor);
+    if (key === target) return decodeHtml(result.value).trim();
+    cursor = result.next > cursor ? result.next : cursor + 1;
+  }
+  return '';
 }
 
 function absoluteHttpUrl(value: string, baseUrl: string) {
@@ -42,6 +70,15 @@ function absoluteHttpUrl(value: string, baseUrl: string) {
   } catch {
     return undefined;
   }
+}
+
+function directLogo(record: Record<string, unknown>) {
+  const logo = record.logo;
+  if (typeof logo === 'string') return logo;
+  if (!logo || typeof logo !== 'object') return undefined;
+  const logoRecord = logo as Record<string, unknown>;
+  if (typeof logoRecord.url === 'string') return logoRecord.url;
+  return typeof logoRecord.contentUrl === 'string' ? logoRecord.contentUrl : undefined;
 }
 
 function jsonLogo(value: unknown, depth = 0): string | undefined {
@@ -55,13 +92,8 @@ function jsonLogo(value: unknown, depth = 0): string | undefined {
   }
   if (typeof value !== 'object') return undefined;
   const record = value as Record<string, unknown>;
-  const logo = record.logo;
-  if (typeof logo === 'string') return logo;
-  if (logo && typeof logo === 'object') {
-    const logoRecord = logo as Record<string, unknown>;
-    if (typeof logoRecord.url === 'string') return logoRecord.url;
-    if (typeof logoRecord.contentUrl === 'string') return logoRecord.contentUrl;
-  }
+  const direct = directLogo(record);
+  if (direct) return direct;
   for (const nested of Object.values(record)) {
     const found = jsonLogo(nested, depth + 1);
     if (found) return found;
@@ -69,48 +101,68 @@ function jsonLogo(value: unknown, depth = 0): string | undefined {
   return undefined;
 }
 
-export function extractCompanyLogoCandidates(html: string, baseUrl: string) {
-  const candidates: LogoCandidate[] = [];
-  const add = (value: string, score: number) => {
-    const url = absoluteHttpUrl(value, baseUrl);
-    if (url) candidates.push({ score, url });
-  };
+function appendCandidate(candidates: LogoCandidate[], value: string, score: number, baseUrl: string) {
+  const url = absoluteHttpUrl(value, baseUrl);
+  if (url) candidates.push({ score, url });
+}
 
+function appendJsonLdCandidates(candidates: LogoCandidate[], html: string, baseUrl: string) {
   for (const match of html.matchAll(/<script\b[^>]*type\s*=\s*["']application\/ld\+json["'][^>]*>([\s\S]*?)<\/script>/gi)) {
     try {
       const logo = jsonLogo(JSON.parse(match[1]?.trim() || 'null'));
-      if (logo) add(logo, 1_000);
+      if (logo) appendCandidate(candidates, logo, 1_000, baseUrl);
     } catch {
       // JSON-LD inválido não deve impedir os demais fallbacks.
     }
   }
+}
 
+function appendImageCandidates(candidates: LogoCandidate[], html: string, baseUrl: string) {
   for (const match of html.matchAll(/<img\b[^>]*>/gi)) {
     const tag = match[0];
     const semanticText = `${attribute(tag, 'id')} ${attribute(tag, 'class')} ${attribute(tag, 'alt')}`;
-    if (/\blogo\b/i.test(semanticText)) add(attribute(tag, 'src'), 900);
+    if (/\blogo\b/i.test(semanticText)) appendCandidate(candidates, attribute(tag, 'src'), 900, baseUrl);
   }
+}
 
+function largestDeclaredIconSize(sizes: string) {
+  let largest = 0;
+  for (const item of sizes.toLowerCase().split(/\s+/u)) {
+    const separator = item.indexOf('x');
+    if (separator <= 0) continue;
+    largest = Math.max(largest, Number(item.slice(0, separator)) || 0, Number(item.slice(separator + 1)) || 0);
+  }
+  return largest;
+}
+
+function appendIconCandidates(candidates: LogoCandidate[], html: string, baseUrl: string) {
   for (const match of html.matchAll(/<link\b[^>]*>/gi)) {
     const tag = match[0];
     const rel = attribute(tag, 'rel').toLowerCase();
-    if (!rel.split(/\s+/).includes('icon')) continue;
-    const sizes = attribute(tag, 'sizes');
-    const size = [...sizes.matchAll(/(\d+)x(\d+)/gi)].reduce((largest, item) => {
-      return Math.max(largest, Number(item[1]) || 0, Number(item[2]) || 0);
-    }, 0);
-    add(attribute(tag, 'href'), rel.includes('apple-touch-icon') ? 800 + size : 600 + size);
+    if (!rel.split(/\s+/u).includes('icon')) continue;
+    const size = largestDeclaredIconSize(attribute(tag, 'sizes'));
+    const score = rel.includes('apple-touch-icon') ? 800 + size : 600 + size;
+    appendCandidate(candidates, attribute(tag, 'href'), score, baseUrl);
   }
+}
 
+function appendMetadataCandidates(candidates: LogoCandidate[], html: string, baseUrl: string) {
   for (const match of html.matchAll(/<meta\b[^>]*>/gi)) {
     const tag = match[0];
     const property = (attribute(tag, 'property') || attribute(tag, 'name')).toLowerCase();
-    if (property === 'og:image' || property === 'og:image:url' || property === 'og:image:secure_url') {
-      add(attribute(tag, 'content'), property === 'og:image:secure_url' ? 510 : 500);
-    }
+    if (!['og:image', 'og:image:url', 'og:image:secure_url'].includes(property)) continue;
+    const score = property === 'og:image:secure_url' ? 510 : 500;
+    appendCandidate(candidates, attribute(tag, 'content'), score, baseUrl);
   }
+}
 
-  add('/favicon.ico', 100);
+export function extractCompanyLogoCandidates(html: string, baseUrl: string) {
+  const candidates: LogoCandidate[] = [];
+  appendJsonLdCandidates(candidates, html, baseUrl);
+  appendImageCandidates(candidates, html, baseUrl);
+  appendIconCandidates(candidates, html, baseUrl);
+  appendMetadataCandidates(candidates, html, baseUrl);
+  appendCandidate(candidates, '/favicon.ico', 100, baseUrl);
   const unique = new Map<string, LogoCandidate>();
   for (const candidate of candidates) {
     const existing = unique.get(candidate.url);
@@ -187,9 +239,13 @@ function detectedImageType(buffer: Buffer, header: string | null): CompanyLogoLo
 }
 
 function extensionFor(contentType: CompanyLogoLookup['contentType']) {
-  return contentType === 'image/jpeg' ? 'jpg'
-    : contentType === 'image/png' ? 'png'
-      : contentType === 'image/webp' ? 'webp' : 'ico';
+  const extensions: Record<CompanyLogoLookup['contentType'], string> = {
+    'image/jpeg': 'jpg',
+    'image/png': 'png',
+    'image/webp': 'webp',
+    'image/x-icon': 'ico',
+  };
+  return extensions[contentType];
 }
 
 @Injectable()
@@ -201,43 +257,48 @@ export class CompanyLogoLookupService {
   }>();
   private cacheBytes = 0;
 
-  async lookup(rawDomain: unknown) {
-    const domain = normalizeCompanyDomain(rawDomain);
-    const cached = this.cache.get(domain);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
-    if (cached) this.removeCached(domain);
+  private async logoFromCandidate(domain: string, candidate: LogoCandidate) {
+    try {
+      const image = await this.fetchResource(candidate.url, LOGO_LIMIT_BYTES, 'image/*');
+      const contentType = detectedImageType(image.buffer, image.contentType);
+      if (!contentType || image.buffer.length < 32) return null;
+      return {
+        domain,
+        contentType,
+        dataUrl: `data:${contentType};base64,${image.buffer.toString('base64')}`,
+        filename: `logo-${domain.replace(/[^a-z0-9.-]/gi, '-')}.${extensionFor(contentType)}`,
+        sourceUrl: image.finalUrl,
+      } satisfies CompanyLogoLookup;
+    } catch {
+      return null;
+    }
+  }
 
-    let value: CompanyLogoLookup | null = null;
+  private async logoFromWebsite(domain: string, websiteUrl: string) {
+    const website = await this.fetchResource(websiteUrl, HTML_LIMIT_BYTES, 'text/html,application/xhtml+xml');
+    const htmlType = website.contentType.split(';', 1)[0]?.trim().toLowerCase();
+    if (htmlType && !['text/html', 'application/xhtml+xml'].includes(htmlType)) return null;
+    const candidates = extractCompanyLogoCandidates(website.buffer.toString('utf8'), website.finalUrl).slice(0, 10);
+    for (const candidate of candidates) {
+      const logo = await this.logoFromCandidate(domain, candidate);
+      if (logo) return logo;
+    }
+    return null;
+  }
+
+  private async findLogo(domain: string) {
     for (const websiteUrl of [`https://${domain}/`, `http://${domain}/`]) {
       try {
-        const website = await this.fetchResource(websiteUrl, HTML_LIMIT_BYTES, 'text/html,application/xhtml+xml');
-        const htmlType = website.contentType.split(';', 1)[0]?.trim().toLowerCase();
-        if (htmlType && htmlType !== 'text/html' && htmlType !== 'application/xhtml+xml') continue;
-        const html = website.buffer.toString('utf8');
-        const candidates = extractCompanyLogoCandidates(html, website.finalUrl).slice(0, 10);
-        for (const candidate of candidates) {
-          try {
-            const image = await this.fetchResource(candidate.url, LOGO_LIMIT_BYTES, 'image/*');
-            const contentType = detectedImageType(image.buffer, image.contentType);
-            if (!contentType || image.buffer.length < 32) continue;
-            value = {
-              domain,
-              contentType,
-              dataUrl: `data:${contentType};base64,${image.buffer.toString('base64')}`,
-              filename: `logo-${domain.replace(/[^a-z0-9.-]/gi, '-')}.${extensionFor(contentType)}`,
-              sourceUrl: image.finalUrl,
-            };
-            break;
-          } catch {
-            // Tenta o próximo candidato declarado pelo site.
-          }
-        }
-        if (value) break;
+        const logo = await this.logoFromWebsite(domain, websiteUrl);
+        if (logo) return logo;
       } catch {
         // Tenta HTTP apenas quando HTTPS ou a leitura do site falhar.
       }
     }
+    return null;
+  }
 
+  private cacheLookup(domain: string, value: CompanyLogoLookup | null) {
     const sizeBytes = value ? Buffer.byteLength(value.dataUrl, 'utf8') : 0;
     while (
       this.cache.size >= CACHE_MAX_ENTRIES
@@ -245,14 +306,23 @@ export class CompanyLogoLookupService {
     ) {
       this.removeCached(this.cache.keys().next().value as string);
     }
-    if (sizeBytes <= CACHE_MAX_BYTES) {
-      this.cache.set(domain, {
-        expiresAt: Date.now() + (value ? CACHE_TTL_MS : EMPTY_CACHE_TTL_MS),
-        sizeBytes,
-        value,
-      });
-      this.cacheBytes += sizeBytes;
-    }
+    if (sizeBytes > CACHE_MAX_BYTES) return;
+    this.cache.set(domain, {
+      expiresAt: Date.now() + (value ? CACHE_TTL_MS : EMPTY_CACHE_TTL_MS),
+      sizeBytes,
+      value,
+    });
+    this.cacheBytes += sizeBytes;
+  }
+
+  async lookup(rawDomain: unknown) {
+    const domain = normalizeCompanyDomain(rawDomain);
+    const cached = this.cache.get(domain);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    if (cached) this.removeCached(domain);
+
+    const value = await this.findLogo(domain);
+    this.cacheLookup(domain, value);
     return value;
   }
 
@@ -277,43 +347,57 @@ export class CompanyLogoLookupService {
     return url;
   }
 
+  private async requestResource(safeUrl: URL, accept: string) {
+    return fetch(safeUrl, {
+      redirect: 'manual',
+      headers: {
+        Accept: accept,
+        'User-Agent': 'Mozilla/5.0 (compatible; BZS-One-LogoBot/1.0; +internal CRM)',
+      },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  }
+
+  private redirectTarget(response: Response, safeUrl: URL, redirects: number) {
+    if (response.status < 300 || response.status >= 400) return undefined;
+    const location = response.headers.get('location');
+    if (!location || redirects === MAX_REDIRECTS) throw new Error('Redirecionamento inválido');
+    return new URL(location, safeUrl).toString();
+  }
+
+  private async readResponseBuffer(response: Response, limitBytes: number) {
+    if (!response.ok) throw new Error(`Resposta HTTP ${response.status}`);
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (declaredLength > limitBytes) throw new Error('Conteúdo externo muito grande');
+    if (!response.body) throw new Error('Resposta externa vazia');
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    const reader = response.body.getReader();
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.byteLength;
+      if (total > limitBytes) {
+        await reader.cancel();
+        throw new Error('Conteúdo externo muito grande');
+      }
+      chunks.push(part.value);
+    }
+    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total);
+  }
+
   private async fetchResource(rawUrl: string, limitBytes: number, accept: string) {
     let current = rawUrl;
     for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
       const safeUrl = await this.ensurePublicUrl(current);
-      const response = await fetch(safeUrl, {
-        redirect: 'manual',
-        headers: {
-          Accept: accept,
-          'User-Agent': 'Mozilla/5.0 (compatible; BZS-One-LogoBot/1.0; +internal CRM)',
-        },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        if (!location || redirects === MAX_REDIRECTS) throw new Error('Redirecionamento inválido');
-        current = new URL(location, safeUrl).toString();
+      const response = await this.requestResource(safeUrl, accept);
+      const redirect = this.redirectTarget(response, safeUrl, redirects);
+      if (redirect) {
+        current = redirect;
         continue;
       }
-      if (!response.ok) throw new Error(`Resposta HTTP ${response.status}`);
-      const declaredLength = Number(response.headers.get('content-length') || 0);
-      if (declaredLength > limitBytes) throw new Error('Conteúdo externo muito grande');
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      if (!response.body) throw new Error('Resposta externa vazia');
-      const reader = response.body.getReader();
-      while (true) {
-        const part = await reader.read();
-        if (part.done) break;
-        total += part.value.byteLength;
-        if (total > limitBytes) {
-          await reader.cancel();
-          throw new Error('Conteúdo externo muito grande');
-        }
-        chunks.push(part.value);
-      }
       return {
-        buffer: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total),
+        buffer: await this.readResponseBuffer(response, limitBytes),
         contentType: response.headers.get('content-type') || '',
         finalUrl: safeUrl.toString(),
       };

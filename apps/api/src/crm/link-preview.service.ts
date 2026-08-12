@@ -9,8 +9,9 @@ const MAX_REDIRECTS = 4;
 const CACHE_TTL_MS = 30 * 60_000;
 const FALLBACK_CACHE_TTL_MS = 5 * 60_000;
 const CACHE_MAX_ENTRIES = 200;
-const MESSAGE_LINK_PATTERN = /https?:\/\/[^\s<>]+|www\.[^\s<>]+/i;
-const TRAILING_LINK_PUNCTUATION = /[.,!?;:)}\]"'’”*_~]+$/u;
+const HTTP_LINK_PATTERN = /https?:\/\/[^\s<>]+/i;
+const WWW_LINK_PATTERN = /www\.[^\s<>]+/i;
+const TRAILING_LINK_PUNCTUATION = new Set('.,!?;:)}]"\'’”*_~');
 
 export type LinkPreview = {
   url: string;
@@ -21,10 +22,19 @@ export type LinkPreview = {
   siteName?: string;
 };
 
+function trimTrailingLinkPunctuation(value: string) {
+  let end = value.length;
+  while (end > 0 && TRAILING_LINK_PUNCTUATION.has(value[end - 1] ?? '')) end -= 1;
+  return value.slice(0, end);
+}
+
 export function firstLinkInText(text: string) {
-  const raw = text.match(MESSAGE_LINK_PATTERN)?.[0];
+  const candidates = [HTTP_LINK_PATTERN.exec(text), WWW_LINK_PATTERN.exec(text)]
+    .filter((match): match is RegExpExecArray => Boolean(match))
+    .sort((left, right) => left.index - right.index);
+  const raw = candidates[0]?.[0];
   if (!raw) return undefined;
-  const value = raw.replace(TRAILING_LINK_PUNCTUATION, '');
+  const value = trimTrailingLinkPunctuation(raw);
   if (!value) return undefined;
   return value.toLocaleLowerCase('pt-BR').startsWith('www.') ? `https://${value}` : value;
 }
@@ -44,13 +54,52 @@ function decodeHtml(value: string) {
     .replace(/&#x([0-9a-f]+);/gi, (_, code: string) => codePoint(code, 16));
 }
 
+function readAttributeValue(tag: string, start: number) {
+  let cursor = start;
+  while (cursor < tag.length && /\s/u.test(tag[cursor] ?? '')) cursor += 1;
+  if (tag[cursor] !== '=') return { value: '', next: cursor };
+  cursor += 1;
+  while (cursor < tag.length && /\s/u.test(tag[cursor] ?? '')) cursor += 1;
+  const quote = tag[cursor];
+  if (quote === '"' || quote === "'") {
+    const end = tag.indexOf(quote, cursor + 1);
+    return end < 0
+      ? { value: tag.slice(cursor + 1), next: tag.length }
+      : { value: tag.slice(cursor + 1, end), next: end + 1 };
+  }
+  let end = cursor;
+  while (end < tag.length && !/[\s>]/u.test(tag[end] ?? '')) end += 1;
+  return { value: tag.slice(cursor, end), next: end };
+}
+
 function attribute(tag: string, name: string) {
-  const match = tag.match(new RegExp(`(?:^|\\s)${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)'|([^\\s>]+))`, 'i'));
-  return decodeHtml(match?.[1] ?? match?.[2] ?? match?.[3] ?? '').trim();
+  const target = name.toLowerCase();
+  let cursor = 0;
+  while (cursor < tag.length) {
+    while (cursor < tag.length && /[\s</>]/u.test(tag[cursor] ?? '')) cursor += 1;
+    const start = cursor;
+    while (cursor < tag.length && !/[\s=/>]/u.test(tag[cursor] ?? '')) cursor += 1;
+    const key = tag.slice(start, cursor).toLowerCase();
+    const result = readAttributeValue(tag, cursor);
+    if (key === target) return decodeHtml(result.value).trim();
+    cursor = result.next > cursor ? result.next : cursor + 1;
+  }
+  return '';
+}
+
+function stripMarkup(value: string) {
+  let result = '';
+  let insideTag = false;
+  for (const character of value) {
+    if (character === '<') insideTag = true;
+    else if (character === '>') insideTag = false;
+    else if (!insideTag) result += character;
+  }
+  return result;
 }
 
 function cleanText(value: string, maxLength: number) {
-  const text = decodeHtml(value.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+  const text = decodeHtml(stripMarkup(value)).replace(/\s+/g, ' ').trim();
   return text ? text.slice(0, maxLength) : undefined;
 }
 
@@ -73,7 +122,7 @@ export function extractLinkPreviewMetadata(html: string, pageUrl: string): LinkP
     if (key && content && !metadata.has(key)) metadata.set(key, content);
   }
   const page = new URL(pageUrl);
-  const titleTag = html.match(/<title\b[^>]*>([\s\S]*?)<\/title>/i)?.[1] || '';
+  const titleTag = /<title\b[^>]*>([\s\S]*?)<\/title>/i.exec(html)?.[1] || '';
   const title = cleanText(metadata.get('og:title') || metadata.get('twitter:title') || titleTag, 200);
   const description = cleanText(
     metadata.get('og:description') || metadata.get('twitter:description') || metadata.get('description') || '',
@@ -193,45 +242,65 @@ export class LinkPreviewService {
     return url;
   }
 
+  private async requestPage(safeUrl: URL) {
+    return fetch(safeUrl, {
+      redirect: 'manual',
+      headers: {
+        Accept: 'text/html,application/xhtml+xml',
+        'User-Agent': 'Mozilla/5.0 (compatible; BZS-One-LinkPreview/1.0; +internal CRM)',
+      },
+      signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
+    });
+  }
+
+  private redirectTarget(response: Response, safeUrl: URL, redirects: number) {
+    if (response.status < 300 || response.status >= 400) return undefined;
+    const location = response.headers.get('location');
+    if (!location || redirects === MAX_REDIRECTS) throw new Error('Redirecionamento inválido');
+    return new URL(location, safeUrl).toString();
+  }
+
+  private validateHtmlResponse(response: Response) {
+    if (!response.ok) throw new Error(`Resposta HTTP ${response.status}`);
+    const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
+    if (contentType && !['text/html', 'application/xhtml+xml'].includes(contentType)) {
+      throw new Error('Conteúdo sem prévia HTML');
+    }
+    const declaredLength = Number(response.headers.get('content-length') || 0);
+    if (declaredLength > HTML_LIMIT_BYTES) throw new Error('Página externa muito grande');
+    if (!response.body) throw new Error('Resposta externa vazia');
+    return response.body;
+  }
+
+  private async readHtmlBody(response: Response) {
+    const reader = this.validateHtmlResponse(response).getReader();
+    const chunks: Uint8Array[] = [];
+    let total = 0;
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      total += part.value.byteLength;
+      if (total > HTML_LIMIT_BYTES) {
+        await reader.cancel();
+        throw new Error('Página externa muito grande');
+      }
+      chunks.push(part.value);
+    }
+    return Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total).toString('utf8');
+  }
+
   private async fetchHtml(rawUrl: string) {
     let current = rawUrl;
     for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
       const safeUrl = await this.ensurePublicUrl(current);
-      const response = await fetch(safeUrl, {
-        redirect: 'manual',
-        headers: {
-          Accept: 'text/html,application/xhtml+xml',
-          'User-Agent': 'Mozilla/5.0 (compatible; BZS-One-LinkPreview/1.0; +internal CRM)',
-        },
-        signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
-      });
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get('location');
-        if (!location || redirects === MAX_REDIRECTS) throw new Error('Redirecionamento inválido');
-        current = new URL(location, safeUrl).toString();
+      const response = await this.requestPage(safeUrl);
+      const redirect = this.redirectTarget(response, safeUrl, redirects);
+      if (redirect) {
+        current = redirect;
         continue;
       }
-      if (!response.ok) throw new Error(`Resposta HTTP ${response.status}`);
-      const contentType = response.headers.get('content-type')?.split(';', 1)[0]?.trim().toLowerCase();
-      if (contentType && !['text/html', 'application/xhtml+xml'].includes(contentType)) throw new Error('Conteúdo sem prévia HTML');
-      const declaredLength = Number(response.headers.get('content-length') || 0);
-      if (declaredLength > HTML_LIMIT_BYTES) throw new Error('Página externa muito grande');
-      if (!response.body) throw new Error('Resposta externa vazia');
-      const chunks: Uint8Array[] = [];
-      let total = 0;
-      const reader = response.body.getReader();
-      while (true) {
-        const part = await reader.read();
-        if (part.done) break;
-        total += part.value.byteLength;
-        if (total > HTML_LIMIT_BYTES) {
-          await reader.cancel();
-          throw new Error('Página externa muito grande');
-        }
-        chunks.push(part.value);
-      }
       return {
-        html: Buffer.concat(chunks.map((chunk) => Buffer.from(chunk)), total).toString('utf8'),
+        html: await this.readHtmlBody(response),
         finalUrl: safeUrl.toString(),
       };
     }

@@ -1,13 +1,13 @@
 import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
-import { randomUUID } from 'node:crypto';
+import { randomInt, randomUUID } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
 import { GmailCampaignClient, GmailCampaignError } from './gmail-campaign-client.js';
 import { normalizeMailgunMessageId } from './mailgun-client.js';
 import { signedMediaUrl, storedMediaBase64 } from './storage.js';
 
-const randomBetween = (min: number, max: number) => Math.floor(Math.random() * (max - min + 1) + min);
+const randomBetween = (min: number, max: number) => randomInt(min, max + 1);
 const sendingWindowFormatter = new Intl.DateTimeFormat('en-CA', {
   timeZone: 'America/Sao_Paulo',
   weekday: 'short',
@@ -132,7 +132,7 @@ export class CampaignProcessor {
     }
     const profile = campaign.instance?.warmupProfile;
     if (campaign.channel === 'WHATSAPP' && profile && profile.sentToday >= profile.currentDailyCap) {
-      await this.queue.add('dispatch-campaign', { campaignId }, { delay: 60 * 60_000, jobId: `campaign-${campaignId}-cap-${Math.floor(Date.now() / 3600_000)}` });
+      await this.queue.add('dispatch-campaign', { campaignId }, { delay: 60 * 60_000, jobId: `campaign-${campaignId}-cap-${Math.floor(Date.now() / 3_600_000)}` });
       return;
     }
     const recipient = await this.db.campaignRecipient.findFirst({
@@ -168,7 +168,7 @@ export class CampaignProcessor {
         campaign: { include: { bubbles: { orderBy: { position: 'asc' } } } },
       },
     });
-    if (!recipient || recipient.campaign.channel !== 'EMAIL' || recipient.campaign.status !== 'RUNNING' || recipient.status !== 'QUEUED') return;
+    if (recipient?.campaign.channel !== 'EMAIL' || recipient.campaign.status !== 'RUNNING' || recipient.status !== 'QUEUED') return;
 
     const { campaign, contact } = recipient;
     if (contact.campaignsBlocked || !contact.email || contact.suppressions.length) {
@@ -275,137 +275,167 @@ export class CampaignProcessor {
         },
       },
     });
-    if (!recipient || recipient.campaign.status !== 'RUNNING' || recipient.status !== 'QUEUED') return;
+    if (recipient?.campaign.status !== 'RUNNING' || recipient.status !== 'QUEUED') return;
     const { campaign, contact } = recipient;
-    if (campaign.instance?.status !== 'CONNECTED') {
+    if (await this.pauseDisconnectedCampaign(recipientId, campaign)) return;
+    if (await this.skipBlockedWhatsappRecipient(recipientId, campaign, contact)) return;
+    const sequence = campaignMessageSequence(recipient.messages, campaign.bubbles);
+    const bubble = sequence[position];
+    if (!bubble) {
+      return this.completeWhatsappRecipient(recipientId, position, campaign);
+    }
+    try {
+      if (!await this.verifyWhatsappRecipient(recipientId, position, recipient, campaign, contact)) return;
+      await this.deliverWhatsappBubble(recipientId, position, bubble, campaign, contact);
+    } catch (error) {
+      if (await this.handleWhatsappSendError(recipientId, campaign, job, error)) return;
+      throw error;
+    }
+  }
+
+  private async verifyWhatsappRecipient(recipientId: string, position: number, recipient: any, campaign: any, contact: any) {
+    const verificationExpired = !recipient.whatsappVerifiedAt
+      || recipient.whatsappVerifiedAt.getTime() < Date.now() - 24 * 60 * 60_000;
+    if (position !== 0 || !verificationExpired) return true;
+    const [verification] = await this.evolution.checkWhatsappNumbers(campaign.instance.instanceKey, [contact.phone]);
+    if (verification?.exists) {
+      await this.db.campaignRecipient.update({ where: { id: recipientId }, data: { whatsappVerifiedAt: new Date() } });
+      return true;
+    }
+    await this.db.campaignRecipient.update({
+      where: { id: recipientId },
+      data: { status: 'SKIPPED', exclusionReason: 'Número não possui WhatsApp', whatsappVerifiedAt: null },
+    });
+    await this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
+    return false;
+  }
+
+  private async deliverWhatsappBubble(recipientId: string, position: number, bubble: any, campaign: any, contact: any) {
+    const text = this.render(bubble.content, campaignContactVariables(contact));
+    const mediaBase64 = bubble.type === 'audio' && bubble.mediaKey ? await storedMediaBase64(bubble.mediaKey) : undefined;
+    const mediaUrl = bubble.mediaKey && !mediaBase64 ? await signedMediaUrl(bubble.mediaKey) : undefined;
+    let conversation = await this.db.conversation.findFirst({
+      where: { instanceId: campaign.instanceId, contactId: contact.id },
+      select: { id: true, remoteJid: true },
+    });
+    const result = await this.evolution.send(campaign.instance.instanceKey, {
+      number: conversation?.remoteJid.includes('@lid') ? conversation.remoteJid : contact.phone,
+      type: bubble.type,
+      text,
+      mediaUrl,
+      mediaBase64,
+    });
+    const providerId = String(result.key?.id || result.messageId || randomUUID());
+    if (!conversation) conversation = await this.createCampaignConversation(campaign, contact);
+    await this.db.message.create({ data: {
+      instanceId: campaign.instanceId, conversationId: conversation.id, providerMessageId: providerId,
+      direction: 'OUTBOUND', type: bubble.type, text, status: 'SENT', sentAt: new Date(),
+      payload: { campaignId: campaign.id, recipientId, bubbleId: bubble.id || null },
+    } });
+    await this.db.campaignRecipient.update({ where: { id: recipientId }, data: { lastBubblePosition: position } });
+    const delay = randomBetween(campaign.bubbleDelayMinSeconds, campaign.bubbleDelayMaxSeconds) * 1000;
+    await this.queue.add('send-campaign-bubble', { recipientId, position: position + 1 }, { delay, jobId: `recipient-${recipientId}-bubble-${position + 1}`, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
+  }
+
+  private async createCampaignConversation(campaign: any, contact: any) {
+    const conversation = await this.db.conversation.create({
+      data: {
+        organizationId: campaign.organizationId, instanceId: campaign.instanceId, contactId: contact.id,
+        remoteJid: `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`, lastMessageAt: new Date(),
+      },
+      select: { id: true, remoteJid: true },
+    });
+    await this.db.conversationEvent.create({ data: {
+      organizationId: campaign.organizationId,
+      conversationId: conversation.id,
+      type: 'campaign_started',
+      text: `Campanha “${campaign.name}” iniciou a conversa`,
+      metadata: { campaignId: campaign.id },
+    } });
+    return conversation;
+  }
+
+  private async handleWhatsappSendError(recipientId: string, campaign: any, job: Job, error: unknown) {
+    if (/connection closed/i.test(errorText(error))) {
       await this.db.$transaction([
         this.db.campaignRecipient.updateMany({
           where: { id: recipientId, status: 'QUEUED' },
-          data: { status: 'PENDING', scheduledAt: null },
+          data: { status: 'PENDING', scheduledAt: null, exclusionReason: null },
         }),
         this.db.campaign.updateMany({
           where: { id: campaign.id, status: 'RUNNING' },
           data: { status: 'PAUSED' },
         }),
+        this.db.whatsappInstance.updateMany({
+          where: { id: campaign.instanceId },
+          data: { status: 'DISCONNECTED', connectedAt: null },
+        }),
       ]);
-      return;
+      return true;
     }
-    if (contact.campaignsBlocked || contact.suppressions.some((item) => item.channel === 'WHATSAPP') || !contact.phone) {
-      await this.db.campaignRecipient.update({
-        where: { id: recipientId },
-        data: {
-          status: 'SKIPPED',
-          exclusionReason: contact.campaignsBlocked
-            ? 'Campanhas bloqueadas para este contato'
-            : 'Contato bloqueado, descadastrado ou sem telefone',
-        },
+    const maximumAttempts = Number(job.opts.attempts || 1);
+    if (job.attemptsMade + 1 < maximumAttempts) return false;
+    await this.db.$transaction([
+      this.db.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FAILED', exclusionReason: error instanceof Error ? error.message.slice(0, 500) : 'Falha de envio' } }),
+      this.db.warmupProfile.update({ where: { instanceId: campaign.instanceId }, data: { failedToday: { increment: 1 } } }),
+    ]);
+    await this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
+    return false;
+  }
+
+  private async pauseDisconnectedCampaign(recipientId: string, campaign: any) {
+    if (campaign.instance?.status === 'CONNECTED') return false;
+    await this.db.$transaction([
+      this.db.campaignRecipient.updateMany({
+        where: { id: recipientId, status: 'QUEUED' },
+        data: { status: 'PENDING', scheduledAt: null },
+      }),
+      this.db.campaign.updateMany({
+        where: { id: campaign.id, status: 'RUNNING' },
+        data: { status: 'PAUSED' },
+      }),
+    ]);
+    return true;
+  }
+
+  private async skipBlockedWhatsappRecipient(recipientId: string, campaign: any, contact: any) {
+    const blocked = contact.campaignsBlocked
+      || contact.suppressions.some((item: { channel: string }) => item.channel === 'WHATSAPP')
+      || !contact.phone;
+    if (!blocked) return false;
+    const exclusionReason = contact.campaignsBlocked
+      ? 'Campanhas bloqueadas para este contato'
+      : 'Contato bloqueado, descadastrado ou sem telefone';
+    await this.db.campaignRecipient.update({
+      where: { id: recipientId },
+      data: { status: 'SKIPPED', exclusionReason },
+    });
+    await this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
+    return true;
+  }
+
+  private async completeWhatsappRecipient(recipientId: string, position: number, campaign: any) {
+    const completion = await this.db.$transaction(async (tx) => {
+      const updated = await tx.campaignRecipient.updateMany({
+        where: { id: recipientId, status: 'QUEUED' },
+        data: { status: 'SENT', sentAt: new Date(), lastBubblePosition: position - 1 },
       });
-      return this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
-    }
-    const sequence = campaignMessageSequence(recipient.messages, campaign.bubbles);
-    const bubble = sequence[position];
-    if (!bubble) {
-      const completion = await this.db.$transaction(async (tx) => {
-        const updated = await tx.campaignRecipient.updateMany({
-          where: { id: recipientId, status: 'QUEUED' },
-          data: { status: 'SENT', sentAt: new Date(), lastBubblePosition: position - 1 },
-        });
-        if (!updated.count) return null;
-        await tx.warmupProfile.update({ where: { instanceId: campaign.instanceId! }, data: { sentToday: { increment: 1 } } });
-        return tx.campaign.update({
-          where: { id: campaign.id },
-          data: { sentRecipientCount: { increment: 1 } },
-          select: { sentRecipientCount: true },
-        });
+      if (!updated.count) return null;
+      await tx.warmupProfile.update({ where: { instanceId: campaign.instanceId }, data: { sentToday: { increment: 1 } } });
+      return tx.campaign.update({
+        where: { id: campaign.id },
+        data: { sentRecipientCount: { increment: 1 } },
+        select: { sentRecipientCount: true },
       });
-      if (!completion) return;
-      const completed = completion.sentRecipientCount;
-      const batchPause = completed > 0 && completed % campaign.batchSize === 0;
-      return this.continueOrComplete(campaign.id,
-        batchPause ? campaign.batchPauseMinSeconds : campaign.contactDelayMinSeconds,
-        batchPause ? campaign.batchPauseMaxSeconds : campaign.contactDelayMaxSeconds);
-    }
-    try {
-      const verificationExpired = !recipient.whatsappVerifiedAt
-        || recipient.whatsappVerifiedAt.getTime() < Date.now() - 24 * 60 * 60_000;
-      if (position === 0 && verificationExpired) {
-        const [verification] = await this.evolution.checkWhatsappNumbers(campaign.instance!.instanceKey, [contact.phone]);
-        if (!verification?.exists) {
-          await this.db.campaignRecipient.update({
-            where: { id: recipientId },
-            data: { status: 'SKIPPED', exclusionReason: 'Número não possui WhatsApp', whatsappVerifiedAt: null },
-          });
-          return this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
-        }
-        await this.db.campaignRecipient.update({ where: { id: recipientId }, data: { whatsappVerifiedAt: new Date() } });
-      }
-      const text = this.render(bubble.content, campaignContactVariables(contact));
-      const mediaBase64 = bubble.type === 'audio' && bubble.mediaKey ? await storedMediaBase64(bubble.mediaKey) : undefined;
-      const mediaUrl = bubble.mediaKey && !mediaBase64 ? await signedMediaUrl(bubble.mediaKey) : undefined;
-      let conversation = await this.db.conversation.findFirst({
-        where: { instanceId: campaign.instanceId!, contactId: contact.id },
-        select: { id: true, remoteJid: true },
-      });
-      const result = await this.evolution.send(campaign.instance!.instanceKey, {
-        number: conversation?.remoteJid.includes('@lid') ? conversation.remoteJid : contact.phone,
-        type: bubble.type,
-        text,
-        mediaUrl,
-        mediaBase64,
-      });
-      const providerId = String(result.key?.id || result.messageId || randomUUID());
-      if (!conversation) {
-        conversation = await this.db.conversation.create({
-          data: {
-            organizationId: campaign.organizationId, instanceId: campaign.instanceId!, contactId: contact.id,
-            remoteJid: `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`, lastMessageAt: new Date(),
-          },
-          select: { id: true, remoteJid: true },
-        });
-        await this.db.conversationEvent.create({ data: {
-          organizationId: campaign.organizationId,
-          conversationId: conversation.id,
-          type: 'campaign_started',
-          text: `Campanha “${campaign.name}” iniciou a conversa`,
-          metadata: { campaignId: campaign.id },
-        } });
-      }
-      await this.db.message.create({ data: {
-        instanceId: campaign.instanceId!, conversationId: conversation.id, providerMessageId: providerId,
-        direction: 'OUTBOUND', type: bubble.type, text, status: 'SENT', sentAt: new Date(),
-        payload: { campaignId: campaign.id, recipientId, bubbleId: bubble.id || null },
-      } });
-      await this.db.campaignRecipient.update({ where: { id: recipientId }, data: { lastBubblePosition: position } });
-      const delay = randomBetween(campaign.bubbleDelayMinSeconds, campaign.bubbleDelayMaxSeconds) * 1000;
-      await this.queue.add('send-campaign-bubble', { recipientId, position: position + 1 }, { delay, jobId: `recipient-${recipientId}-bubble-${position + 1}`, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-      if (/connection closed/i.test(errorMessage)) {
-        await this.db.$transaction([
-          this.db.campaignRecipient.updateMany({
-            where: { id: recipientId, status: 'QUEUED' },
-            data: { status: 'PENDING', scheduledAt: null, exclusionReason: null },
-          }),
-          this.db.campaign.updateMany({
-            where: { id: campaign.id, status: 'RUNNING' },
-            data: { status: 'PAUSED' },
-          }),
-          this.db.whatsappInstance.updateMany({
-            where: { id: campaign.instanceId! },
-            data: { status: 'DISCONNECTED', connectedAt: null },
-          }),
-        ]);
-        return;
-      }
-      const maximumAttempts = Number(job.opts.attempts || 1);
-      if (job.attemptsMade + 1 < maximumAttempts) throw error;
-      await this.db.$transaction([
-        this.db.campaignRecipient.update({ where: { id: recipientId }, data: { status: 'FAILED', exclusionReason: error instanceof Error ? error.message.slice(0, 500) : 'Falha de envio' } }),
-        this.db.warmupProfile.update({ where: { instanceId: campaign.instanceId! }, data: { failedToday: { increment: 1 } } }),
-      ]);
-      await this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
-      throw error;
-    }
+    });
+    if (!completion) return;
+    const completed = completion.sentRecipientCount;
+    const batchPause = completed > 0 && completed % campaign.batchSize === 0;
+    return this.continueOrComplete(
+      campaign.id,
+      batchPause ? campaign.batchPauseMinSeconds : campaign.contactDelayMinSeconds,
+      batchPause ? campaign.batchPauseMaxSeconds : campaign.contactDelayMaxSeconds,
+    );
   }
 
   private async continueOrComplete(campaignId: string, min: number, max: number) {
@@ -415,7 +445,7 @@ export class CampaignProcessor {
         where: { campaignId, status: { in: ['PENDING', 'QUEUED'] } },
       }),
     ]);
-    if (!campaign || campaign.status !== 'RUNNING') return;
+    if (campaign?.status !== 'RUNNING') return;
     if (!activeRecipients) {
       return this.db.campaign.updateMany({
         where: { id: campaignId, status: 'RUNNING' },
@@ -431,8 +461,8 @@ export class CampaignProcessor {
   }
 
   private async processMailgunEvent(eventData: MailgunEventData) {
-    const providerEventId = String(eventData.id || '').trim();
-    const eventType = String(eventData.event || '').trim().toLowerCase();
+    const providerEventId = eventData.id?.trim() || '';
+    const eventType = eventData.event?.trim().toLowerCase() || '';
     if (!providerEventId || !eventType) return;
 
     const variables = eventData['user-variables'];
@@ -452,34 +482,23 @@ export class CampaignProcessor {
     });
     if (!recipient) return;
 
-    const severity = String(eventData.severity || '').toLowerCase();
+    const severity = eventData.severity?.toLowerCase() || '';
     const permanentFailure = eventType === 'permanent_fail'
       || (eventType === 'failed' && severity === 'permanent');
     const optedOut = eventType === 'unsubscribed' || eventType === 'complained';
+    const optOutReason = eventType === 'complained'
+      ? 'Destinatário marcou o e-mail como spam'
+      : 'Destinatário cancelou a inscrição';
     const occurredAt = new Date(Number(eventData.timestamp || Date.now() / 1000) * 1000);
-    const update: Prisma.CampaignRecipientUpdateInput = {};
-
-    if (eventType === 'accepted' && ['PENDING', 'QUEUED'].includes(recipient.status)) update.status = 'SENT';
-    if (eventType === 'delivered' && !['READ', 'REPLIED', 'OPTED_OUT'].includes(recipient.status)) {
-      update.status = 'DELIVERED';
-      update.deliveredAt = occurredAt;
-    }
-    if ((eventType === 'opened' || eventType === 'clicked') && recipient.status !== 'REPLIED') {
-      update.status = 'READ';
-      if (eventType === 'opened') update.openedAt = occurredAt;
-      if (eventType === 'clicked') update.clickedAt = occurredAt;
-    }
-    if (permanentFailure) {
-      update.status = 'FAILED';
-      update.failedAt = occurredAt;
-      update.exclusionReason = this.mailgunFailureReason(eventData);
-    }
-    if (optedOut) {
-      update.status = 'OPTED_OUT';
-      update.exclusionReason = eventType === 'complained'
-        ? 'Destinatário marcou o e-mail como spam'
-        : 'Destinatário cancelou a inscrição';
-    }
+    const update = mailgunRecipientUpdate({
+      eventType,
+      currentStatus: recipient.status,
+      occurredAt,
+      permanentFailure,
+      failureReason: this.mailgunFailureReason(eventData),
+      optedOut,
+      optOutReason,
+    });
 
     try {
       await this.db.$transaction(async (tx) => {
@@ -500,8 +519,8 @@ export class CampaignProcessor {
         if (optedOut) {
           await tx.suppression.upsert({
             where: { contactId_channel: { contactId: recipient.contactId, channel: 'EMAIL' } },
-            update: { reason: String(update.exclusionReason) },
-            create: { contactId: recipient.contactId, channel: 'EMAIL', reason: String(update.exclusionReason) },
+            update: { reason: optOutReason },
+            create: { contactId: recipient.contactId, channel: 'EMAIL', reason: optOutReason },
           });
         }
       });
@@ -526,15 +545,15 @@ export class CampaignProcessor {
   }
 
   private htmlToText(html: string) {
-    return html
+    const withoutNonContent = html
       .replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, '')
       .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, '')
       .replace(/<([a-z][\w:-]*)\b[^>]*data-email-preheader=["']true["'][^>]*>[\s\S]*?<\/\1>/gi, '')
       .replace(/<br\s*\/?>/gi, '\n')
       .replace(/<\/tr>/gi, '\n')
       .replace(/<\/li>/gi, '\n')
-      .replace(/<\/p>/gi, '\n\n')
-      .replace(/<[^>]+>/g, '')
+      .replace(/<\/p>/gi, '\n\n');
+    return stripHtmlTags(withoutNonContent)
       .replace(/&nbsp;/gi, ' ')
       .replace(/&amp;/gi, '&')
       .replace(/&lt;/gi, '<')
@@ -549,7 +568,7 @@ export class CampaignProcessor {
     const deliveryStatus = eventData['delivery-status'];
     if (deliveryStatus && typeof deliveryStatus === 'object') {
       const detail = deliveryStatus as Record<string, unknown>;
-      return String(detail.message || detail.description || detail.code || 'Falha permanente no Mailgun').slice(0, 500);
+      return firstText(detail.message, detail.description, detail.code) || 'Falha permanente no Mailgun';
     }
     return 'Falha permanente no Mailgun';
   }
@@ -562,4 +581,60 @@ export class CampaignProcessor {
     const current = `${hour}:${minute}`;
     return days.includes(weekday) && current >= start && current <= end;
   }
+}
+
+function firstText(...values: unknown[]) {
+  return values.find((value): value is string => typeof value === 'string' && Boolean(value))?.slice(0, 500) || '';
+}
+
+function errorText(error: unknown) {
+  if (error instanceof Error) return error.message;
+  return typeof error === 'string' ? error : 'Falha de envio';
+}
+
+function stripHtmlTags(value: string) {
+  let result = '';
+  let insideTag = false;
+  for (const character of value) {
+    if (character === '<') {
+      insideTag = true;
+    } else if (character === '>') {
+      insideTag = false;
+    } else if (!insideTag) {
+      result += character;
+    }
+  }
+  return result;
+}
+
+function mailgunRecipientUpdate(input: {
+  eventType: string;
+  currentStatus: string;
+  occurredAt: Date;
+  permanentFailure: boolean;
+  failureReason: string;
+  optedOut: boolean;
+  optOutReason: string;
+}) {
+  const update: Prisma.CampaignRecipientUpdateInput = {};
+  if (input.eventType === 'accepted' && ['PENDING', 'QUEUED'].includes(input.currentStatus)) update.status = 'SENT';
+  if (input.eventType === 'delivered' && !['READ', 'REPLIED', 'OPTED_OUT'].includes(input.currentStatus)) {
+    update.status = 'DELIVERED';
+    update.deliveredAt = input.occurredAt;
+  }
+  if (['opened', 'clicked'].includes(input.eventType) && input.currentStatus !== 'REPLIED') {
+    update.status = 'READ';
+    if (input.eventType === 'opened') update.openedAt = input.occurredAt;
+    if (input.eventType === 'clicked') update.clickedAt = input.occurredAt;
+  }
+  if (input.permanentFailure) {
+    update.status = 'FAILED';
+    update.failedAt = input.occurredAt;
+    update.exclusionReason = input.failureReason;
+  }
+  if (input.optedOut) {
+    update.status = 'OPTED_OUT';
+    update.exclusionReason = input.optOutReason;
+  }
+  return update;
 }

@@ -87,10 +87,10 @@ export class MediaService implements OnModuleInit {
 
   async downloadUrl(auth: AuthContext, id: string, attachment = false) {
     const asset = await this.db.mediaAsset.findUnique({ where: { id } });
-    if (!asset || !asset.key.startsWith(`${auth.organizationId}/`)) throw new NotFoundException('Mídia não encontrada');
+    if (!asset?.key.startsWith(`${auth.organizationId}/`)) throw new NotFoundException('Mídia não encontrada');
     const expiresIn = 15 * 60;
     const url = await getSignedUrl(this.publicClient, new GetObjectCommand({
-      Bucket: this.bucket, Key: asset.key, ResponseContentDisposition: `${attachment ? 'attachment' : 'inline'}; filename="${asset.filename.replace(/"/g, '')}"`,
+      Bucket: this.bucket, Key: asset.key, ResponseContentDisposition: `${attachment ? 'attachment' : 'inline'}; filename="${asset.filename.replaceAll('"', '')}"`,
     }), { expiresIn });
     return { url, expiresAt: new Date(Date.now() + expiresIn * 1000), filename: asset.filename, contentType: asset.contentType };
   }
@@ -106,8 +106,7 @@ export class MediaService implements OnModuleInit {
       },
     });
     if (
-      !asset
-      || !asset.key.startsWith(`${auth.organizationId}/`)
+      !asset?.key.startsWith(`${auth.organizationId}/`)
       || asset.messageId
       || (asset.profilePhotoFor && asset.profilePhotoFor.id !== auth.userId)
       || asset.companyLogoFor
@@ -146,8 +145,7 @@ export class MediaService implements OnModuleInit {
       },
     });
     if (
-      !asset
-      || !asset.key.startsWith(`${auth.organizationId}/`)
+      !asset?.key.startsWith(`${auth.organizationId}/`)
       || asset.messageId
       || asset.profilePhotoFor
       || (asset.companyLogoFor && asset.companyLogoFor.id !== companyId)
@@ -186,8 +184,7 @@ export class MediaService implements OnModuleInit {
       },
     });
     if (
-      !asset
-      || !asset.key.startsWith(`${auth.organizationId}/`)
+      !asset?.key.startsWith(`${auth.organizationId}/`)
       || asset.messageId
       || asset.profilePhotoFor
       || asset.companyLogoFor
@@ -226,8 +223,7 @@ export class MediaService implements OnModuleInit {
       },
     });
     if (
-      !asset
-      || !asset.key.startsWith(`${auth.organizationId}/`)
+      !asset?.key.startsWith(`${auth.organizationId}/`)
       || asset.messageId
       || asset.profilePhotoFor
       || asset.companyLogoFor
@@ -265,7 +261,7 @@ export class MediaService implements OnModuleInit {
         opportunityProposalFor: { select: { id: true } },
       },
     });
-    if (!asset || !asset.key.startsWith(`${auth.organizationId}/`)) return;
+    if (!asset?.key.startsWith(`${auth.organizationId}/`)) return;
     if (asset.profilePhotoFor) throw new BadRequestException('A foto ainda está vinculada a um usuário');
     if (asset.companyLogoFor) throw new BadRequestException('A logo ainda está vinculada a uma empresa');
     if (asset.quickReplyFor) throw new BadRequestException('O arquivo ainda está vinculado a uma resposta rápida');

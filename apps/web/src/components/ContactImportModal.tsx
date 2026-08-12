@@ -30,7 +30,7 @@ function downloadTemplate() {
   toast.success('Modelo CSV baixado.');
 }
 
-export function ContactImportModal({ onClose, onImported }: { onClose(): void; onImported(): void }) {
+export function ContactImportModal({ onClose, onImported }: Readonly<{ onClose(): void; onImported(): void }>) {
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState('');
   const [csv, setCsv] = useState('');

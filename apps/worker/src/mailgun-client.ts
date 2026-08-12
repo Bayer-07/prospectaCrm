@@ -196,11 +196,8 @@ export class MailgunClient {
       const status = typeof (error as { status?: unknown })?.status === 'number'
         ? (error as { status: number }).status
         : 500;
-      const detail = String(
-        (error as { details?: unknown })?.details
-        || (error instanceof Error ? error.message : error)
-        || 'Falha desconhecida',
-      );
+      const reportedDetails = (error as { details?: unknown })?.details;
+      const detail = mailgunErrorDetail(reportedDetails, error);
       throw new MailgunRequestError(
         status,
         `Mailgun ${status}: ${detail}`.slice(0, 500),
@@ -213,6 +210,11 @@ export class MailgunClient {
       message: result.message || 'Queued',
     };
   }
+}
+
+function mailgunErrorDetail(reportedDetails: unknown, error: unknown) {
+  if (typeof reportedDetails === 'string') return reportedDetails;
+  return error instanceof Error ? error.message : 'Falha desconhecida';
 }
 
 export function normalizeMailgunMessageId(value?: string | null) {

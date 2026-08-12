@@ -17,7 +17,7 @@ export function userProfilePhotoUrl(user: AvatarUser) {
   return apiUrl(`/users/${userId}/profile-photo?v=${encodeURIComponent(version)}`);
 }
 
-export function UserAvatar({ user, className = '' }: { user: AvatarUser; className?: string }) {
+export function UserAvatar({ user, className = '' }: Readonly<{ user: AvatarUser; className?: string }>) {
   const photoUrl = userProfilePhotoUrl(user);
   const [failed, setFailed] = useState(false);
   useEffect(() => setFailed(false), [photoUrl]);

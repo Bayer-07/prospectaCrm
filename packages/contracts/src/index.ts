@@ -57,7 +57,7 @@ export const evolutionInstanceStatuses = ['CONNECTED', 'CONNECTING', 'DISCONNECT
 export type EvolutionInstanceStatus = (typeof evolutionInstanceStatuses)[number];
 
 export function normalizeEvolutionInstanceStatus(value: unknown): EvolutionInstanceStatus {
-  const state = String(value || '').trim().toLowerCase().replace(/[\s._-]+/g, '');
+  const state = (typeof value === 'string' ? value : '').trim().toLowerCase().replace(/[\s._-]+/g, '');
   if (state === 'open' || state === 'connected') return 'CONNECTED';
   if (state === 'connecting' || state === 'pairing' || state === 'qrcode') return 'CONNECTING';
   if (state === 'error' || state === 'failed' || state === 'refused') return 'ERROR';
@@ -223,7 +223,11 @@ export const DEFAULT_OPT_OUT_WORDS = ['SAIR', 'PARAR', 'CANCELAR', 'REMOVER'] as
 export function contactsAreDuplicates(a: { phone?: string | null; email?: string | null }, b: { phone?: string | null; email?: string | null }) {
   const aPhoneKey = normalizePhoneKey(a.phone);
   const bPhoneKey = normalizePhoneKey(b.phone);
-  return Boolean((aPhoneKey && bPhoneKey && aPhoneKey === bPhoneKey) || (a.email && b.email && a.email.toLowerCase() === b.email.toLowerCase()));
+  const samePhone = Boolean(aPhoneKey && bPhoneKey && aPhoneKey === bPhoneKey);
+  const aEmail = a.email?.toLowerCase();
+  const bEmail = b.email?.toLowerCase();
+  const sameEmail = Boolean(aEmail && bEmail && aEmail === bEmail);
+  return samePhone || sameEmail;
 }
 
 export function isOptOutMessage(text?: string | null) {
@@ -246,5 +250,7 @@ export function nextWarmupCap(input: { currentCap: number; increment: number; ma
 }
 
 export function opportunityStatusForStage(stage: { isWon: boolean; isLost: boolean }) {
-  return stage.isWon ? 'WON' as const : stage.isLost ? 'LOST' as const : 'OPEN' as const;
+  if (stage.isWon) return 'WON' as const;
+  if (stage.isLost) return 'LOST' as const;
+  return 'OPEN' as const;
 }

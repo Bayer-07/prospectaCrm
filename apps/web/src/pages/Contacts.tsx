@@ -170,20 +170,20 @@ export function ContactsPage() {
         <td><span className="phone-cell"><MessageCircle size={13} />{formatPhone(contact.phone) || '—'}</span></td>
         <td>{contact.owner?.name || 'Sem responsável'}</td>
         <td><div className="tag-list">{contact.tags?.slice(0, 2).map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></td>
-        <td className="contact-actions-cell"><button className="icon-button" onClick={(event) => openMenu(event, contact)} aria-label={`Ações de ${contact.name}`} aria-haspopup="menu" aria-expanded={menu?.contact.id === contact.id}><MoreHorizontal size={17} /></button></td>
+        <td className="contact-actions-cell"><button type="button" className="icon-button" onClick={(event) => openMenu(event, contact)} aria-label={`Ações de ${contact.name}`} aria-haspopup="menu" aria-expanded={menu?.contact.id === contact.id}><MoreHorizontal size={17} /></button></td>
       </tr>)}</tbody>
     </table></div>{(hasNextPage || isFetchingNextPage) && <div ref={loadMoreRef} className="list-infinite-loader" aria-live="polite">{isFetchingNextPage ? <><LoaderCircle size={18} className="spin" />Carregando mais 20 contatos…</> : 'Continue rolando para carregar mais contatos'}</div>}</> : <Empty icon={<ContactRound />} title="Nenhum contato encontrado" description={activeFilters ? 'Ajuste ou limpe os filtros aplicados.' : 'Cadastre um contato ou importe sua base em CSV.'} action={activeFilters ? <Button variant="secondary" onClick={clearFilters}>Limpar filtros</Button> : <Button onClick={() => setCreating(true)}>Adicionar contato</Button>} />}
 
     {menu && <>
-      <button className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
+      <button type="button" className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
       <div className="contact-action-menu" role="menu" style={{ top: menu.top, right: menu.right }}>
-        <button role="menuitem" onClick={() => { setEditing(menu.contact); setMenu(null); }}><Pencil size={16} />Editar</button>
-        <button role="menuitem" onClick={() => {
+        <button type="button" role="menuitem" onClick={() => { setEditing(menu.contact); setMenu(null); }}><Pencil size={16} />Editar</button>
+        <button type="button" role="menuitem" onClick={() => {
           if (!menu.contact.phone) toast.warning(`Adicione um telefone ao contato ${menu.contact.name} antes de iniciar a conversa.`);
           else setStarting(menu.contact);
           setMenu(null);
         }}><MessageCircle size={16} />Iniciar conversa</button>
-        <button className="danger" role="menuitem" onClick={() => { setDeleting(menu.contact); setMenu(null); }}><Trash2 size={16} />Excluir</button>
+        <button type="button" className="danger" role="menuitem" onClick={() => { setDeleting(menu.contact); setMenu(null); }}><Trash2 size={16} />Excluir</button>
       </div>
     </>}
     {creating && <ContactModal onClose={closeCreating} onSaved={() => { closeCreating(); refresh(); }} />}
@@ -194,7 +194,7 @@ export function ContactsPage() {
   </div>;
 }
 
-function DeleteContactModal({ contact, onClose, onDeleted }: { contact: Contact; onClose(): void; onDeleted(): void }) {
+function DeleteContactModal({ contact, onClose, onDeleted }: Readonly<{ contact: Contact; onClose(): void; onDeleted(): void }>) {
   const remove = useMutation({ mutationFn: () => api(`/contacts/${contact.id}`, { method: 'DELETE' }), onSuccess: () => { toast.success('Contato excluído.'); onDeleted(); } });
   return <Modal title="Excluir contato" onClose={onClose}>
     <div className="delete-confirm"><div className="delete-confirm-icon"><Trash2 size={22} /></div><div><h3>Excluir “{contact.name}”?</h3><p>O contato deixará de aparecer no CRM. O histórico comercial e as conversas já registradas serão preservados para auditoria.</p></div></div>

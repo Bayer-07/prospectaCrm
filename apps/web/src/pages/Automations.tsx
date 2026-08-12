@@ -56,10 +56,24 @@ export function AutomationsPage() {
   if (selected) return <WorkflowBuilder workflowId={selected.id} metadata={metadata.data!.data} onBack={() => { setSelected(null); client.invalidateQueries({ queryKey: ['workflows'] }); }} />;
   const allWorkflows = query.data?.data || [];
   const workflows = filter === 'all' ? allWorkflows : allWorkflows.filter((workflow) => workflow.status === filter);
-  return <div className="automations-page"><div className="toolbar"><div className="segmented" role="group" aria-label="Filtrar automações"><button className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todas</button><button className={filter === 'PUBLISHED' ? 'active' : ''} aria-pressed={filter === 'PUBLISHED'} onClick={() => setFilter('PUBLISHED')}>Publicadas</button><button className={filter === 'DRAFT' ? 'active' : ''} aria-pressed={filter === 'DRAFT'} onClick={() => setFilter('DRAFT')}>Rascunhos</button></div><Button onClick={() => setModal(true)}><Plus size={15} />Nova automação</Button></div>{workflows.length ? <div className="workflow-grid">{workflows.map((workflow) => <div className="workflow-card-shell" key={workflow.id}><button type="button" className="workflow-card-main" onClick={() => setSelected(workflow)}><div className="workflow-icon"><Workflow size={20} /></div><div className="workflow-card-header"><Status value={workflow.status} /><span>v{workflow.versions[0]?.version || 1}</span></div><h3>{workflow.name}</h3><p>{workflow.description || 'Automação de WhatsApp e CRM'}</p><footer><span>{workflow._count?.enrollments || 0} inscrições</span><span>Atualizada {dateTime(workflow.updatedAt)}</span></footer></button><button type="button" className="workflow-card-delete" title={`Excluir automação ${workflow.name}`} aria-label={`Excluir automação ${workflow.name}`} onClick={() => setDeleting(workflow)}><Trash2 size={16} /></button></div>)}</div> : <Empty icon={<Bot />} title={allWorkflows.length ? 'Nenhuma automação neste filtro' : 'Crie sua primeira automação'} description="Monte jornadas com gatilhos, condições, mensagens e ações no CRM." action={<Button onClick={() => setModal(true)}>Nova automação</Button>} />}{modal && <CreateWorkflowModal onClose={() => setModal(false)} onCreated={(workflow) => { setModal(false); setSelected(workflow); }} />}{deleting && <DeleteWorkflowModal workflow={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); void client.invalidateQueries({ queryKey: ['workflows'] }); }} />}</div>;
+  return <div className="automations-page">
+    <div className="toolbar">
+      <fieldset className="segmented" aria-label="Filtrar automações" style={{ margin: 0, minWidth: 0 }}>
+        <button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todas</button>
+        <button type="button" className={filter === 'PUBLISHED' ? 'active' : ''} aria-pressed={filter === 'PUBLISHED'} onClick={() => setFilter('PUBLISHED')}>Publicadas</button>
+        <button type="button" className={filter === 'DRAFT' ? 'active' : ''} aria-pressed={filter === 'DRAFT'} onClick={() => setFilter('DRAFT')}>Rascunhos</button>
+      </fieldset>
+      <Button onClick={() => setModal(true)}><Plus size={15} />Nova automação</Button>
+    </div>
+    {workflows.length
+      ? <div className="workflow-grid">{workflows.map((workflow) => <div className="workflow-card-shell" key={workflow.id}><button type="button" className="workflow-card-main" onClick={() => setSelected(workflow)}><div className="workflow-icon"><Workflow size={20} /></div><div className="workflow-card-header"><Status value={workflow.status} /><span>v{workflow.versions[0]?.version || 1}</span></div><h3>{workflow.name}</h3><p>{workflow.description || 'Automação de WhatsApp e CRM'}</p><footer><span>{workflow._count?.enrollments || 0} inscrições</span><span>Atualizada {dateTime(workflow.updatedAt)}</span></footer></button><button type="button" className="workflow-card-delete" title={`Excluir automação ${workflow.name}`} aria-label={`Excluir automação ${workflow.name}`} onClick={() => setDeleting(workflow)}><Trash2 size={16} /></button></div>)}</div>
+      : <Empty icon={<Bot />} title={allWorkflows.length ? 'Nenhuma automação neste filtro' : 'Crie sua primeira automação'} description="Monte jornadas com gatilhos, condições, mensagens e ações no CRM." action={<Button onClick={() => setModal(true)}>Nova automação</Button>} />}
+    {modal && <CreateWorkflowModal onClose={() => setModal(false)} onCreated={(workflow) => { setModal(false); setSelected(workflow); }} />}
+    {deleting && <DeleteWorkflowModal workflow={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); void client.invalidateQueries({ queryKey: ['workflows'] }); }} />}
+  </div>;
 }
 
-function DeleteWorkflowModal({ workflow, onClose, onDeleted }: { workflow: WorkflowRecord; onClose(): void; onDeleted(): void }) {
+function DeleteWorkflowModal({ workflow, onClose, onDeleted }: Readonly<{ workflow: WorkflowRecord; onClose(): void; onDeleted(): void }>) {
   const mutation = useMutation({
     mutationFn: () => api(`/workflows/${workflow.id}`, { method: 'DELETE' }),
     onSuccess: () => { toast.success('Automação excluída.'); onDeleted(); },
@@ -67,13 +81,13 @@ function DeleteWorkflowModal({ workflow, onClose, onDeleted }: { workflow: Workf
   return <Modal title="Excluir automação" onClose={() => !mutation.isPending && onClose()}><div className="delete-confirm"><div className="delete-confirm-icon"><Trash2 size={22} /></div><div><h3>Excluir “{workflow.name}”?</h3><p>A automação deixará de aparecer e suas execuções ativas serão interrompidas. O histórico já registrado será preservado para auditoria.</p></div></div><div className="modal-actions delete-actions"><Button variant="secondary" disabled={mutation.isPending} onClick={onClose}>Cancelar</Button><Button variant="danger" loading={mutation.isPending} onClick={() => mutation.mutate()}><Trash2 size={16} />Excluir automação</Button></div></Modal>;
 }
 
-function CreateWorkflowModal({ onClose, onCreated }: { onClose(): void; onCreated(workflow: WorkflowRecord): void }) {
+function CreateWorkflowModal({ onClose, onCreated }: Readonly<{ onClose(): void; onCreated(workflow: WorkflowRecord): void }>) {
   const [name, setName] = useState(''); const [description, setDescription] = useState('');
   const mutation = useMutation({ mutationFn: () => api<Envelope<WorkflowRecord>>('/workflows', { method: 'POST', body: JSON.stringify({ name, description }) }), onSuccess: (result) => { toast.success('Automação criada.'); onCreated(result.data); } });
   return <Modal title="Nova automação" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome da automação" value={name} onChange={(event) => setName(event.target.value)} placeholder="Ex.: Cadência de novos leads" required /><Field label="Descrição" value={description} onChange={(event) => setDescription(event.target.value)} /><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Criar e editar</Button></div></form></Modal>;
 }
 
-function WorkflowBuilder({ workflowId, metadata, onBack }: { workflowId: string; metadata: AutomationMetadata; onBack(): void }) {
+function WorkflowBuilder({ workflowId, metadata, onBack }: Readonly<{ workflowId: string; metadata: AutomationMetadata; onBack(): void }>) {
   const { theme } = useTheme();
   const query = useQuery({ queryKey: ['workflow', workflowId], queryFn: () => api<Envelope<WorkflowRecord>>(`/workflows/${workflowId}`) });
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>([]);
@@ -119,16 +133,16 @@ function WorkflowBuilder({ workflowId, metadata, onBack }: { workflowId: string;
   if (query.isLoading) return <PageLoading />;
   const workflow = query.data!.data;
   return <div className="workflow-builder">
-    <header className="builder-header"><div><button className="icon-button" onClick={onBack}><ChevronLeft size={18} /></button><div><h2>{workflow.name}</h2><span><Status value={workflow.status} /> · Versão {workflow.versions[0]?.version}</span></div></div><div><Button variant="secondary" onClick={() => save.mutate()} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate()} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header>
+    <header className="builder-header"><div><button type="button" className="icon-button" onClick={onBack}><ChevronLeft size={18} /></button><div><h2>{workflow.name}</h2><span><Status value={workflow.status} /> · Versão {workflow.versions[0]?.version}</span></div></div><div><Button variant="secondary" onClick={() => save.mutate()} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate()} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header>
     <div className="builder-body automation-builder-body">
-      <aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger').map((item) => <button key={item.type} onClick={() => addNode(item.type)}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside>
+      <aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger').map((item) => <button type="button" key={item.type} onClick={() => addNode(item.type)}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside>
       <div className="flow-canvas"><ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={20} size={1} color={theme === 'dark' ? '#38414a' : '#e4e2ee'} /><Controls /><MiniMap pannable zoomable nodeColor="#7c6ff2" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,244,249,.75)'} /></ReactFlow></div>
       <AutomationNodeInspector node={selectedNode} metadata={metadata} onChange={updateSelected} onDelete={deleteSelected} />
     </div>
   </div>;
 }
 
-function AutomationNodeInspector({ node, metadata, onChange, onDelete }: { node: Node<FlowData> | null; metadata: AutomationMetadata; onChange(changes: Partial<FlowData>): void; onDelete(): void }) {
+function AutomationNodeInspector({ node, metadata, onChange, onDelete }: Readonly<{ node: Node<FlowData> | null; metadata: AutomationMetadata; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
   if (!node) return <aside className="node-inspector empty"><Workflow size={24} /><strong>Configure a automação</strong><p>Clique em um bloco para editar sua mensagem ou suas configurações.</p></aside>;
   const definition = nodeDefinitions.find((item) => item.type === node.type) || nodeDefinitions[4];
   const message = String(node.data.text || '');

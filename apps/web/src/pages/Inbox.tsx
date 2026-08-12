@@ -92,6 +92,28 @@ function awaitsRecoveredCaption(message: Message) {
   return age >= 0 && age < 2 * 60_000;
 }
 
+function conversationListUrl(filter: InboxFilter, view: string, filters: string) {
+  const suffix = filters ? `&${filters}` : '';
+  return `/conversations?status=${filter}&view=${view}${suffix}`;
+}
+
+function conversationHistoryUrl(conversationId: string, cursor: string) {
+  const cursorQuery = cursor ? `&cursor=${encodeURIComponent(cursor)}` : '';
+  return `/conversations/${conversationId}/messages?limit=30${cursorQuery}`;
+}
+
+function optimisticConversationStatus(requestedStatus: 'OPEN' | 'CLOSED', conversation: Conversation) {
+  if (requestedStatus === 'CLOSED') return 'CLOSED';
+  if (conversation.assignee) return 'OPEN';
+  return 'WAITING';
+}
+
+function inboxEmptyText(filter: InboxFilter): [string, string] {
+  if (filter === 'waiting') return ['Nenhum ticket aguardando atendimento', 'Novas mensagens sem atendente aparecerão nesta fila.'];
+  if (filter === 'open') return ['Nenhum ticket em atendimento', 'As conversas aparecem aqui depois que um atendente assumir.'];
+  return ['Nenhum ticket encerrado', 'Atendimentos finalizados ficarão guardados aqui.'];
+}
+
 export function InboxPage() {
   const { conversationId } = useParams();
   const { user } = useAuth();
@@ -113,7 +135,7 @@ export function InboxPage() {
   const activeListFilterCount = useMemo(() => Object.values(appliedListFilters).filter(Boolean).length, [appliedListFilters]);
   const conversations = useQuery({
     queryKey: ['conversations', filter, view, listFilterQuery],
-    queryFn: () => api<Envelope<Conversation[]>>(`/conversations?status=${filter}&view=${view}${listFilterQuery ? `&${listFilterQuery}` : ''}`),
+    queryFn: () => api<Envelope<Conversation[]>>(conversationListUrl(filter, view, listFilterQuery)),
     refetchInterval: realtimeConnected ? false : 15_000,
   });
   const counts = useQuery({ queryKey: ['conversation-counts', view], queryFn: () => api<Envelope<{ waiting: number; open: number; closed: number }>>(`/conversations/counts?view=${view}`), refetchInterval: realtimeConnected ? false : 15_000 });
@@ -127,7 +149,7 @@ export function InboxPage() {
   const conversation = useQuery({ queryKey: ['conversation', selectedId], queryFn: () => api<Envelope<Conversation>>(`/conversations/${selectedId}`), enabled: Boolean(selectedId), refetchInterval: realtimeConnected ? false : 10_000 });
   const history = useInfiniteQuery({
     queryKey: ['conversation-messages', selectedId],
-    queryFn: ({ pageParam }) => api<Envelope<ConversationHistoryPage>>(`/conversations/${selectedId}/messages?limit=30${pageParam ? `&cursor=${encodeURIComponent(pageParam)}` : ''}`),
+    queryFn: ({ pageParam }) => api<Envelope<ConversationHistoryPage>>(conversationHistoryUrl(selectedId, pageParam)),
     initialPageParam: '',
     getNextPageParam: (lastPage) => lastPage.data.nextCursor || undefined,
     enabled: Boolean(selectedId),
@@ -204,7 +226,7 @@ export function InboxPage() {
         client.cancelQueries({ queryKey: ['conversation-counts'] }),
       ]);
       const previousFilter = filter;
-      const targetStatus = value === 'CLOSED' ? 'CLOSED' : current.assignee ? 'OPEN' : 'WAITING';
+      const targetStatus = optimisticConversationStatus(value, current);
       const targetFilter = inboxFilterForStatus(targetStatus);
       const sourceKey = ['conversations', previousFilter, view, listFilterQuery] as const;
       const targetKey = ['conversations', targetFilter, view, listFilterQuery] as const;
@@ -261,14 +283,16 @@ export function InboxPage() {
     },
     onError: (_error, _value, context) => {
       if (context) {
-        if (context.previousConversation) client.setQueryData(context.conversationKey, context.previousConversation);
-        else client.removeQueries({ queryKey: context.conversationKey, exact: true });
-        if (context.previousSource) client.setQueryData(context.sourceKey, context.previousSource);
-        else client.removeQueries({ queryKey: context.sourceKey, exact: true });
-        if (context.previousTarget) client.setQueryData(context.targetKey, context.previousTarget);
-        else client.removeQueries({ queryKey: context.targetKey, exact: true });
-        if (context.previousCounts) client.setQueryData(context.countsKey, context.previousCounts);
-        else client.removeQueries({ queryKey: context.countsKey, exact: true });
+        const snapshots = [
+          [context.conversationKey, context.previousConversation],
+          [context.sourceKey, context.previousSource],
+          [context.targetKey, context.previousTarget],
+          [context.countsKey, context.previousCounts],
+        ] as const;
+        for (const [queryKey, snapshot] of snapshots) {
+          if (snapshot) client.setQueryData(queryKey, snapshot);
+          else client.removeQueries({ queryKey, exact: true });
+        }
         if (closingWithoutFilterChangeRef.current === context.previousSelectedId) closingWithoutFilterChangeRef.current = null;
         setFilter(context.previousFilter);
         if (context.clearedSelection) navigate(`/inbox/${context.previousSelectedId}`, { replace: true });
@@ -332,18 +356,57 @@ export function InboxPage() {
     });
   };
   if (conversations.isLoading) return <PageLoading />;
-  const emptyText = filter === 'waiting'
-    ? ['Nenhum ticket aguardando atendimento', 'Novas mensagens sem atendente aparecerão nesta fila.']
-    : filter === 'open'
-      ? ['Nenhum ticket em atendimento', 'As conversas aparecem aqui depois que um atendente assumir.']
-      : ['Nenhum ticket encerrado', 'Atendimentos finalizados ficarão guardados aqui.'];
+  const emptyText = inboxEmptyText(filter);
+  const loadOlderMessages = async () => {
+    const result = await history.fetchNextPage();
+    if (result.isError) throw result.error;
+  };
+  const transferConversation = async (assigneeId: string) => {
+    if (!selectedConversation) return;
+    const response = await api<Envelope<Conversation>>(`/conversations/${selectedConversation.id}/assign`, { method: 'PATCH', body: JSON.stringify({ assigneeId }) });
+    if (!isAdmin && assigneeId !== user?.userId) {
+      setFilter('open');
+      navigate('/inbox', { replace: true });
+      invalidate();
+      return;
+    }
+    moveToConversationStatus(response.data);
+  };
+  const toggleConversationStatus = () => {
+    if (status.isPending || !selectedConversation) return;
+    status.mutate({
+      conversationId: selectedConversation.id,
+      value: selectedConversation.status === 'CLOSED' ? 'OPEN' : 'CLOSED',
+    });
+  };
+  let conversationContent: ReactNode;
+  if (!selectedId) {
+    conversationContent = <div className="conversation-empty"><Empty icon={<Inbox />} title="Nenhum atendimento selecionado" description="Selecione uma conversa para conseguir enviar mensagens." /></div>;
+  } else if (conversation.isLoading || history.isLoading) {
+    conversationContent = <PageLoading />;
+  } else if (selectedConversation) {
+    conversationContent = <ConversationView
+      key={selectedConversation.id}
+      conversation={selectedConversation}
+      hasOlderMessages={Boolean(history.hasNextPage)}
+      loadingOlderMessages={history.isFetchingNextPage}
+      onLoadOlderMessages={loadOlderMessages}
+      onSend={invalidate}
+      onAssign={() => assign.mutate(selectedConversation.assignee?.id ? null : 'self')}
+      onTransfer={transferConversation}
+      statusChanging={status.isPending}
+      onClose={toggleConversationStatus}
+    />;
+  } else {
+    conversationContent = <div className="conversation-empty"><Empty icon={<Inbox />} title={emptyText[0]} description={emptyText[1]} /></div>;
+  }
   return <div className="inbox-layout">
     <aside className="conversation-sidebar">
-      <div className="conversation-sidebar-heading"><strong>Conversas</strong><div className="conversation-sidebar-actions">{isAdmin && <button className={`icon-button conversation-view-all${showAll ? ' active' : ''}`} onClick={toggleAll} aria-label={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'} title={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'}><Eye size={16} /></button>}<button type="button" className="icon-button conversation-new-button" onClick={() => setStartingConversation(true)} aria-label="Nova conversa" title="Nova conversa"><MessageCirclePlus size={18} /></button></div></div>
+      <div className="conversation-sidebar-heading"><strong>Conversas</strong><div className="conversation-sidebar-actions">{isAdmin && <button type="button" className={`icon-button conversation-view-all${showAll ? ' active' : ''}`} onClick={toggleAll} aria-label={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'} title={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'}><Eye size={16} /></button>}<button type="button" className="icon-button conversation-new-button" onClick={() => setStartingConversation(true)} aria-label="Nova conversa" title="Nova conversa"><MessageCirclePlus size={18} /></button></div></div>
       <div className="inbox-tabs">
-        <button className={filter === 'waiting' ? 'active' : ''} onClick={() => changeFilter('waiting')}>Aguardando <span>{counts.data?.data.waiting || 0}</span></button>
-        <button className={filter === 'open' ? 'active' : ''} onClick={() => changeFilter('open')}>Abertas <span>{counts.data?.data.open || 0}</span></button>
-        <button className={filter === 'closed' ? 'active' : ''} onClick={() => changeFilter('closed')}>Encerradas <span>{counts.data?.data.closed || 0}</span></button>
+        <button type="button" className={filter === 'waiting' ? 'active' : ''} onClick={() => changeFilter('waiting')}>Aguardando <span>{counts.data?.data.waiting || 0}</span></button>
+        <button type="button" className={filter === 'open' ? 'active' : ''} onClick={() => changeFilter('open')}>Abertas <span>{counts.data?.data.open || 0}</span></button>
+        <button type="button" className={filter === 'closed' ? 'active' : ''} onClick={() => changeFilter('closed')}>Encerradas <span>{counts.data?.data.closed || 0}</span></button>
       </div>
       <div className="conversation-search">
         <Search size={15} />
@@ -352,7 +415,7 @@ export function InboxPage() {
         {filterPanelOpen && <div className="conversation-filter-panel">
           <header><div><strong>Filtrar conversas</strong><span>Refine os tickets desta aba</span></div><button type="button" onClick={() => setFilterPanelOpen(false)} aria-label="Fechar filtros"><X size={16} /></button></header>
           <div className="conversation-filter-section">
-            <label>Última interação</label>
+            <span>Última interação</span>
             <div className="conversation-filter-dates">
               <span><small>De</small><input type="date" value={draftListFilters.lastInteractionFrom} max={draftListFilters.lastInteractionTo || undefined} onChange={(event) => setDraftListFilters((current) => ({ ...current, lastInteractionFrom: event.target.value }))} /></span>
               <span><small>Até</small><input type="date" value={draftListFilters.lastInteractionTo} min={draftListFilters.lastInteractionFrom || undefined} onChange={(event) => setDraftListFilters((current) => ({ ...current, lastInteractionTo: event.target.value }))} /></span>
@@ -366,49 +429,14 @@ export function InboxPage() {
         </div>}
       </div>
       <div className="conversation-list">{shown.length ? shown.map((item) => <button
+        type="button"
         key={item.id}
         className={`${item.id === selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
         onClick={() => { setTicketMenu(null); navigate(`/inbox/${item.id}`); }}
         onContextMenu={(event) => openTicketMenu(event, item)}
       ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{item.messages[0]?.text || (item.messages[0]?.type === 'location' ? 'Localização compartilhada' : 'Mídia ou nova conversa')}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>) : <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{activeListFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.'}</span>{activeListFilterCount > 0 && <button type="button" onClick={clearListFilters}>Limpar filtros</button>}</div>}</div>
     </aside>
-    {!selectedId
-      ? <div className="conversation-empty"><Empty icon={<Inbox />} title="Nenhum atendimento selecionado" description="Selecione uma conversa para conseguir enviar mensagens." /></div>
-      : conversation.isLoading || history.isLoading
-        ? <PageLoading />
-        : selectedConversation
-          ? <ConversationView
-            key={selectedConversation.id}
-            conversation={selectedConversation}
-            hasOlderMessages={Boolean(history.hasNextPage)}
-            loadingOlderMessages={history.isFetchingNextPage}
-            onLoadOlderMessages={async () => {
-              const result = await history.fetchNextPage();
-              if (result.isError) throw result.error;
-            }}
-            onSend={invalidate}
-            onAssign={() => assign.mutate(selectedConversation.assignee?.id ? null : 'self')}
-            onTransfer={async (assigneeId) => {
-              const response = await api<Envelope<Conversation>>(`/conversations/${selectedConversation.id}/assign`, { method: 'PATCH', body: JSON.stringify({ assigneeId }) });
-              if (!isAdmin && assigneeId !== user?.userId) {
-                setFilter('open');
-                navigate('/inbox', { replace: true });
-                invalidate();
-                return;
-              }
-              moveToConversationStatus(response.data);
-            }}
-            statusChanging={status.isPending}
-            onClose={() => {
-              if (!status.isPending) {
-                status.mutate({
-                  conversationId: selectedConversation.id,
-                  value: selectedConversation.status === 'CLOSED' ? 'OPEN' : 'CLOSED',
-                });
-              }
-            }}
-            />
-          : <div className="conversation-empty"><Empty icon={<Inbox />} title={emptyText[0]} description={emptyText[1]} /></div>}
+    {conversationContent}
     <TicketContextActions
       menu={ticketMenu}
       onClose={() => setTicketMenu(null)}
@@ -431,12 +459,12 @@ export function InboxPage() {
   </div>;
 }
 
-function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: {
+function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: Readonly<{
   menu: TicketContextMenuState | null;
   onClose(): void;
   onUpdated(): void;
   onFinalized(conversationId: string): void;
-}) {
+}>) {
   const { user } = useAuth();
   const [opportunityContact, setOpportunityContact] = useState<Contact | null>(null);
   const [transferConversation, setTransferConversation] = useState<Conversation | null>(null);
@@ -511,6 +539,11 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: {
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível exportar o atendimento')),
   });
+  let transferTargetContent: ReactNode = <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>;
+  if (assignees.isLoading) transferTargetContent = <PageLoading />;
+  else if (!assignees.isError && transferTargets.length) {
+    transferTargetContent = <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div>;
+  }
 
   return <>
     {menu && createPortal(<>
@@ -538,14 +571,14 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: {
     {transferConversation && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferConversation(null); setTransferTarget(''); } }} width={540}>
       <div className="conversation-transfer">
         <div className="conversation-transfer-intro"><ArrowRightLeft size={20} /><div><strong>Escolha o novo atendente</strong><p>A conversa será removida da sua fila e o novo responsável receberá uma notificação.</p></div></div>
-        {assignees.isLoading ? <PageLoading /> : assignees.isError ? null : transferTargets.length ? <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div> : <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>}
+        {transferTargetContent}
       </div>
       <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferConversation(null); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate({ conversationId: transferConversation.id, assigneeId: transferTarget })} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
     </Modal>}
   </>;
 }
 
-function NewConversationModal({ onClose, onStarted }: { onClose(): void; onStarted(id: string): void }) {
+function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void; onStarted(id: string): void }>) {
   const [search, setSearch] = useState('');
   const [contactId, setContactId] = useState('');
   const [instanceId, setInstanceId] = useState('');
@@ -566,27 +599,35 @@ function NewConversationModal({ onClose, onStarted }: { onClose(): void; onStart
     },
   });
   const selectedContact = contacts.data?.data.find((contact) => contact.id === contactId);
+  let contactListContent: ReactNode = <div className="conversation-contact-empty"><strong>Nenhum contato encontrado</strong><span>Tente buscar usando outro nome, telefone ou e-mail.</span></div>;
+  if (contacts.isLoading) contactListContent = <PageLoading />;
+  else if (!contacts.error && contacts.data?.data.length) {
+    contactListContent = contacts.data.data.map((contact) => <button type="button" key={contact.id} className={contact.id === contactId ? 'selected' : ''} disabled={!contact.phone} onClick={() => setContactId(contact.id)}>
+      <span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong><small>{formatPhone(contact.phone) || 'Sem telefone'}{contact.email ? ` · ${contact.email}` : ''}</small></div>{contact.id === contactId && <Check size={17} />}
+    </button>);
+  }
+  let instancePicker: ReactNode = <div className="form-hint">Nenhuma conexão do WhatsApp está ativa.</div>;
+  if (instances.isLoading) instancePicker = <PageLoading />;
+  else if (instances.data?.data.length) {
+    instancePicker = <SelectField label="Número do WhatsApp" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>{instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}</option>)}</SelectField>;
+  }
   return <Modal title="Nova conversa" onClose={onClose} width={620}>
     <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId) start.mutate(); }}>
       <label className="conversation-contact-search"><span>Selecionar contato</span><div><Search size={16} /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, telefone ou e-mail…" /></div></label>
-      <div className="conversation-contact-list">
-        {contacts.isLoading ? <PageLoading /> : contacts.error ? null : contacts.data?.data.length ? contacts.data.data.map((contact) => <button type="button" key={contact.id} className={contact.id === contactId ? 'selected' : ''} disabled={!contact.phone} onClick={() => setContactId(contact.id)}>
-          <span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong><small>{formatPhone(contact.phone) || 'Sem telefone'}{contact.email ? ` · ${contact.email}` : ''}</small></div>{contact.id === contactId && <Check size={17} />}
-        </button>) : <div className="conversation-contact-empty"><strong>Nenhum contato encontrado</strong><span>Tente buscar usando outro nome, telefone ou e-mail.</span></div>}
-      </div>
+      <div className="conversation-contact-list">{contactListContent}</div>
       {selectedContact && <div className="conversation-selected-contact"><Check size={15} /><span><strong>{selectedContact.name}</strong> será aberto em um novo ticket.</span></div>}
-      {instances.isLoading ? <PageLoading /> : instances.data?.data.length ? <SelectField label="Número do WhatsApp" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>{instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}</option>)}</SelectField> : <div className="form-hint">Nenhuma conexão do WhatsApp está ativa.</div>}
+      {instancePicker}
       <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={start.isPending} disabled={!contactId || !instanceId}><MessageCircle size={16} />Abrir ticket</Button></div>
     </form>
   </Modal>;
 }
 
-function SharedContactConversationModal({ contact, preferredInstanceId, onClose, onStarted }: {
+function SharedContactConversationModal({ contact, preferredInstanceId, onClose, onStarted }: Readonly<{
   contact: SharedWhatsappContact;
   preferredInstanceId?: string;
   onClose(): void;
   onStarted(id: string): void;
-}) {
+}>) {
   const client = useQueryClient();
   const [instanceId, setInstanceId] = useState('');
   const instances = useQuery({
@@ -618,6 +659,13 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
       onStarted(response.data.id);
     },
   });
+  let instancePicker: ReactNode = <div className="form-hint">Nenhuma conexão do WhatsApp está ativa para iniciar a conversa.</div>;
+  if (instances.isLoading) instancePicker = <PageLoading />;
+  else if (instances.data?.data.length) {
+    instancePicker = <SelectField label="Enviar pelo número" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>
+      {instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
+    </SelectField>;
+  }
   return <Modal title="Iniciar conversa" onClose={() => { if (!start.isPending) onClose(); }} width={520}>
     <form className="shared-contact-start-form" onSubmit={(event) => { event.preventDefault(); if (instanceId) start.mutate(); }}>
       <div className="shared-contact-start-person">
@@ -625,13 +673,7 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
         <div><strong>{contact.name}</strong><small>{formatPhone(contact.phone)}</small></div>
       </div>
       <p>O contato será salvo automaticamente na agenda e o atendimento ficará atribuído a você.</p>
-      {instances.isLoading
-        ? <PageLoading />
-        : instances.data?.data.length
-          ? <SelectField label="Enviar pelo número" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>
-              {instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
-            </SelectField>
-          : <div className="form-hint">Nenhuma conexão do WhatsApp está ativa para iniciar a conversa.</div>}
+      {instancePicker}
       <div className="modal-actions">
         <Button type="button" variant="secondary" onClick={onClose} disabled={start.isPending}>Cancelar</Button>
         <Button type="submit" loading={start.isPending} disabled={!instanceId}><MessageCircle size={16} />Salvar e iniciar</Button>
@@ -640,7 +682,7 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
   </Modal>;
 }
 
-function ContactOpportunityModal({ contact, onClose, onCreated }: { contact: Contact; onClose(): void; onCreated(): void }) {
+function ContactOpportunityModal({ contact, onClose, onCreated }: Readonly<{ contact: Contact; onClose(): void; onCreated(): void }>) {
   const client = useQueryClient();
   const [value, setValue] = useState('');
   const [pipelineId, setPipelineId] = useState('');
@@ -701,6 +743,7 @@ type RecordingStatus = 'idle' | 'requesting' | 'recording' | 'paused' | 'finishi
 type OutgoingDraft = { text: string; file: File | null; replyToMessageId?: string; signatureEnabled: boolean };
 
 const VOICE_BAR_COUNT = 32;
+const VOICE_BAR_IDS = Array.from({ length: VOICE_BAR_COUNT }, (_, index) => `voice-bar-${index + 1}`);
 const EMPTY_VOICE_LEVELS = Array.from({ length: VOICE_BAR_COUNT }, () => .16);
 
 function recordingMimeType() {
@@ -722,7 +765,7 @@ function voiceDuration(seconds: number) {
 
 const EmojiPickerPopover = lazy(() => import('../components/EmojiPickerPopover'));
 
-function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages, statusChanging, onLoadOlderMessages, onSend, onAssign, onTransfer, onClose }: {
+function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages, statusChanging, onLoadOlderMessages, onSend, onAssign, onTransfer, onClose }: Readonly<{
   conversation: Conversation;
   hasOlderMessages: boolean;
   loadingOlderMessages: boolean;
@@ -732,7 +775,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   onAssign(): void;
   onTransfer(assigneeId: string): Promise<void>;
   onClose(): void;
-}) {
+}>) {
   const { user, refresh } = useAuth();
   const navigate = useNavigate();
   const [text, setText] = useState('');
@@ -771,7 +814,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<WhatsappComposerHandle>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
-  const emojiPickerRef = useRef<HTMLDivElement>(null);
+  const emojiPickerRef = useRef<HTMLDialogElement>(null);
   const highlightTimerRef = useRef<number | null>(null);
   const nearBottomRef = useRef(true);
   const activeConversationRef = useRef<string | null>(null);
@@ -868,7 +911,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       const created = await api<Envelope<{ key: string; uploadUrl: string }>>('/media/uploads', { method: 'POST', body: JSON.stringify({ filename: draft.file.name, contentType: uploadContentType, sizeBytes: draft.file.size }) });
       const uploaded = await fetch(created.data.uploadUrl, { method: 'PUT', headers: { 'Content-Type': uploadContentType }, body: draft.file });
       if (!uploaded.ok) throw new Error('Não foi possível enviar o arquivo');
-      const type = draft.file.type.startsWith('image/') ? 'image' : draft.file.type.startsWith('audio/') ? 'audio' : draft.file.type.startsWith('video/') ? 'video' : 'document';
+      const type = outgoingMessageType(draft.file);
       return api(`/conversations/${conversation.id}/messages`, { method: 'POST', body: JSON.stringify({ type, text: draft.text || undefined, mediaKey: created.data.key, replyToMessageId: draft.replyToMessageId, signatureEnabled: draft.signatureEnabled }) });
     },
     onSuccess: () => { setText(''); setFile(null); setAttachmentError(''); setReplyingTo(null); onSend(); },
@@ -1236,11 +1279,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       releaseRecordingResources();
       resetRecordingUi();
       const name = error instanceof DOMException ? error.name : '';
-      setAttachmentError(name === 'NotAllowedError' || name === 'SecurityError'
-        ? 'Permita o acesso ao microfone para gravar mensagens de voz.'
-        : name === 'NotFoundError'
-          ? 'Nenhum microfone foi encontrado neste dispositivo.'
-          : 'Não foi possível iniciar a gravação de áudio.');
+      setAttachmentError(recordingErrorMessage(name));
     }
   };
   const toggleRecordingPause = () => {
@@ -1349,7 +1388,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   };
   const openMessageMenu = useCallback((message: Message, clientX: number, clientY: number, mode: MessageMenuState['mode'] = 'menu') => {
     const width = 220;
-    const height = mode === 'reactions' ? 54 : message.direction === 'OUTBOUND' ? 274 : 188;
+    const height = messageMenuHeight(mode, message.direction);
     setMessageMenu({
       message,
       left: Math.max(8, Math.min(clientX, window.innerWidth - width - 8)),
@@ -1456,7 +1495,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     const top = body.scrollTop + targetRect.top - bodyRect.top - (body.clientHeight - targetRect.height) / 2;
     body.scrollTo({ top: Math.max(0, top), behavior: 'smooth' });
     target.classList.remove('message-highlight');
-    void target.offsetWidth;
+    target.getBoundingClientRect();
     target.classList.add('message-highlight');
     if (highlightTimerRef.current) window.clearTimeout(highlightTimerRef.current);
     highlightTimerRef.current = window.setTimeout(() => target.classList.remove('message-highlight'), 1800);
@@ -1497,7 +1536,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   }, []);
   const cycleAudioPlaybackRate = useCallback(() => {
     setAudioPlaybackRate((current) => {
-      const currentIndex = AUDIO_PLAYBACK_RATES.findIndex((rate) => rate === current);
+      const currentIndex = AUDIO_PLAYBACK_RATES.indexOf(current as (typeof AUDIO_PLAYBACK_RATES)[number]);
       return AUDIO_PLAYBACK_RATES[(currentIndex + 1) % AUDIO_PLAYBACK_RATES.length];
     });
   }, []);
@@ -1506,14 +1545,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     try {
       await navigator.clipboard.writeText(value);
     } catch {
-      const temporary = document.createElement('textarea');
-      temporary.value = value;
-      temporary.style.position = 'fixed';
-      temporary.style.opacity = '0';
-      document.body.appendChild(temporary);
-      temporary.select();
-      document.execCommand('copy');
-      temporary.remove();
+      toast.error('Não foi possível copiar a mensagem neste navegador.');
+      return;
     }
     setMessageMenu(null);
     setActionNotice('Mensagem copiada');
@@ -1556,20 +1589,49 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const grouped = useMemo(() => groupTimeline(conversation.messages, conversation.events || []), [conversation.messages, conversation.events]);
   const transferTargets = useMemo(() => (assignees.data?.data || []).filter((assignee) => assignee.id !== conversation.assignee?.id), [assignees.data?.data, conversation.assignee?.id]);
   const retryMessage = useCallback((messageId: string) => retry.mutate(messageId), [retry.mutate]);
-  const composerPlaceholder = connectionUnavailable
-    ? 'Troque a conexão para voltar a enviar mensagens'
-    : conversation.status === 'CLOSED'
-      ? 'Reabra a conversa para responder'
-      : !canReply
-        ? 'Assuma a conversa para responder'
-        : editingMessage
-          ? 'Edite sua mensagem…'
-          : file
-            ? 'Adicione uma legenda…'
-            : 'Escreva uma mensagem ou cole uma imagem…';
+  let transferTargetContent: ReactNode = <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>;
+  if (assignees.isLoading) transferTargetContent = <PageLoading />;
+  else if (!assignees.isError && transferTargets.length) {
+    transferTargetContent = <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div>;
+  }
+  let instanceOptionContent: ReactNode = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Nenhuma conexão ativa disponível</strong><span>Conecte outro número para conseguir continuar esta conversa.</span></div>;
+  if (availableInstances.isLoading) instanceOptionContent = <PageLoading />;
+  else if (availableInstances.isError) instanceOptionContent = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>;
+  else if (instanceOptions.length) {
+    instanceOptionContent = <SelectField label="Nova conexão" value={instanceTarget} onChange={(event) => {
+      setInstanceTarget(event.target.value);
+      changeInstance.reset();
+    }}>
+      <option value="">Selecione uma conexão ativa</option>
+      {instanceOptions.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
+    </SelectField>;
+  }
+  const composerPlaceholder = conversationComposerPlaceholder(
+    connectionUnavailable,
+    conversation.status,
+    canReply,
+    Boolean(editingMessage),
+    Boolean(file),
+  );
+  const currentStatusAction = statusAction(statusChanging, conversation.status);
+  const currentSendAction = sendAction(Boolean(editingMessage), quickReplyMenuOpen, automationMenuOpen);
+  const canAcceptDrop = canReply && !editingMessage;
+  const dropCopy = attachmentDropCopy(canReply, Boolean(editingMessage));
+  const handleComposerChange = (value: string) => {
+    const command = detectComposerCommand(value, { canReply, editing: Boolean(editingMessage), hasFile: Boolean(file) });
+    setText(value);
+    setQuickReplyMenuOpen(command === 'quick-reply');
+    setAutomationMenuOpen(command === 'automation');
+    setAttachmentError('');
+    if (send.isError) send.reset();
+    if (edit.isError) edit.reset();
+  };
+  const handleComposerSubmit = () => {
+    if (!send.isPending && !edit.isPending && !startWorkflow.isPending && !insertQuickReply.isPending) submitCurrentMessage();
+  };
 
   return <section className="conversation-view" onDragEnter={handleAttachmentDragEnter} onDragOver={handleAttachmentDragOver} onDragLeave={handleAttachmentDragLeave} onDrop={handleAttachmentDrop}>
-    {draggingAttachment && <div className={`conversation-file-drop${canReply && !editingMessage ? '' : ' unavailable'}`} aria-hidden="true"><div><span><Upload size={28} /></span><strong>{canReply && !editingMessage ? 'Solte o arquivo para anexar' : editingMessage ? 'Conclua a edição para anexar' : 'Assuma a conversa para anexar'}</strong><small>{canReply && !editingMessage ? 'Imagens, vídeos, áudios e documentos de até 25 MB' : 'O envio de arquivos está indisponível neste momento'}</small></div></div>}
+    {draggingAttachment && <div className={`conversation-file-drop${canAcceptDrop ? '' : ' unavailable'}`} aria-hidden="true"><div><span><Upload size={28} /></span><strong>{dropCopy.title}</strong><small>{dropCopy.description}</small></div></div>}
     <header className="conversation-header">
       <button type="button" className="conversation-person conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
         <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
@@ -1587,18 +1649,12 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
           title="Escolher outra conexão para as próximas mensagens"
         ><Cable size={15} /><span>Trocar conexão</span></button>}
         <button type="button" className="button button-secondary" onClick={onAssign} disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa para alterar o responsável' : undefined}>{conversation.assignee ? <><UserCheck size={15} />{conversation.assignee.name}</> : <><UserPlus size={15} />Assumir</>}</button>
-        <button type="button" className={`conversation-status-button ${conversation.status === 'CLOSED' ? 'reopen' : 'finish'}`} onClick={onClose} disabled={statusChanging} aria-busy={statusChanging} title={statusChanging ? 'Atualizando atendimento em segundo plano' : conversation.status === 'CLOSED' ? 'Reabrir atendimento' : 'Finalizar atendimento'} aria-label={conversation.status === 'CLOSED' ? 'Reabrir atendimento' : 'Finalizar atendimento'}>{conversation.status === 'CLOSED' ? <><RotateCcw size={16} /><span>Reabrir</span></> : <><Archive size={16} /><span>Finalizar</span></>}</button>
+        <button type="button" className={`conversation-status-button ${currentStatusAction.className}`} onClick={onClose} disabled={statusChanging} aria-busy={statusChanging} title={currentStatusAction.title} aria-label={currentStatusAction.label}>{currentStatusAction.icon}<span>{currentStatusAction.shortLabel}</span></button>
         <button type="button" className="icon-button" onClick={openConversationMenu} aria-label="Mais ações da conversa" aria-expanded={Boolean(conversationMenu)} title="Mais ações"><MoreHorizontal size={18} /></button>
       </div>
     </header>
     <div ref={bodyRef} className="conversation-body" onScroll={updateScrollPosition}>
-      <div className="conversation-history-loader">
-        {loadingOlderMessages
-          ? <span><i />Carregando mensagens anterioresâ€¦</span>
-          : hasOlderMessages
-            ? <button type="button" onClick={() => void requestOlderMessages()}><History size={14} />Carregar mensagens anteriores</button>
-            : conversation.messages.length > 0 && <span>InÃ­cio da conversa</span>}
-      </div>
+      <ConversationHistoryLoader loading={loadingOlderMessages} hasOlder={hasOlderMessages} hasMessages={conversation.messages.length > 0} onLoad={requestOlderMessages} />
       {grouped.map((group) => <div className="message-day" key={group.date}><span>{group.label}</span>{group.items.map((item) => item.kind === 'event'
         ? <ConversationEventLog key={`event-${item.event.id}`} event={item.event} />
         : <MessageBubble
@@ -1625,79 +1681,50 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     <form className={`composer ${canReply ? '' : 'locked'}`} onSubmit={submit}>
       <label className={`composer-signature${signatureEnabled ? ' active' : ''}${signaturePreference.isPending ? ' saving' : ''}`} title="Assinatura"><Pencil size={16} /><input type="checkbox" checked={signatureEnabled} disabled={signaturePreference.isPending || recordingStatus !== 'idle'} onChange={(event) => signaturePreference.mutate(event.target.checked)} aria-label="Ativar assinatura nas mensagens" /></label>
       <div className="composer-shell">
-        {recordingStatus !== 'idle' ? <div className={`voice-recorder ${recordingStatus}`} role="group" aria-label="Gravador de mensagem de voz">
-          <button type="button" className="voice-recorder-delete" onClick={discardActiveRecording} disabled={recordingStatus === 'finishing'} aria-label="Cancelar gravação" title="Cancelar gravação"><Trash2 size={20} /></button>
-          <span className="voice-recorder-time" aria-label={`Duração ${voiceDuration(recordingSeconds)}`}><i />{recordingStatus === 'requesting' ? 'Microfone…' : voiceDuration(recordingSeconds)}</span>
-          <div className="voice-recorder-waveform" aria-hidden="true">{voiceLevels.map((level, index) => <i key={index} style={{ height: `${Math.round(5 + level * 23)}px` }} />)}</div>
-          <button type="button" className="voice-recorder-pause" onClick={toggleRecordingPause} disabled={recordingStatus === 'requesting' || recordingStatus === 'finishing'} aria-label={recordingStatus === 'paused' ? 'Retomar gravação' : 'Pausar gravação'} title={recordingStatus === 'paused' ? 'Retomar gravação' : 'Pausar gravação'}>{recordingStatus === 'paused' ? <Play size={20} /> : <Pause size={20} />}</button>
-          <button type="button" className="voice-recorder-send" onClick={finishVoiceRecording} disabled={recordingStatus === 'requesting' || recordingStatus === 'finishing'} aria-label="Enviar áudio" title="Enviar áudio">{recordingStatus === 'finishing' ? <Clock className="spin" size={19} /> : <Send size={19} />}</button>
-        </div> : <>
-        {emojiPickerOpen && <div ref={emojiPickerRef} className="composer-emoji-picker" role="dialog" aria-label="Selecionar emoji">
-          <header><strong>Emojis</strong><button type="button" onClick={() => setEmojiPickerOpen(false)} aria-label="Fechar emojis"><X size={16} /></button></header>
-          <Suspense fallback={<div className="composer-emoji-loading"><i />Carregando emojis…</div>}>
-            <EmojiPickerPopover onEmojiSelect={(emoji) => { textRef.current?.insertText(emoji); setAttachmentError(''); }} />
-          </Suspense>
-        </div>}
-        <div className="composer-capsule">
-          <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button></div>
-          <div className="composer-input">
-        {quickReplyMenuOpen && <div className="automation-command-menu quick-reply-command-menu" role="listbox" aria-label="Respostas rápidas disponíveis">
-          <div className="automation-command-heading"><span><MessageSquareReply size={17} /></span><div><strong>Inserir resposta rápida</strong><small>O conteúdo ficará disponível para edição</small></div><kbd>Esc</kbd></div>
-          <div className="automation-command-options">
-            {quickReplies.isLoading
-              ? <div className="automation-command-empty"><i />Carregando respostas rápidas…</div>
-              : quickReplies.isError
-                ? <div className="automation-command-empty error"><AlertCircle size={17} /><span>Não foi possível carregar as respostas rápidas.</span></div>
-                : quickReplyOptions.length
-                  ? quickReplyOptions.map((reply, index) => <button
-                      type="button"
-                      role="option"
-                      aria-selected={index === quickReplyIndex}
-                      className={index === quickReplyIndex ? 'selected' : ''}
-                      key={reply.id}
-                      onMouseDown={(event) => event.preventDefault()}
-                      onMouseEnter={() => setQuickReplyIndex(index)}
-                      onClick={() => selectQuickReply(reply)}
-                      disabled={insertQuickReply.isPending}
-                    ><span><MessageSquareReply size={16} /></span><div><strong>/{reply.shortcut} · {reply.title}</strong><small>{reply.mediaAsset ? `${reply.text ? 'Texto e anexo' : 'Anexo'} · ${reply.mediaAsset.filename}` : reply.text || 'Sem conteúdo'}</small></div>{insertQuickReply.isPending && insertQuickReply.variables?.id === reply.id ? <i /> : <ChevronDown size={15} />}</button>)
-                  : <div className="automation-command-empty"><MessageSquareReply size={17} /><span>{quickReplySearch ? 'Nenhuma resposta corresponde à busca.' : 'Nenhuma resposta rápida cadastrada.'}</span></div>}
-          </div>
-          <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> inserir</span></div>
-        </div>}
-        {automationMenuOpen && <div className="automation-command-menu" role="listbox" aria-label="Automações disponíveis">
-          <div className="automation-command-heading"><span><Workflow size={17} /></span><div><strong>Iniciar automação</strong><small>Continue digitando para filtrar</small></div><kbd>Esc</kbd></div>
-          <div className="automation-command-options">
-            {!canStartAutomations
-              ? <div className="automation-command-empty"><ShieldCheck size={17} /><span>Você não tem permissão para iniciar automações.</span></div>
-              : workflows.isLoading
-                ? <div className="automation-command-empty"><i />Carregando automações…</div>
-                : workflows.isError
-                  ? null
-                  : workflowOptions.length
-                    ? workflowOptions.map((workflow, index) => <button
-                        type="button"
-                        role="option"
-                        aria-selected={index === automationIndex}
-                        className={index === automationIndex ? 'selected' : ''}
-                        key={workflow.id}
-                        onMouseDown={(event) => event.preventDefault()}
-                        onMouseEnter={() => setAutomationIndex(index)}
-                        onClick={() => selectWorkflow(workflow)}
-                        disabled={startWorkflow.isPending}
-                      ><span><Workflow size={16} /></span><div><strong>{workflow.name}</strong><small>{workflow.description || `Versão ${workflow.publishedVersion}`}</small></div>{startWorkflow.isPending && startWorkflow.variables?.id === workflow.id ? <i /> : <ChevronDown size={15} />}</button>)
-                    : <div className="automation-command-empty"><Workflow size={17} /><span>{automationSearch ? 'Nenhuma automação corresponde à busca.' : 'Nenhuma automação publicada disponível.'}</span></div>}
-          </div>
-          <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> iniciar</span></div>
-        </div>}
-        {editingMessage && <div className="composer-reply composer-edit"><Pencil size={16} /><div><strong>Editando mensagem</strong><span>{messagePreview(editingMessage)}</span></div><button type="button" onClick={cancelEdit} aria-label="Cancelar edição"><X size={15} /></button></div>}
-        {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
-        {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
-        <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleComposerKeyDown} onChange={(value) => { const command = detectComposerCommand(value, { canReply, editing: Boolean(editingMessage), hasFile: Boolean(file) }); setText(value); setQuickReplyMenuOpen(command === 'quick-reply'); setAutomationMenuOpen(command === 'automation'); setAttachmentError(''); if (send.isError) send.reset(); if (edit.isError) edit.reset(); }} placeholder={composerPlaceholder} onSubmit={() => { if (!send.isPending && !edit.isPending && !startWorkflow.isPending && !insertQuickReply.isPending) submitCurrentMessage(); }} />
-          </div>
-          {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label={editingMessage ? 'Salvar edição' : quickReplyMenuOpen ? 'Inserir resposta rápida' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'} title={editingMessage ? 'Salvar edição' : quickReplyMenuOpen ? 'Inserir resposta rápida' : automationMenuOpen ? 'Iniciar automação' : 'Enviar mensagem'}>{editingMessage ? <Check size={18} /> : quickReplyMenuOpen ? <MessageSquareReply size={18} /> : automationMenuOpen ? <Workflow size={18} /> : <Send size={19} />}</Button></div>}
-          {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={() => void startVoiceRecording()} disabled={send.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
-        </div>
-        </>}
+        {recordingStatus !== 'idle'
+          ? <VoiceRecorder status={recordingStatus} seconds={recordingSeconds} levels={voiceLevels} onDiscard={discardActiveRecording} onTogglePause={toggleRecordingPause} onSend={finishVoiceRecording} />
+          : <>
+            {emojiPickerOpen && <dialog open ref={emojiPickerRef} className="composer-emoji-picker" aria-label="Selecionar emoji">
+              <header><strong>Emojis</strong><button type="button" onClick={() => setEmojiPickerOpen(false)} aria-label="Fechar emojis"><X size={16} /></button></header>
+              <Suspense fallback={<div className="composer-emoji-loading"><i />Carregando emojis…</div>}>
+                <EmojiPickerPopover onEmojiSelect={(emoji) => { textRef.current?.insertText(emoji); setAttachmentError(''); }} />
+              </Suspense>
+            </dialog>}
+            <div className="composer-capsule">
+              <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button></div>
+              <div className="composer-input">
+                {quickReplyMenuOpen && <QuickReplyCommandMenu
+                  loading={quickReplies.isLoading}
+                  failed={quickReplies.isError}
+                  options={quickReplyOptions}
+                  selectedIndex={quickReplyIndex}
+                  search={quickReplySearch}
+                  pending={insertQuickReply.isPending}
+                  pendingId={insertQuickReply.variables?.id}
+                  onHover={setQuickReplyIndex}
+                  onSelect={selectQuickReply}
+                />}
+                {automationMenuOpen && <WorkflowCommandMenu
+                  allowed={canStartAutomations}
+                  loading={workflows.isLoading}
+                  failed={workflows.isError}
+                  options={workflowOptions}
+                  selectedIndex={automationIndex}
+                  search={automationSearch}
+                  pending={startWorkflow.isPending}
+                  pendingId={startWorkflow.variables?.id}
+                  onHover={setAutomationIndex}
+                  onSelect={selectWorkflow}
+                />}
+                {editingMessage && <div className="composer-reply composer-edit"><Pencil size={16} /><div><strong>Editando mensagem</strong><span>{messagePreview(editingMessage)}</span></div><button type="button" onClick={cancelEdit} aria-label="Cancelar edição"><X size={15} /></button></div>}
+                {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
+                {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
+                <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleComposerKeyDown} onChange={handleComposerChange} placeholder={composerPlaceholder} onSubmit={handleComposerSubmit} />
+              </div>
+              {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label={currentSendAction.label} title={currentSendAction.label}>{currentSendAction.icon}</Button></div>}
+              {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={startVoiceRecording} disabled={send.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
+            </div>
+          </>}
       </div>
     </form>
     {messageMenu && createPortal(<MessageActionMenu
@@ -1755,7 +1782,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     {transferOpen && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferOpen(false); setTransferTarget(''); } }} width={540}>
       <div className="conversation-transfer">
         <div className="conversation-transfer-intro"><ArrowRightLeft size={20} /><div><strong>Escolha o novo atendente</strong><p>A conversa será removida da sua fila e o novo responsável receberá uma notificação.</p></div></div>
-        {assignees.isLoading ? <PageLoading /> : assignees.isError ? null : transferTargets.length ? <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div> : <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>}
+        {transferTargetContent}
       </div>
       <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferOpen(false); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate(transferTarget)} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
     </Modal>}
@@ -1778,19 +1805,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
           <strong>{conversation.instance.name}</strong>
           <small>{conversation.instance.phone ? formatPhone(conversation.instance.phone) : 'Número não informado'} · {conversation.instance.archivedAt ? 'Excluída' : 'Desconectada'}</small>
         </div>
-        {availableInstances.isLoading
-          ? <PageLoading />
-          : availableInstances.isError
-            ? <div className="conversation-transfer-empty"><Cable size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>
-            : instanceOptions.length
-              ? <SelectField label="Nova conexão" value={instanceTarget} onChange={(event) => {
-                setInstanceTarget(event.target.value);
-                changeInstance.reset();
-              }}>
-                <option value="">Selecione uma conexão ativa</option>
-                {instanceOptions.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
-              </SelectField>
-              : <div className="conversation-transfer-empty"><Cable size={22} /><strong>Nenhuma conexão ativa disponível</strong><span>Conecte outro número para conseguir continuar esta conversa.</span></div>}
+        {instanceOptionContent}
         {selectedInstanceTarget && <div className="conversation-instance-confirmation">
           <Cable size={18} />
           <span>As próximas mensagens serão enviadas por <strong>{selectedInstanceTarget.name}</strong>{selectedInstanceTarget.phone ? ` (${formatPhone(selectedInstanceTarget.phone)})` : ''}.</span>
@@ -1811,7 +1826,188 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   </section>;
 }
 
-function MessageEditHistoryModal({ message, onClose }: { message: Message; onClose(): void }) {
+function outgoingMessageType(file: File) {
+  if (file.type.startsWith('image/')) return 'image';
+  if (file.type.startsWith('audio/')) return 'audio';
+  if (file.type.startsWith('video/')) return 'video';
+  return 'document';
+}
+
+function messageMenuHeight(mode: MessageMenuState['mode'], direction: Message['direction']) {
+  if (mode === 'reactions') return 54;
+  if (direction === 'OUTBOUND') return 274;
+  return 188;
+}
+
+function recordingErrorMessage(name: string) {
+  if (name === 'NotAllowedError' || name === 'SecurityError') return 'Permita o acesso ao microfone no navegador para gravar áudio.';
+  if (name === 'NotFoundError') return 'Nenhum microfone foi encontrado neste dispositivo.';
+  return 'Não foi possível iniciar a gravação de áudio.';
+}
+
+function conversationComposerPlaceholder(connectionUnavailable: boolean, status: string, canReply: boolean, editing: boolean, hasFile: boolean) {
+  if (connectionUnavailable) return 'Troque a conexão para voltar a enviar mensagens';
+  if (status === 'CLOSED') return 'Reabra a conversa para responder';
+  if (!canReply) return 'Assuma a conversa para responder';
+  if (editing) return 'Edite sua mensagem…';
+  if (hasFile) return 'Adicione uma legenda…';
+  return 'Escreva uma mensagem ou cole uma imagem…';
+}
+
+function attachmentDropCopy(canReply: boolean, editing: boolean) {
+  if (canReply && !editing) return {
+    title: 'Solte o arquivo para anexar',
+    description: 'Imagens, vídeos, áudios e documentos de até 25 MB',
+  };
+  if (editing) return {
+    title: 'Conclua a edição para anexar',
+    description: 'O envio de arquivos está indisponível neste momento',
+  };
+  return {
+    title: 'Assuma a conversa para anexar',
+    description: 'O envio de arquivos está indisponível neste momento',
+  };
+}
+
+function statusAction(statusChanging: boolean, status: string) {
+  const closed = status === 'CLOSED';
+  const label = closed ? 'Reabrir atendimento' : 'Finalizar atendimento';
+  const shortLabel = closed ? 'Reabrir' : 'Finalizar';
+  let title = label;
+  if (statusChanging) title = 'Atualizando atendimento em segundo plano';
+  return {
+    className: closed ? 'reopen' : 'finish',
+    label,
+    shortLabel,
+    title,
+    icon: closed ? <RotateCcw size={16} /> : <Archive size={16} />,
+  };
+}
+
+function sendAction(editing: boolean, quickReplyOpen: boolean, automationOpen: boolean) {
+  if (editing) return { label: 'Salvar edição', icon: <Check size={18} /> };
+  if (quickReplyOpen) return { label: 'Inserir resposta rápida', icon: <MessageSquareReply size={18} /> };
+  if (automationOpen) return { label: 'Iniciar automação', icon: <Workflow size={18} /> };
+  return { label: 'Enviar mensagem', icon: <Send size={19} /> };
+}
+
+function ConversationHistoryLoader({ loading, hasOlder, hasMessages, onLoad }: Readonly<{ loading: boolean; hasOlder: boolean; hasMessages: boolean; onLoad(): void }>) {
+  let content: ReactNode = null;
+  if (loading) content = <span><i />Carregando mensagens anteriores…</span>;
+  else if (hasOlder) content = <button type="button" onClick={onLoad}><History size={14} />Carregar mensagens anteriores</button>;
+  else if (hasMessages) content = <span>Início da conversa</span>;
+  return <div className="conversation-history-loader">{content}</div>;
+}
+
+function VoiceRecorder({ status, seconds, levels, onDiscard, onTogglePause, onSend }: Readonly<{
+  status: RecordingStatus;
+  seconds: number;
+  levels: number[];
+  onDiscard(): void;
+  onTogglePause(): void;
+  onSend(): void;
+}>) {
+  const requesting = status === 'requesting';
+  const finishing = status === 'finishing';
+  const paused = status === 'paused';
+  const duration = voiceDuration(seconds);
+  return <fieldset className={`voice-recorder ${status}`} aria-label="Gravador de mensagem de voz" style={{ margin: 0, minWidth: 0, border: 0 }}>
+    <button type="button" className="voice-recorder-delete" onClick={onDiscard} disabled={finishing} aria-label="Cancelar gravação" title="Cancelar gravação"><Trash2 size={20} /></button>
+    <span className="voice-recorder-time" aria-label={`Duração ${duration}`}><i />{requesting ? 'Microfone…' : duration}</span>
+    <div className="voice-recorder-waveform" aria-hidden="true">{VOICE_BAR_IDS.map((id, index) => <i key={id} style={{ height: `${Math.round(5 + levels[index] * 23)}px` }} />)}</div>
+    <button type="button" className="voice-recorder-pause" onClick={onTogglePause} disabled={requesting || finishing} aria-label={paused ? 'Retomar gravação' : 'Pausar gravação'} title={paused ? 'Retomar gravação' : 'Pausar gravação'}>{paused ? <Play size={20} /> : <Pause size={20} />}</button>
+    <button type="button" className="voice-recorder-send" onClick={onSend} disabled={requesting || finishing} aria-label="Enviar áudio" title="Enviar áudio">{finishing ? <Clock className="spin" size={19} /> : <Send size={19} />}</button>
+  </fieldset>;
+}
+
+function quickReplyDescription(reply: QuickReplyShortcut) {
+  if (!reply.mediaAsset) return reply.text || 'Sem conteúdo';
+  const kind = reply.text ? 'Texto e anexo' : 'Anexo';
+  return `${kind} · ${reply.mediaAsset.filename}`;
+}
+
+function QuickReplyCommandMenu({ loading, failed, options, selectedIndex, search, pending, pendingId, onHover, onSelect }: Readonly<{
+  loading: boolean;
+  failed: boolean;
+  options: QuickReplyShortcut[];
+  selectedIndex: number;
+  search: string;
+  pending: boolean;
+  pendingId?: string;
+  onHover(index: number): void;
+  onSelect(reply: QuickReplyShortcut): void;
+}>) {
+  let content: ReactNode;
+  if (loading) content = <div className="automation-command-empty"><i />Carregando respostas rápidas…</div>;
+  else if (failed) content = <div className="automation-command-empty error"><AlertCircle size={17} /><span>Não foi possível carregar as respostas rápidas.</span></div>;
+  else if (options.length) {
+    content = options.map((reply, index) => {
+      const trailing = pending && pendingId === reply.id ? <i /> : <ChevronDown size={15} />;
+      return <button
+        type="button"
+        role="option"
+        aria-selected={index === selectedIndex}
+        className={index === selectedIndex ? 'selected' : ''}
+        key={reply.id}
+        onMouseDown={(event) => event.preventDefault()}
+        onMouseEnter={() => onHover(index)}
+        onClick={() => onSelect(reply)}
+        disabled={pending}
+      ><span><MessageSquareReply size={16} /></span><div><strong>/{reply.shortcut} · {reply.title}</strong><small>{quickReplyDescription(reply)}</small></div>{trailing}</button>;
+    });
+  } else {
+    const emptyText = search ? 'Nenhuma resposta corresponde à busca.' : 'Nenhuma resposta rápida cadastrada.';
+    content = <div className="automation-command-empty"><MessageSquareReply size={17} /><span>{emptyText}</span></div>;
+  }
+  return <div className="automation-command-menu quick-reply-command-menu" role="listbox" aria-label="Respostas rápidas disponíveis">
+    <div className="automation-command-heading"><span><MessageSquareReply size={17} /></span><div><strong>Inserir resposta rápida</strong><small>O conteúdo ficará disponível para edição</small></div><kbd>Esc</kbd></div>
+    <div className="automation-command-options">{content}</div>
+    <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> inserir</span></div>
+  </div>;
+}
+
+function WorkflowCommandMenu({ allowed, loading, failed, options, selectedIndex, search, pending, pendingId, onHover, onSelect }: Readonly<{
+  allowed: boolean;
+  loading: boolean;
+  failed: boolean;
+  options: WorkflowShortcut[];
+  selectedIndex: number;
+  search: string;
+  pending: boolean;
+  pendingId?: string;
+  onHover(index: number): void;
+  onSelect(workflow: WorkflowShortcut): void;
+}>) {
+  let content: ReactNode = null;
+  if (!allowed) content = <div className="automation-command-empty"><ShieldCheck size={17} /><span>Você não tem permissão para iniciar automações.</span></div>;
+  else if (loading) content = <div className="automation-command-empty"><i />Carregando automações…</div>;
+  else if (!failed && options.length) {
+    content = options.map((workflow, index) => {
+      const trailing = pending && pendingId === workflow.id ? <i /> : <ChevronDown size={15} />;
+      return <button
+        type="button"
+        role="option"
+        aria-selected={index === selectedIndex}
+        className={index === selectedIndex ? 'selected' : ''}
+        key={workflow.id}
+        onMouseDown={(event) => event.preventDefault()}
+        onMouseEnter={() => onHover(index)}
+        onClick={() => onSelect(workflow)}
+        disabled={pending}
+      ><span><Workflow size={16} /></span><div><strong>{workflow.name}</strong><small>{workflow.description || `Versão ${workflow.publishedVersion}`}</small></div>{trailing}</button>;
+    });
+  } else if (!failed) {
+    const emptyText = search ? 'Nenhuma automação corresponde à busca.' : 'Nenhuma automação publicada disponível.';
+    content = <div className="automation-command-empty"><Workflow size={17} /><span>{emptyText}</span></div>;
+  }
+  return <div className="automation-command-menu" role="listbox" aria-label="Automações disponíveis">
+    <div className="automation-command-heading"><span><Workflow size={17} /></span><div><strong>Iniciar automação</strong><small>Continue digitando para filtrar</small></div><kbd>Esc</kbd></div>
+    <div className="automation-command-options">{content}</div>
+    <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> iniciar</span></div>
+  </div>;
+}
+
+function MessageEditHistoryModal({ message, onClose }: Readonly<{ message: Message; onClose(): void }>) {
   const previousVersions = messageEditHistory(message)
     .map((version, index) => ({ ...version, original: index === 0 }))
     .reverse();
@@ -1852,7 +2048,7 @@ function MessageEditHistoryModal({ message, onClose }: { message: Message; onClo
   </Modal>;
 }
 
-function ContactDrawer({ conversation, onClose, onUpdated }: { conversation: Conversation; onClose(): void; onUpdated(): void }) {
+function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversation: Conversation; onClose(): void; onUpdated(): void }>) {
   const { user } = useAuth();
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
@@ -1942,11 +2138,11 @@ function ContactDrawer({ conversation, onClose, onUpdated }: { conversation: Con
       : <div className="contact-detail-row">{content}</div>;
   };
   return <>
-    <button className="drawer-scrim" onClick={onClose} aria-label="Fechar informações do contato" />
+    <button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar informações do contato" />
     <aside className="opportunity-drawer contact-drawer" aria-label={`Informações de ${contact.name}`}>
       <header>
         <div><span className="eyebrow">Contato</span><h2>{contact.name}</h2></div>
-        <div className="contact-drawer-actions">{canEdit && <Button variant="secondary" onClick={() => setEditing(true)}><Pencil size={15} />Editar contato</Button>}<button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></div>
+        <div className="contact-drawer-actions">{canEdit && <Button variant="secondary" onClick={() => setEditing(true)}><Pencil size={15} />Editar contato</Button>}<button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></div>
       </header>
       <div className="drawer-content contact-drawer-content">
         <div className="contact-drawer-profile"><WhatsappAvatar conversationId={conversation.id} name={contact.name} large /><div><strong>{contact.name}</strong><span>{contact.jobTitle || company?.name || 'Contato do CRM'}</span></div></div>
@@ -1979,7 +2175,7 @@ function ContactDrawer({ conversation, onClose, onUpdated }: { conversation: Con
   </>;
 }
 
-const WhatsappAvatar = memo(function WhatsappAvatar({ conversationId, name, large = false }: { conversationId: string; name: string; large?: boolean }) {
+const WhatsappAvatar = memo(function WhatsappAvatar({ conversationId, name, large = false }: Readonly<{ conversationId: string; name: string; large?: boolean }>) {
   const [failed, setFailed] = useState(false);
   return <span className={`contact-avatar${large ? ' large' : ''}${failed ? '' : ' has-image'}`}>
     {!failed && <img src={apiUrl(`/conversations/${conversationId}/profile-picture?v=1`)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />}
@@ -1987,11 +2183,11 @@ const WhatsappAvatar = memo(function WhatsappAvatar({ conversationId, name, larg
   </span>;
 });
 
-const ConversationEventLog = memo(function ConversationEventLog({ event }: { event: ConversationEvent }) {
+const ConversationEventLog = memo(function ConversationEventLog({ event }: Readonly<{ event: ConversationEvent }>) {
   return <div className={`conversation-event conversation-event-${event.type}`}><span><History size={13} /><strong>{event.text}</strong><time>{dateTime(event.createdAt).split(' ')[1]}</time></span></div>;
 });
 
-const SharedContactCard = memo(function SharedContactCard({ contact, onStart }: { contact: SharedWhatsappContact; onStart(): void }) {
+const SharedContactCard = memo(function SharedContactCard({ contact, onStart }: Readonly<{ contact: SharedWhatsappContact; onStart(): void }>) {
   return <div className="shared-contact-card">
     <div className="shared-contact-card-person">
       <span>{initials(contact.name)}</span>
@@ -2001,7 +2197,7 @@ const SharedContactCard = memo(function SharedContactCard({ contact, onStart }: 
   </div>;
 });
 
-const LocationCard = memo(function LocationCard({ location }: { location: WhatsappLocation }) {
+const LocationCard = memo(function LocationCard({ location }: Readonly<{ location: WhatsappLocation }>) {
   const title = location.name || 'Localização compartilhada';
   return <a
     className="message-location-card"
@@ -2022,7 +2218,7 @@ const LocationCard = memo(function LocationCard({ location }: { location: Whatsa
   </a>;
 });
 
-function ExpandableText({ text, whatsapp = false }: { text: string; whatsapp?: boolean }) {
+function ExpandableText({ text, whatsapp = false }: Readonly<{ text: string; whatsapp?: boolean }>) {
   const contentRef = useRef<HTMLParagraphElement>(null);
   const [expanded, setExpanded] = useState(false);
   const [overflowing, setOverflowing] = useState(false);
@@ -2057,7 +2253,7 @@ function messageLinkLabel(url: string) {
   try { return new URL(url).hostname.replace(/^www\./i, ''); } catch { return url; }
 }
 
-function MessageLinkPreview({ message, url, onReady }: { message: Message; url: string; onReady(): void }) {
+function MessageLinkPreview({ message, url, onReady }: Readonly<{ message: Message; url: string; onReady(): void }>) {
   const preview = useQuery({
     queryKey: ['message-link-preview', message.conversationId, url],
     queryFn: () => api<Envelope<MessageLinkPreviewData | null>>(`/conversations/${message.conversationId}/messages/${message.id}/link-preview`),
@@ -2083,7 +2279,7 @@ function MessageLinkPreview({ message, url, onReady }: { message: Message; url: 
   </a>;
 }
 
-const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallback, contactName, menuOpen, onMenu, onReactionMenu, onJumpToReply, onReply, onRetry, retrying, canRetry, onStartSharedContact, onMediaReady, audioPlaybackRate, onCycleAudioPlaybackRate }: {
+const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallback, contactName, menuOpen, onMenu, onReactionMenu, onJumpToReply, onReply, onRetry, retrying, canRetry, onStartSharedContact, onMediaReady, audioPlaybackRate, onCycleAudioPlaybackRate }: Readonly<{
   message: Message;
   replyTo?: Message;
   replyFallback?: string;
@@ -2100,7 +2296,7 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
   onMediaReady(): void;
   audioPlaybackRate: number;
   onCycleAudioPlaybackRate(): void;
-}) {
+}>) {
   const outbound = message.direction === 'OUTBOUND';
   const failure = message.status === 'FAILED' ? describeMessageFailure(message.payload) : undefined;
   const reactions = messageReactions(message);
@@ -2148,7 +2344,7 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, onCopy, onDownload, downloading, onReply, onReact, onEdit, onEditHistory, onDelete }: {
+function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, onCopy, onDownload, downloading, onReply, onReact, onEdit, onEditHistory, onDelete }: Readonly<{
   menu: MessageMenuState;
   canInteract: boolean;
   reacting: boolean;
@@ -2162,7 +2358,7 @@ function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, 
   onEdit(): void;
   onEditHistory(): void;
   onDelete(): void;
-}) {
+}>) {
   const [showReactions, setShowReactions] = useState(menu.mode === 'reactions');
   const outbound = menu.message.direction === 'OUTBOUND';
   const providerReady = !menu.message.providerMessageId.startsWith('local:') && !['QUEUED', 'PENDING', 'FAILED', 'SKIPPED'].includes(menu.message.status);
@@ -2286,7 +2482,7 @@ type AudioTranscriptionData = {
   transcribedAt: string | null;
 };
 
-function AudioTranscription({ message }: { message: Message }) {
+function AudioTranscription({ message }: Readonly<{ message: Message }>) {
   const client = useQueryClient();
   const queryKey = ['message-transcription', message.id] as const;
   const [started, setStarted] = useState(message.transcriptionStatus === 'PROCESSING');
@@ -2343,15 +2539,15 @@ function AudioTranscription({ message }: { message: Message }) {
   </div>;
 }
 
-function MessageDelivery({ status, failure, onRetry, retrying, canRetry }: { status: string; failure?: MessageFailure; onRetry(): void; retrying: boolean; canRetry: boolean }) {
-  if (status === 'FAILED') return <span className="message-delivery failed"><span className="message-error-trigger" tabIndex={0} aria-label={`Erro no envio: ${failure?.summary || 'Motivo não informado'}`}><AlertCircle size={14} /><span className="message-error-tooltip" role="tooltip"><strong>Falha no envio</strong><span>{failure?.summary || 'O provedor não informou o motivo da falha.'}</span>{failure?.detail && failure.detail !== failure.summary && <code>{failure.detail}</code>}</span></span>Falhou{canRetry && <button type="button" onClick={onRetry} disabled={retrying} aria-label="Tentar enviar novamente" title="Tentar enviar novamente"><RotateCcw size={12} className={retrying ? 'spin' : ''} />Tentar novamente</button>}</span>;
+function MessageDelivery({ status, failure, onRetry, retrying, canRetry }: Readonly<{ status: string; failure?: MessageFailure; onRetry(): void; retrying: boolean; canRetry: boolean }>) {
+  if (status === 'FAILED') return <span className="message-delivery failed"><button type="button" className="message-error-trigger" aria-label={`Erro no envio: ${failure?.summary || 'Motivo não informado'}`}><AlertCircle size={14} /><span className="message-error-tooltip" role="tooltip"><strong>Falha no envio</strong><span>{failure?.summary || 'O provedor não informou o motivo da falha.'}</span>{failure?.detail && failure.detail !== failure.summary && <code>{failure.detail}</code>}</span></button>Falhou{canRetry && <button type="button" onClick={onRetry} disabled={retrying} aria-label="Tentar enviar novamente" title="Tentar enviar novamente"><RotateCcw size={12} className={retrying ? 'spin' : ''} />Tentar novamente</button>}</span>;
   if (status === 'QUEUED' || status === 'PENDING') return <span className="message-delivery pending" title="Aguardando envio"><Clock size={12} />Enviando</span>;
   if (status === 'READ') return <span className="message-delivery read" title="Lida"><CheckCheck size={13} /></span>;
   if (status === 'DELIVERED') return <span className="message-delivery" title="Entregue"><CheckCheck size={13} /></span>;
   return <span className="message-delivery" title="Enviada"><Check size={13} /></span>;
 }
 
-function MediaAttachment({ media, sticker = false, onReady, audioPlaybackRate, onCycleAudioPlaybackRate }: { media: NonNullable<Message['media']>[number]; sticker?: boolean; onReady(): void; audioPlaybackRate: number; onCycleAudioPlaybackRate(): void }) {
+function MediaAttachment({ media, sticker = false, onReady, audioPlaybackRate, onCycleAudioPlaybackRate }: Readonly<{ media: NonNullable<Message['media']>[number]; sticker?: boolean; onReady(): void; audioPlaybackRate: number; onCycleAudioPlaybackRate(): void }>) {
   const signed = useQuery({ queryKey: ['media-url', media.id], queryFn: () => api<Envelope<{ url: string }>>(`/media/${media.id}/url`), staleTime: 12 * 60_000 });
   const [viewerOpen, setViewerOpen] = useState(false);
   if (!signed.data?.data.url) return ['image/', 'audio/', 'video/'].some((type) => media.contentType.startsWith(type))
@@ -2363,7 +2559,7 @@ function MediaAttachment({ media, sticker = false, onReady, audioPlaybackRate, o
     {viewerOpen && <ImageLightbox url={url} alt={sticker ? 'Figurinha' : media.filename} onClose={() => setViewerOpen(false)} />}
   </>;
   if (media.contentType.startsWith('audio/')) return <AudioAttachment url={url} onReady={onReady} playbackRate={audioPlaybackRate} onCyclePlaybackRate={onCycleAudioPlaybackRate} />;
-  if (media.contentType.startsWith('video/')) return <video className="message-media" controls preload="metadata" src={url} onLoadedMetadata={onReady} />;
+  if (media.contentType.startsWith('video/')) return <video className="message-media" controls preload="metadata" src={url} onLoadedMetadata={onReady}><track kind="captions" src="data:text/vtt,WEBVTT" srcLang="pt-BR" label="Sem legendas" /></video>;
   return <DocumentAttachment media={media} url={url} />;
 }
 
@@ -2387,9 +2583,9 @@ function playNextConversationAudio(currentAudio: HTMLAudioElement) {
   void nextAudio.play().catch(() => undefined);
 }
 
-function AudioAttachment({ url, onReady, playbackRate, onCyclePlaybackRate }: { url: string; onReady(): void; playbackRate: number; onCyclePlaybackRate(): void }) {
+function AudioAttachment({ url, onReady, playbackRate, onCyclePlaybackRate }: Readonly<{ url: string; onReady(): void; playbackRate: number; onCyclePlaybackRate(): void }>) {
   const audioRef = useRef<HTMLAudioElement>(null);
-  const currentIndex = AUDIO_PLAYBACK_RATES.findIndex((rate) => rate === playbackRate);
+  const currentIndex = AUDIO_PLAYBACK_RATES.indexOf(playbackRate as (typeof AUDIO_PLAYBACK_RATES)[number]);
   const nextRate = AUDIO_PLAYBACK_RATES[(currentIndex + 1) % AUDIO_PLAYBACK_RATES.length];
 
   useEffect(() => {
@@ -2411,7 +2607,7 @@ function AudioAttachment({ url, onReady, playbackRate, onCyclePlaybackRate }: { 
         event.currentTarget.playbackRate = playbackRate;
         onReady();
       }}
-    />
+    ><track kind="captions" src="data:text/vtt,WEBVTT" srcLang="pt-BR" label="Sem legendas" /></audio>
     <button
       type="button"
       className="message-audio-speed"
@@ -2438,7 +2634,7 @@ function formatFileSize(sizeBytes: number) {
   return `${(sizeBytes / (1024 * 1024)).toLocaleString('pt-BR', { maximumFractionDigits: 1 })} MB`;
 }
 
-function DocumentAttachment({ media, url, loading = false }: { media: NonNullable<Message['media']>[number]; url?: string; loading?: boolean }) {
+function DocumentAttachment({ media, url, loading = false }: Readonly<{ media: NonNullable<Message['media']>[number]; url?: string; loading?: boolean }>) {
   const extension = documentExtension(media);
   const content = <>
     <span className={`message-document-icon${extension === 'PDF' ? ' pdf' : ''}`} aria-hidden="true"><FileText size={24} /><b>{extension}</b></span>
@@ -2449,7 +2645,7 @@ function DocumentAttachment({ media, url, loading = false }: { media: NonNullabl
   return <a className="message-document" href={url} target="_blank" rel="noreferrer" aria-label={`Abrir documento ${media.filename}`} title="Abrir documento">{content}</a>;
 }
 
-function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClose(): void }) {
+function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: string; onClose(): void }>) {
   const [zoom, setZoom] = useState(1);
   const [viewport, setViewport] = useState({ width: 0, height: 0 });
   const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
@@ -2545,7 +2741,7 @@ function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClos
     setDragging(false);
   };
 
-  return createPortal(<div className="image-lightbox" role="dialog" aria-modal="true" aria-label={`Visualização ampliada de ${alt}`}>
+  return createPortal(<dialog open className="image-lightbox" aria-label={`Visualização ampliada de ${alt}`} style={{ margin: 0, padding: 0, border: 0 }}>
     <header className="image-lightbox-toolbar">
       <strong title={alt}>{alt}</strong>
       <div>
@@ -2559,6 +2755,8 @@ function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClos
     <div
       ref={stageRef}
       className={`image-lightbox-stage${zoom > 1 ? ' zoomed' : ''}${dragging ? ' dragging' : ''}`}
+      role="application"
+      tabIndex={0}
       onPointerDown={beginPan}
       onPointerMove={movePan}
       onPointerUp={endPan}
@@ -2567,21 +2765,29 @@ function ImageLightbox({ url, alt, onClose }: { url: string; alt: string; onClos
         if (suppressClickRef.current) { suppressClickRef.current = false; return; }
         if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('image-lightbox-canvas')) onClose();
       }}
+      onKeyDown={(event) => {
+        if (event.key === 'Escape') onClose();
+      }}
       onWheel={(event) => { event.preventDefault(); changeZoom(zoomRef.current + (event.deltaY < 0 ? 0.25 : -0.25)); }}
     >
       <div className="image-lightbox-canvas">
-        <img
-          src={url}
-          alt={alt}
-          draggable={false}
-          style={{ width: displayWidth, height: displayHeight }}
-          onLoad={(event) => setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+        <button
+          type="button"
           onClick={() => { if (!suppressClickRef.current) changeZoom(zoomRef.current === 1 ? 2 : 1); }}
           title={zoom === 1 ? 'Clique para ampliar' : 'Arraste para mover ou clique para restaurar'}
-        />
+          style={{ display: 'block', border: 0, padding: 0, background: 'transparent' }}
+        >
+          <img
+            src={url}
+            alt={alt}
+            draggable={false}
+            style={{ width: displayWidth, height: displayHeight }}
+            onLoad={(event) => setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
+          />
+        </button>
       </div>
     </div>
-  </div>, document.body);
+  </dialog>, document.body);
 }
 
 type TimelineItem = ({ kind: 'message'; message: Message } | { kind: 'event'; event: ConversationEvent }) & { createdAt: string; timestamp: number };

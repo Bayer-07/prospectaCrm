@@ -29,7 +29,7 @@ export class OutboundProcessor {
         },
       },
     });
-    if (!message || message.status !== 'QUEUED' || !message.conversation.contact.phone) return;
+    if (message?.status !== 'QUEUED' || !message.conversation.contact.phone) return;
     const initialPayload = message.payload as Record<string, any>;
     if (initialPayload.automated && (message.conversation.assigneeId || message.conversation.chatbotSession?.status === 'STOPPED')) {
       await this.db.message.update({ where: { id: message.id }, data: { status: 'SKIPPED', payload: { ...initialPayload, skipReason: 'Atendimento humano assumido ou chatbot interrompido' } } });

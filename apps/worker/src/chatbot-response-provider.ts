@@ -16,7 +16,13 @@ export interface ChatbotResponseProvider {
   interpolate(template: string, context: ChatbotRuleContext): string;
 }
 
-export const normalizeRuleText = (value: unknown) => String(value ?? '')
+const scalarText = (value: unknown) => {
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return `${value}`;
+  return '';
+};
+
+export const normalizeRuleText = (value: unknown) => scalarText(value)
   .normalize('NFD')
   .replace(/[\u0300-\u036f]/g, '')
   .trim()
@@ -27,10 +33,10 @@ export class RulesResponseProvider implements ChatbotResponseProvider {
 
   matches(data: Record<string, unknown>, context: ChatbotRuleContext) {
     const actual = normalizeRuleText(context.lastMessage);
-    const values = String(data.value ?? '').split(/[\n,;]/).map(normalizeRuleText).filter(Boolean);
+    const values = scalarText(data.value).split(/[\n,;]/).map(normalizeRuleText).filter(Boolean);
     if (!values.length) return true;
-    const operator = String(data.operator || 'contains');
-    if (operator === 'equals') return values.some((value) => actual === value);
+    const operator = typeof data.operator === 'string' ? data.operator : 'contains';
+    if (operator === 'equals') return values.includes(actual);
     if (operator === 'starts_with') return values.some((value) => actual.startsWith(value));
     if (operator === 'ends_with') return values.some((value) => actual.endsWith(value));
     return values.some((value) => actual.includes(value));

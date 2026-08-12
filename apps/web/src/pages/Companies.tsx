@@ -100,7 +100,7 @@ type CompanyForm = {
   address: string;
 };
 
-function CompanyLogo({ company, large = false }: { company: Pick<Company, 'id' | 'name' | 'logoId'>; large?: boolean }) {
+function CompanyLogo({ company, large = false }: Readonly<{ company: Pick<Company, 'id' | 'name' | 'logoId'>; large?: boolean }>) {
   const src = company.logoId
     ? apiUrl(`/companies/${company.id}/logo?v=${encodeURIComponent(company.logoId)}`)
     : '';
@@ -129,7 +129,7 @@ function fileFromLogoLookup(logo: CompanyLogoLookup) {
   if (!encoded) throw new Error('Logo automática inválida');
   const binary = atob(encoded);
   const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
+  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.codePointAt(index) ?? 0;
   return new File([bytes], logo.filename, { type: logo.contentType });
 }
 
@@ -150,6 +150,39 @@ function companyAddressText(address?: Record<string, unknown>) {
     [city, state].filter(Boolean).join(' - '),
     postalCode ? `CEP ${postalCode}` : '',
   ].filter(Boolean).join(' · ');
+}
+
+function companyLogoPreview(company: Company | undefined, logoPreview: string, removeLogo: boolean, companyName: string) {
+  if (logoPreview) return <img src={logoPreview} alt="Prévia da logo" />;
+  if (company?.logoId && !removeLogo) return <CompanyLogo company={company} large />;
+  return <span>{initials(companyName || 'Empresa')}</span>;
+}
+
+function companyLogoMessage(
+  isFetching: boolean,
+  logoOrigin: 'manual' | 'auto' | null,
+  lookupFinishedWithoutLogo: boolean,
+) {
+  if (isFetching) return 'Buscando a logo pelo domínio…';
+  if (logoOrigin === 'auto') return 'Logo encontrada automaticamente pelo domínio.';
+  if (lookupFinishedWithoutLogo) return 'Nenhuma logo foi encontrada. Você pode selecionar uma imagem.';
+  return 'Informe o domínio ou selecione JPG, PNG ou WebP de até 5 MB.';
+}
+
+function cnpjLookupHint(lookup: {
+  isFetching: boolean;
+  isSuccess: boolean;
+  isError: boolean;
+  data?: Envelope<CompanyCnpjLookup>;
+}) {
+  if (lookup.isFetching) return 'Consultando dados da empresa…';
+  if (lookup.isSuccess) {
+    const registrationStatus = lookup.data?.data.registrationStatus;
+    const status = registrationStatus ? ` · Situação ${registrationStatus.toLowerCase()}` : '';
+    return `Dados encontrados${status}.`;
+  }
+  if (lookup.isError) return 'Não foi possível preencher automaticamente. Você ainda pode cadastrar manualmente.';
+  return 'A consulta será feita ao completar um CNPJ válido.';
 }
 
 export function CompaniesPage() {
@@ -300,6 +333,7 @@ export function CompaniesPage() {
           <td>{dateTime(company.updatedAt)}</td>
           <td className="company-actions-cell">
             <button
+              type="button"
               className="icon-button"
               onClick={(event) => openMenu(event, company)}
               aria-label={`Ações de ${company.name}`}
@@ -321,12 +355,12 @@ export function CompaniesPage() {
       />}
 
     {menu && <>
-      <button className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
+      <button type="button" className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
       <div className="contact-action-menu company-action-menu" role="menu" style={{ top: menu.top, right: menu.right }}>
-        <button role="menuitem" onClick={() => { setViewingContacts(menu.company); setMenu(null); }}><Users size={16} />Ver contatos atribuídos</button>
-        <button role="menuitem" onClick={() => { setEditing(menu.company); setMenu(null); }}><Pencil size={16} />Editar</button>
-        <button role="menuitem" onClick={() => { setViewing(menu.company); setMenu(null); }}><Eye size={16} />Ver empresa</button>
-        <button className="danger" role="menuitem" onClick={() => { setDeleting(menu.company); setMenu(null); }}><Trash2 size={16} />Excluir</button>
+        <button type="button" role="menuitem" onClick={() => { setViewingContacts(menu.company); setMenu(null); }}><Users size={16} />Ver contatos atribuídos</button>
+        <button type="button" role="menuitem" onClick={() => { setEditing(menu.company); setMenu(null); }}><Pencil size={16} />Editar</button>
+        <button type="button" role="menuitem" onClick={() => { setViewing(menu.company); setMenu(null); }}><Eye size={16} />Ver empresa</button>
+        <button type="button" className="danger" role="menuitem" onClick={() => { setDeleting(menu.company); setMenu(null); }}><Trash2 size={16} />Excluir</button>
       </div>
     </>}
 
@@ -338,11 +372,11 @@ export function CompaniesPage() {
   </div>;
 }
 
-function CompanyModal({ company, onClose, onSaved }: {
+function CompanyModal({ company, onClose, onSaved }: Readonly<{
   company?: Company;
   onClose(): void;
   onSaved(): void;
-}) {
+}>) {
   const [form, setForm] = useState<CompanyForm>({
     name: company?.name || '',
     legalName: company?.legalName || '',
@@ -533,21 +567,15 @@ function CompanyModal({ company, onClose, onSaved }: {
     <form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); if (!cnpjError) mutation.mutate(); }}>
       <div className="company-logo-picker">
         <div className={`company-logo-preview ${logoPreview || (company?.logoId && !removeLogo) ? 'has-image' : ''}`}>
-          {logoPreview
-            ? <img src={logoPreview} alt="Prévia da logo" />
-            : company?.logoId && !removeLogo
-              ? <CompanyLogo company={company} large />
-              : <span>{initials(form.name || 'Empresa')}</span>}
+          {companyLogoPreview(company, logoPreview, removeLogo, form.name)}
         </div>
         <div>
           <strong>Logo da empresa</strong>
-          <small>{logoLookup.isFetching
-            ? 'Buscando a logo pelo domínio…'
-            : logoOrigin === 'auto'
-              ? 'Logo encontrada automaticamente pelo domínio.'
-              : logoLookup.isSuccess && logoLookupDomain && !logoLookup.data?.data
-                ? 'Nenhuma logo foi encontrada. Você pode selecionar uma imagem.'
-                : 'Informe o domínio ou selecione JPG, PNG ou WebP de até 5 MB.'}</small>
+          <small>{companyLogoMessage(
+            logoLookup.isFetching,
+            logoOrigin,
+            Boolean(logoLookup.isSuccess && logoLookupDomain && !logoLookup.data?.data),
+          )}</small>
           <span className="company-logo-actions">
             <Button type="button" variant="secondary" onClick={() => logoInputRef.current?.click()}><ImagePlus size={15} />Selecionar logo</Button>
             {(logoFile || (company?.logoId && !removeLogo)) && <Button type="button" variant="secondary" onClick={clearLogo}>Remover</Button>}
@@ -573,13 +601,7 @@ function CompanyModal({ company, onClose, onSaved }: {
           autoComplete="off"
           maxLength={18}
           error={cnpjError}
-          hint={lookup.isFetching
-            ? 'Consultando dados da empresa…'
-            : lookup.isSuccess
-              ? `Dados encontrados${lookup.data.data.registrationStatus ? ` · Situação ${lookup.data.data.registrationStatus.toLowerCase()}` : ''}.`
-              : lookup.isError
-                ? 'Não foi possível preencher automaticamente. Você ainda pode cadastrar manualmente.'
-                : 'A consulta será feita ao completar um CNPJ válido.'}
+          hint={cnpjLookupHint(lookup)}
           aria-busy={lookup.isFetching}
         />
         <Field label="Telefone" value={form.phone} onChange={set('phone')} placeholder="(00) 0000-0000" />
@@ -608,7 +630,7 @@ function useCompanyDetails(companyId: string) {
   });
 }
 
-function CompanyContactsModal({ company, onClose }: { company: Company; onClose(): void }) {
+function CompanyContactsModal({ company, onClose }: Readonly<{ company: Company; onClose(): void }>) {
   const navigate = useNavigate();
   const details = useCompanyDetails(company.id);
   const contacts = details.data?.data.contacts || [];
@@ -630,13 +652,13 @@ function CompanyContactsModal({ company, onClose }: { company: Company; onClose(
     navigate(`/email?new=campaign&contactId=${encodeURIComponent(contact.id)}`);
   };
 
-  return <Modal title={`Contatos de ${company.name}`} width={680} onClose={onClose}>
-    {details.isLoading
-      ? <PageLoading />
-      : details.isError
-        ? <p className="company-modal-error">Não foi possível carregar os contatos vinculados.</p>
-        : contacts.length
-          ? <div className="company-contacts-modal-list">{contacts.map(({ contact, isPrimary }) => <article key={contact.id}>
+  let content;
+  if (details.isLoading) {
+    content = <PageLoading />;
+  } else if (details.isError) {
+    content = <p className="company-modal-error">Não foi possível carregar os contatos vinculados.</p>;
+  } else if (contacts.length) {
+    content = <div className="company-contacts-modal-list">{contacts.map(({ contact, isPrimary }) => <article key={contact.id}>
             <span className="contact-avatar large">{initials(contact.name)}</span>
             <div>
               <strong>{contact.name}{isPrimary && <em>Principal</em>}</strong>
@@ -646,8 +668,13 @@ function CompanyContactsModal({ company, onClose }: { company: Company; onClose(
                 {contact.phone && <button type="button" className="company-contact-channel" onClick={(event) => openPhoneMenu(event, contact)}><Phone size={13} />{formatPhone(contact.phone)}</button>}
               </span>
             </div>
-          </article>)}</div>
-          : <Empty icon={<Users />} title="Nenhum contato atribuído" description="Esta empresa ainda não possui contatos vinculados." />}
+          </article>)}</div>;
+  } else {
+    content = <Empty icon={<Users />} title="Nenhum contato atribuído" description="Esta empresa ainda não possui contatos vinculados." />;
+  }
+
+  return <Modal title={`Contatos de ${company.name}`} width={680} onClose={onClose}>
+    {content}
     {phoneMenu && <>
       <button type="button" className="action-menu-backdrop company-contact-phone-scrim" onClick={() => setPhoneMenu(null)} aria-label="Fechar ações do telefone" />
       <div className="contact-action-menu company-contact-phone-menu" role="menu" style={{ top: phoneMenu.top, right: phoneMenu.right }}>
@@ -659,22 +686,32 @@ function CompanyContactsModal({ company, onClose }: { company: Company; onClose(
   </Modal>;
 }
 
-function CompanyDrawer({ company, onClose }: { company: Company; onClose(): void }) {
+function CompanyDrawer({ company, onClose }: Readonly<{ company: Company; onClose(): void }>) {
   const details = useCompanyDetails(company.id);
   const data = details.data?.data;
+  let content;
+  if (details.isLoading) {
+    content = <PageLoading />;
+  } else if (details.isError || !data) {
+    content = <div className="drawer-error">Não foi possível carregar os detalhes desta empresa.</div>;
+  } else {
+    content = <CompanyDrawerContent data={data} />;
+  }
 
   return <>
-    <button className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes da empresa" />
+    <button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes da empresa" />
     <aside className="opportunity-drawer company-detail-drawer" aria-label="Detalhes da empresa">
       <header>
         <div className="company-drawer-title"><CompanyLogo company={data || company} large /><div><span className="eyebrow">Empresa</span><h2>{data?.name || company.name}</h2></div></div>
-        <button className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
+        <button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button>
       </header>
-      {details.isLoading
-        ? <PageLoading />
-        : details.isError || !data
-          ? <div className="drawer-error">Não foi possível carregar os detalhes desta empresa.</div>
-          : <div className="drawer-content">
+      {content}
+    </aside>
+  </>;
+}
+
+function CompanyDrawerContent({ data }: Readonly<{ data: CompanyDetails }>) {
+  return <div className="drawer-content">
             <div className="drawer-summary">
               <div><span>Contatos</span><strong>{data.contacts.length}</strong></div>
               <div><span>Oportunidades</span><strong>{data.opportunities.length}</strong></div>
@@ -716,16 +753,14 @@ function CompanyDrawer({ company, onClose }: { company: Company; onClose(): void
                 </div>)}</div>
                 : <p className="drawer-muted">Nenhuma oportunidade vinculada.</p>}
             </section>
-          </div>}
-    </aside>
-  </>;
+          </div>;
 }
 
-function DeleteCompanyModal({ company, onClose, onDeleted }: {
+function DeleteCompanyModal({ company, onClose, onDeleted }: Readonly<{
   company: Company;
   onClose(): void;
   onDeleted(): void;
-}) {
+}>) {
   const remove = useMutation({
     mutationFn: () => api(`/companies/${company.id}`, { method: 'DELETE' }),
     onSuccess: () => {

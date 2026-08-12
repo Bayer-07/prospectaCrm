@@ -45,8 +45,7 @@ export class RealtimeGateway implements OnGatewayConnection, OnModuleInit, OnMod
     if (!claims) return socket.disconnect(true);
     const session = await this.db.session.findUnique({ where: { tokenHash: hash(decodedToken) }, include: { user: true } });
     if (
-      !session
-      || session.id !== claims.sessionId
+      session?.id !== claims.sessionId
       || session.userId !== claims.userId
       || session.expiresAt <= new Date()
       || session.user.status !== 'ACTIVE'

@@ -154,12 +154,18 @@ export function saoPauloDayRange(dateKey: string) {
   return { start, end: new Date(`${nextKey}T03:00:00.000Z`) };
 }
 
+function trimTrailingSlashes(value: string) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
+
 export function renderTaskDigest(
   assignee: { name: string; email: string },
   tasks: DigestTask[],
   dateKey: string,
 ) {
-  const appUrl = (process.env.APP_URL || 'http://localhost:5173').replace(/\/+$/, '');
+  const appUrl = trimTrailingSlashes(process.env.APP_URL || 'http://localhost:5173');
   const friendlyDate = capitalize(dateFormatter.format(new Date(`${dateKey}T12:00:00.000Z`)));
   const subject = `Suas tarefas de hoje · ${friendlyDate}`;
   const rows = tasks.map((task) => {
@@ -178,10 +184,13 @@ export function renderTaskDigest(
     '',
     `Estas são suas ${tasks.length} tarefa${tasks.length === 1 ? '' : 's'} para ${friendlyDate}:`,
     '',
-    ...rows.flatMap((row) => [
-      `${row.time} · ${row.title} · Prioridade ${row.priority}${row.related ? ` · ${row.related}` : ''}`,
-      ...(row.description ? [`  ${row.description}`] : []),
-    ]),
+    ...rows.flatMap((row) => {
+      const relatedSuffix = row.related ? ` · ${row.related}` : '';
+      return [
+        `${row.time} · ${row.title} · Prioridade ${row.priority}${relatedSuffix}`,
+        ...(row.description ? [`  ${row.description}`] : []),
+      ];
+    }),
     '',
     `Abrir agenda: ${appUrl}/tarefas`,
   ].join('\n');

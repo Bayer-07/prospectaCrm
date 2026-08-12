@@ -20,4 +20,8 @@ async function main() {
   console.log(JSON.stringify({ campaigns: campaigns.count, opportunities: opportunities.count, contacts: contacts.count, companies: companies.count, apiKeys: apiKeys.count, idempotencyRecords: idempotencyRecords.count, webhookEvents: webhookEvents.count, whatsappInstances: whatsappInstances.count }));
 }
 
-main().finally(() => db.$disconnect());
+try {
+  await main();
+} finally {
+  await db.$disconnect();
+}

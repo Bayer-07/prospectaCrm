@@ -41,25 +41,21 @@ type Dashboard = {
   };
 };
 
-const activityVisual = (type: string) => type.includes('stage')
-  ? { icon: MoveRight, tone: 'blue' }
-  : type.includes('task')
-    ? { icon: CheckCircle2, tone: 'green' }
-    : type.includes('company')
-      ? { icon: Building2, tone: 'amber' }
-      : { icon: MessageCircleMore, tone: 'violet' };
+function activityVisual(type: string) {
+  if (type.includes('stage')) return { icon: MoveRight, tone: 'blue' };
+  if (type.includes('task')) return { icon: CheckCircle2, tone: 'green' };
+  if (type.includes('company')) return { icon: Building2, tone: 'amber' };
+  return { icon: MessageCircleMore, tone: 'violet' };
+}
 
-const activityDestination = (type: string) => type.includes('stage') || type.includes('opportunity')
-  ? '/pipeline'
-  : type.includes('task')
-    ? '/tarefas'
-    : type.includes('company')
-      ? '/empresas'
-      : type.includes('contact')
-        ? '/contatos'
-        : type.includes('campaign')
-          ? '/campanhas'
-          : '/inbox';
+function activityDestination(type: string) {
+  if (type.includes('stage') || type.includes('opportunity')) return '/pipeline';
+  if (type.includes('task')) return '/tarefas';
+  if (type.includes('company')) return '/empresas';
+  if (type.includes('contact')) return '/contatos';
+  if (type.includes('campaign')) return '/campanhas';
+  return '/inbox';
+}
 
 export function DashboardPage() {
   const query = useQuery({ queryKey: ['dashboard'], queryFn: () => api<Envelope<Dashboard>>('/dashboard') });
@@ -87,7 +83,7 @@ export function DashboardPage() {
     ...fallback,
     ...response,
     recentActivities: response?.recentActivities || [],
-    inbox: { ...fallback.inbox, ...(response?.inbox || {}) },
+    inbox: { ...fallback.inbox, ...response?.inbox },
   };
   const maxStage = Math.max(...data.stageDistribution.map((item) => item.count), 1);
 

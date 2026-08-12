@@ -102,19 +102,18 @@ export class GmailCampaignClient {
       return { id: normalizeSmtpMessageId(result.messageId), message: result.response || 'Enviado' };
     } catch (error) {
       if (error instanceof GmailCampaignError) throw error;
-      const responseCode = Number((error as { responseCode?: unknown })?.responseCode || 0);
-      const code = String((error as { code?: unknown })?.code || 'SMTP_ERROR');
+      const rawResponseCode = (error as { responseCode?: unknown })?.responseCode;
+      const responseCode = typeof rawResponseCode === 'number' ? rawResponseCode : 0;
+      const rawCode = (error as { code?: unknown })?.code;
+      const code = typeof rawCode === 'string' ? rawCode : 'SMTP_ERROR';
       const retryable = (responseCode >= 400 && responseCode < 500)
         || ['ECONNECTION', 'ETIMEDOUT', 'ESOCKET'].includes(code);
       const reportedMessage = (error as { message?: unknown })?.message;
-      const detail = typeof reportedMessage === 'string'
-        ? reportedMessage
-        : error instanceof Error
-          ? error.message
-          : String(error || 'Falha desconhecida');
+      const detail = errorDetail(error, reportedMessage);
+      const responseSuffix = responseCode ? ` ${responseCode}` : '';
       throw new GmailCampaignError(
         retryable,
-        `Gmail SMTP${responseCode ? ` ${responseCode}` : ''}: ${detail}`.slice(0, 500),
+        `Gmail SMTP${responseSuffix}: ${detail}`.slice(0, 500),
       );
     }
   }
@@ -128,6 +127,12 @@ export class GmailCampaignClient {
     }
     if (!this.transport) throw new GmailCampaignError(false, 'O cliente SMTP do Gmail não foi inicializado');
   }
+}
+
+function errorDetail(error: unknown, reportedMessage: unknown) {
+  if (typeof reportedMessage === 'string') return reportedMessage;
+  if (error instanceof Error) return error.message;
+  return typeof error === 'string' ? error : 'Falha desconhecida';
 }
 
 export function normalizeSmtpMessageId(value?: string | null) {

@@ -1,4 +1,4 @@
-import { DragEvent, FormEvent, useEffect, useMemo, useRef, useState } from 'react';
+import { DragEvent, FormEvent, type ReactNode, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock3, Download, FileSpreadsheet, LoaderCircle, MessageSquareText, Pause, Play, Plus, Search, Send, ShieldCheck, Trash2, Upload, UserRoundCheck, Users, X } from 'lucide-react';
@@ -55,6 +55,7 @@ type Campaign = {
 };
 type Instance = { id: string; name: string; status: string; phone?: string; warmupProfile?: { currentDailyCap: number; sentToday: number } };
 type CampaignContact = { id: string; name: string; phone?: string; email?: string };
+type DraftMessage = { id: string; content: string };
 type CsvPreview = {
   total: number;
   valid: number;
@@ -97,11 +98,9 @@ function campaignRecipientMessages(campaign: Campaign, recipient: CampaignRecipi
       }))
       .filter((message) => Boolean(message.content))
     : [];
-  const messages = recipient.renderedMessages?.length
-    ? recipient.renderedMessages
-    : storedMessages.length
-      ? storedMessages
-      : campaign.bubbles.map((bubble) => ({ type: 'text', content: bubble.content }));
+  let messages = campaign.bubbles.map((bubble) => ({ type: 'text', content: bubble.content }));
+  if (storedMessages.length) messages = storedMessages;
+  if (recipient.renderedMessages?.length) messages = recipient.renderedMessages;
   if (recipient.renderedMessages?.length) return messages;
 
   const variables = contactTemplateVariables(recipient.contact);
@@ -111,6 +110,42 @@ function campaignRecipientMessages(campaign: Campaign, recipient: CampaignRecipi
   }));
 }
 
+function trimHyphens(value: string) {
+  let start = 0;
+  let end = value.length;
+  while (value[start] === '-') start += 1;
+  while (value[end - 1] === '-') end -= 1;
+  return value.slice(start, end);
+}
+
+function createDraftMessage(content = ''): DraftMessage {
+  return { id: globalThis.crypto.randomUUID(), content };
+}
+
+function campaignSearchStatus(pending: boolean, search: string) {
+  if (pending) return 'Atualizando filtro…';
+  if (search) return `Filtro: ${search}`;
+  return 'Todos os contatos acessíveis';
+}
+
+function campaignSelectionSummary(selectedSearches: number, selectedContacts: number, excludedContacts: number) {
+  if (!selectedSearches) return `${selectedContacts} contato(s) selecionado(s)`;
+  let summary = `Todos os resultados de ${selectedSearches} busca(s) selecionados`;
+  if (selectedContacts) summary += ` + ${selectedContacts} individual(is)`;
+  if (excludedContacts) summary += `, exceto ${excludedContacts}`;
+  return summary;
+}
+
+function withRenderKeys<T extends { content: string; type?: string }>(items: T[]) {
+  const occurrences = new Map<string, number>();
+  return items.map((item) => {
+    const signature = `${item.type || 'text'}:${item.content}`;
+    const occurrence = (occurrences.get(signature) || 0) + 1;
+    occurrences.set(signature, occurrence);
+    return { ...item, renderKey: `${signature}:${occurrence}` };
+  });
+}
+
 async function downloadInvalidWhatsappNumbers(campaign: Pick<Campaign, 'id' | 'name'>) {
   const response = await apiFetch(`/campaigns/${campaign.id}/invalid-whatsapp-numbers.csv`);
   if (!response.ok) {
@@ -118,13 +153,14 @@ async function downloadInvalidWhatsappNumbers(campaign: Pick<Campaign, 'id' | 'n
     throw new Error(body?.message || 'Não foi possível baixar os números inválidos');
   }
 
-  const fallbackName = `numeros-invalidos-${campaign.name
+  const normalizedCampaignName = trimHyphens(campaign.name
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '') || campaign.id}.csv`;
-  const filename = response.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/i)?.[1] || fallbackName;
+    .replace(/[^a-z0-9]+/g, '-'));
+  const fallbackName = `numeros-invalidos-${normalizedCampaignName || campaign.id}.csv`;
+  const disposition = response.headers.get('Content-Disposition') || '';
+  const filename = /filename="([^"]+)"/i.exec(disposition)?.[1] || fallbackName;
   const href = URL.createObjectURL(await response.blob());
   const anchor = document.createElement('a');
   anchor.href = href;
@@ -141,6 +177,71 @@ function useInvalidWhatsappDownload() {
     onSuccess: () => toast.success('Números inválidos baixados.'),
     onError: (error) => toast.error(error instanceof Error ? error.message : 'Não foi possível baixar os números inválidos'),
   });
+}
+
+type CampaignListItemProps = Readonly<{
+  campaign: Campaign;
+  schedulePending: boolean;
+  scheduledCampaignId?: string;
+  invalidDownloadPending: boolean;
+  invalidDownloadCampaignId?: string;
+  onOpen(campaignId: string): void;
+  onSchedule(campaignId: string): void;
+  onChangeStatus(campaignId: string, action: 'pause' | 'resume'): void;
+  onDownloadInvalid(campaign: Campaign): void;
+  onDelete(campaign: Campaign): void;
+}>;
+
+function CampaignListItem({
+  campaign,
+  schedulePending,
+  scheduledCampaignId,
+  invalidDownloadPending,
+  invalidDownloadCampaignId,
+  onOpen,
+  onSchedule,
+  onChangeStatus,
+  onDownloadInvalid,
+  onDelete,
+}: CampaignListItemProps) {
+  const progress = campaignProgress(campaign);
+  let preview = campaign.bubbles?.[0]?.content;
+  if (!preview) {
+    preview = campaign.stats?.audienceSource === 'csv'
+      ? 'Mensagens personalizadas pelo CSV'
+      : 'Sem prévia de conteúdo';
+  }
+  const schedulingThisCampaign = schedulePending && scheduledCampaignId === campaign.id;
+  const downloadingThisCampaign = invalidDownloadPending && invalidDownloadCampaignId === campaign.id;
+
+  return <article style={{ position: 'relative' }}>
+    <button
+      type="button"
+      aria-label={`Abrir detalhes da campanha ${campaign.name}`}
+      onClick={() => onOpen(campaign.id)}
+      style={{ position: 'absolute', inset: 0, zIndex: 1, border: 0, background: 'transparent', cursor: 'pointer' }}
+    />
+    <div className="campaign-channel"><MessageSquareText size={18} /></div>
+    <div className="campaign-info"><div><strong>{campaign.name}</strong><Status value={campaign.status} /></div><p>{preview}</p><small>{campaign.instance?.name || 'Sem número de envio'} · Criada em {dateTime(campaign.createdAt)}</small></div>
+    <div className="campaign-numbers"><div><span>Enviados</span><strong>{progress.sent}</strong></div><div><span>Responderam</span><strong>{progress.replied}</strong></div><div><span>Faltam</span><strong>{progress.remaining}</strong></div></div>
+    <div className="campaign-actions" style={{ position: 'relative', zIndex: 2 }}>
+      {campaign.status === 'DRAFT' && <button type="button" className="campaign-start-button" title="Validar contatos e iniciar" disabled={schedulePending} onClick={() => onSchedule(campaign.id)}>{schedulingThisCampaign ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
+      {campaign.status === 'RUNNING' && <button type="button" title="Pausar" onClick={() => onChangeStatus(campaign.id, 'pause')}><Pause size={16} /></button>}
+      {campaign.status === 'PAUSED' && <button type="button" title="Retomar" onClick={() => onChangeStatus(campaign.id, 'resume')}><Play size={16} /></button>}
+      <button
+        type="button"
+        className="campaign-invalid-download-button"
+        title="Baixar números sem WhatsApp"
+        aria-label={`Baixar números sem WhatsApp da campanha ${campaign.name}`}
+        disabled={downloadingThisCampaign}
+        onClick={() => onDownloadInvalid(campaign)}
+      >
+        {downloadingThisCampaign ? <LoaderCircle size={16} className="spin" /> : <Download size={16} />}
+      </button>
+      <button type="button" className="campaign-delete-button" title="Excluir campanha" aria-label={`Excluir campanha ${campaign.name}`} onClick={() => onDelete(campaign)}><Trash2 size={16} /></button>
+      <button type="button" title="Abrir detalhes" aria-label={`Abrir detalhes da campanha ${campaign.name}`} onClick={() => onOpen(campaign.id)}><ChevronRight size={18} /></button>
+    </div>
+  </article>;
 }
 
 export function CampaignsPage() {
@@ -194,45 +295,28 @@ export function CampaignsPage() {
       <div><span className="metric-icon amber"><ShieldCheck size={19} /></span><p><small>Opt-outs</small><strong>{allCampaigns.reduce((sum, item) => sum + Number(item.stats?.optedOut || 0), 0)}</strong></p></div>
     </section>
     <div className="toolbar">
-      <div className="segmented" role="group" aria-label="Filtrar campanhas">
-        <button className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todas</button>
-        <button className={filter === 'RUNNING' ? 'active' : ''} aria-pressed={filter === 'RUNNING'} onClick={() => setFilter('RUNNING')}>Em execução</button>
-        <button className={filter === 'SCHEDULED' ? 'active' : ''} aria-pressed={filter === 'SCHEDULED'} onClick={() => setFilter('SCHEDULED')}>Agendadas</button>
-        <button className={filter === 'COMPLETED' ? 'active' : ''} aria-pressed={filter === 'COMPLETED'} onClick={() => setFilter('COMPLETED')}>Concluídas</button>
-      </div>
+      <fieldset className="segmented" aria-label="Filtrar campanhas" style={{ margin: 0, minWidth: 0 }}>
+        <button type="button" className={filter === 'all' ? 'active' : ''} aria-pressed={filter === 'all'} onClick={() => setFilter('all')}>Todas</button>
+        <button type="button" className={filter === 'RUNNING' ? 'active' : ''} aria-pressed={filter === 'RUNNING'} onClick={() => setFilter('RUNNING')}>Em execução</button>
+        <button type="button" className={filter === 'SCHEDULED' ? 'active' : ''} aria-pressed={filter === 'SCHEDULED'} onClick={() => setFilter('SCHEDULED')}>Agendadas</button>
+        <button type="button" className={filter === 'COMPLETED' ? 'active' : ''} aria-pressed={filter === 'COMPLETED'} onClick={() => setFilter('COMPLETED')}>Concluídas</button>
+      </fieldset>
       <Button onClick={() => setModal(true)} disabled={!connectedInstances.length}><Plus size={15} />Nova campanha</Button>
     </div>
     {!instances.isLoading && !connectedInstances.length && <div className="inline-alert"><AlertTriangle size={17} /><div><strong>Conecte um número antes de criar campanhas.</strong><p>Vá até Conexões e conecte uma instância.</p></div></div>}
-    {data.length ? <div className="campaign-list">{data.map((campaign) => {
-      const progress = campaignProgress(campaign);
-      return <article key={campaign.id} onClick={() => setDetailsId(campaign.id)}>
-      <div className="campaign-channel"><MessageSquareText size={18} /></div>
-      <div className="campaign-info"><div><strong>{campaign.name}</strong><Status value={campaign.status} /></div><p>{campaign.bubbles?.[0]?.content || (campaign.stats?.audienceSource === 'csv' ? 'Mensagens personalizadas pelo CSV' : 'Sem prévia de conteúdo')}</p><small>{campaign.instance?.name || 'Sem número de envio'} · Criada em {dateTime(campaign.createdAt)}</small></div>
-      <div className="campaign-numbers"><div><span>Enviados</span><strong>{progress.sent}</strong></div><div><span>Responderam</span><strong>{progress.replied}</strong></div><div><span>Faltam</span><strong>{progress.remaining}</strong></div></div>
-      <div className="campaign-actions">
-        {campaign.status === 'DRAFT' && <button className="campaign-start-button" title="Validar contatos e iniciar" disabled={schedule.isPending} onClick={(event) => { event.stopPropagation(); schedule.mutate(campaign.id); }}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
-        {campaign.status === 'RUNNING' && <button title="Pausar" onClick={(event) => { event.stopPropagation(); status.mutate({ id: campaign.id, action: 'pause' }); }}><Pause size={16} /></button>}
-        {campaign.status === 'PAUSED' && <button title="Retomar" onClick={(event) => { event.stopPropagation(); status.mutate({ id: campaign.id, action: 'resume' }); }}><Play size={16} /></button>}
-        <button
-          type="button"
-          className="campaign-invalid-download-button"
-          title="Baixar números sem WhatsApp"
-          aria-label={`Baixar números sem WhatsApp da campanha ${campaign.name}`}
-          disabled={invalidWhatsappDownload.isPending && invalidWhatsappDownload.variables?.id === campaign.id}
-          onClick={(event) => {
-            event.stopPropagation();
-            invalidWhatsappDownload.mutate(campaign);
-          }}
-        >
-          {invalidWhatsappDownload.isPending && invalidWhatsappDownload.variables?.id === campaign.id
-            ? <LoaderCircle size={16} className="spin" />
-            : <Download size={16} />}
-        </button>
-        <button type="button" className="campaign-delete-button" title="Excluir campanha" aria-label={`Excluir campanha ${campaign.name}`} onClick={(event) => { event.stopPropagation(); setDeleting(campaign); }}><Trash2 size={16} /></button>
-        <ChevronRight size={18} />
-      </div>
-    </article>;
-    })}</div> : <Empty icon={<MessageSquareText />} title={allCampaigns.length ? 'Nenhuma campanha neste filtro' : 'Nenhuma campanha criada'} description="Crie uma campanha com audiência consentida, mensagens em bolhas e cadência controlada." action={<Button onClick={() => setModal(true)} disabled={!connectedInstances.length}>Criar campanha</Button>} />}
+    {data.length ? <div className="campaign-list">{data.map((campaign) => <CampaignListItem
+      key={campaign.id}
+      campaign={campaign}
+      schedulePending={schedule.isPending}
+      scheduledCampaignId={schedule.variables}
+      invalidDownloadPending={invalidWhatsappDownload.isPending}
+      invalidDownloadCampaignId={invalidWhatsappDownload.variables?.id}
+      onOpen={setDetailsId}
+      onSchedule={(campaignId) => schedule.mutate(campaignId)}
+      onChangeStatus={(campaignId, action) => status.mutate({ id: campaignId, action })}
+      onDownloadInvalid={(selectedCampaign) => invalidWhatsappDownload.mutate(selectedCampaign)}
+      onDelete={setDeleting}
+    />)}</div> : <Empty icon={<MessageSquareText />} title={allCampaigns.length ? 'Nenhuma campanha neste filtro' : 'Nenhuma campanha criada'} description="Crie uma campanha com audiência consentida, mensagens em bolhas e cadência controlada." action={<Button onClick={() => setModal(true)} disabled={!connectedInstances.length}>Criar campanha</Button>} />}
     {modal && <CampaignModal instances={connectedInstances} onClose={() => setModal(false)} onCreated={() => { setModal(false); client.invalidateQueries({ queryKey: ['campaigns'] }); }} />}
     {detailsId && <CampaignDetails campaignId={detailsId} onClose={() => setDetailsId(null)} />}
     {deleting && <DeleteCampaignModal
@@ -244,12 +328,12 @@ export function CampaignsPage() {
   </div>;
 }
 
-function DeleteCampaignModal({ campaign, loading, onClose, onConfirm }: {
+function DeleteCampaignModal({ campaign, loading, onClose, onConfirm }: Readonly<{
   campaign: Campaign;
   loading: boolean;
   onClose(): void;
   onConfirm(): void;
-}) {
+}>) {
   return <Modal title="Excluir campanha" onClose={onClose}>
     <div className="delete-confirm">
       <div className="delete-confirm-icon"><Trash2 size={22} /></div>
@@ -265,13 +349,13 @@ function DeleteCampaignModal({ campaign, loading, onClose, onConfirm }: {
   </Modal>;
 }
 
-function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[]; onClose(): void; onCreated(): void }) {
+function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: Instance[]; onClose(): void; onCreated(): void }>) {
   const [source, setSource] = useState<'contacts' | 'csv'>('contacts');
   const [contactSearch, setContactSearch] = useState('');
   const [selectedContacts, setSelectedContacts] = useState<CampaignContact[]>([]);
   const [selectedSearches, setSelectedSearches] = useState<string[]>([]);
   const [excludedContacts, setExcludedContacts] = useState<CampaignContact[]>([]);
-  const [messages, setMessages] = useState(['']);
+  const [messages, setMessages] = useState<DraftMessage[]>(() => [createDraftMessage()]);
   const [csvFile, setCsvFile] = useState<File | null>(null);
   const [csvName, setCsvName] = useState('');
   const [fileDragging, setFileDragging] = useState(false);
@@ -342,7 +426,9 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
             contactSearches: selectedSearches,
             excludedContactIds: excludedContacts.map((contact) => contact.id),
           },
-          bubbles: messages.filter((message) => message.trim()).map((content) => ({ type: 'text', content })),
+          bubbles: messages
+            .filter((message) => message.content.trim())
+            .map((message) => ({ type: 'text', content: message.content })),
           cadence,
         }),
       });
@@ -429,8 +515,16 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
     anchor.click();
     URL.revokeObjectURL(url);
   };
-  const updateMessage = (index: number, value: string) => setMessages((current) => current.map((message, position) => position === index ? value : message));
-  const addVariable = (variable: string) => setMessages((current) => current.map((message, index) => index === current.length - 1 ? `${message}${message ? ' ' : ''}${variable}` : message));
+  const updateMessage = (id: string, value: string) => setMessages((current) => current.map((message) => {
+    if (message.id !== id) return message;
+    return { ...message, content: value };
+  }));
+  const removeMessage = (id: string) => setMessages((current) => current.filter((message) => message.id !== id));
+  const addVariable = (variable: string) => setMessages((current) => current.map((message, index) => {
+    if (index !== current.length - 1) return message;
+    const separator = message.content ? ' ' : '';
+    return { ...message, content: `${message.content}${separator}${variable}` };
+  }));
   const toggleAllSearchResults = () => {
     if (currentSearchSelected) {
       const remainingSearches = selectedSearches.filter((search) => search !== currentContactSearch);
@@ -462,6 +556,12 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
         : [...current, contact]);
     }
   };
+  const removeSelectedSearch = (search: string) => {
+    const remainingSearches = selectedSearches.filter((item) => item !== search);
+    setSelectedSearches(remainingSearches);
+    setExcludedContacts((current) => current.filter((contact) =>
+      remainingSearches.some((remaining) => contactMatchesSearch(contact, remaining))));
+  };
   const csvReady = Boolean(csvFile && preview.data?.data.valid);
   const validCsvRows = (preview.data?.data.rows || []).filter((row) => row.hasWhatsapp);
   const invalidCsvRows = (preview.data?.data.rows || []).filter((row) => !row.hasWhatsapp);
@@ -470,7 +570,7 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
     form.name.trim()
     && form.instanceId
     && (source === 'contacts'
-      ? (selectedContacts.length || selectedSearches.length) && messages.some((message) => message.trim())
+      ? (selectedContacts.length || selectedSearches.length) && messages.some((message) => message.content.trim())
       : csvReady),
   );
 
@@ -489,10 +589,10 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
 
       <section className="campaign-form-section">
         <div className="campaign-form-section-title"><span>2</span><div><h3>Contatos</h3><p>Selecione contatos salvos ou importe um CSV que já contenha as mensagens.</p></div></div>
-        <div className="campaign-source-tabs" role="group" aria-label="Origem dos contatos">
+        <fieldset className="campaign-source-tabs" aria-label="Origem dos contatos" style={{ margin: 0, minWidth: 0 }}>
           <button type="button" className={source === 'contacts' ? 'active' : ''} onClick={() => setSource('contacts')}><UserRoundCheck size={17} />Contatos salvos</button>
           <button type="button" className={source === 'csv' ? 'active' : ''} onClick={() => setSource('csv')}><FileSpreadsheet size={17} />Importar CSV</button>
-        </div>
+        </fieldset>
 
         {source === 'contacts' ? <div className="campaign-contact-picker">
           <label className="campaign-contact-search"><Search size={16} /><input value={contactSearch} onChange={(event) => setContactSearch(event.target.value)} placeholder="Buscar contato por nome, telefone ou e-mail…" /></label>
@@ -506,14 +606,9 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
               <CheckCircle2 size={15} />
               {currentSearchSelected ? 'Desmarcar resultados desta busca' : 'Selecionar todos os resultados'}
             </button>
-            <small>{contactSearchPending ? 'Atualizando filtro…' : currentContactSearch ? `Filtro: ${currentContactSearch}` : 'Todos os contatos acessíveis'}</small>
+            <small>{campaignSearchStatus(contactSearchPending, currentContactSearch)}</small>
           </div>
-          {selectedSearches.length > 0 && <div className="campaign-selected-searches">{selectedSearches.map((search) => <span key={search || '__all__'}><b>{search ? `Todos com “${search}”` : 'Todos os contatos'}</b><button type="button" onClick={() => {
-            const remainingSearches = selectedSearches.filter((item) => item !== search);
-            setSelectedSearches(remainingSearches);
-            setExcludedContacts((current) => current.filter((contact) =>
-              remainingSearches.some((remaining) => contactMatchesSearch(contact, remaining))));
-          }} aria-label={`Remover seleção ${search || 'de todos os contatos'}`}><X size={13} /></button></span>)}</div>}
+          {selectedSearches.length > 0 && <div className="campaign-selected-searches">{selectedSearches.map((search) => <span key={search || '__all__'}><b>{search ? `Todos com “${search}”` : 'Todos os contatos'}</b><button type="button" onClick={() => removeSelectedSearch(search)} aria-label={`Remover seleção ${search || 'de todos os contatos'}`}><X size={13} /></button></span>)}</div>}
           {selectedContacts.length > 0 && <div className="campaign-selected-contacts">{selectedContacts.map((contact) => <span key={contact.id}><i>{initials(contact.name)}</i><b>{contact.name}</b><button type="button" onClick={() => toggleContact(contact)} aria-label={`Remover ${contact.name}`}><X size={13} /></button></span>)}</div>}
           <div className="campaign-contact-results">
             {contacts.isLoading ? <div className="campaign-picker-state">Buscando contatos…</div> : contacts.data?.data.length ? contacts.data.data.map((contact) => {
@@ -525,9 +620,7 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
               </button>;
             }) : <div className="campaign-picker-state">Nenhum contato encontrado.</div>}
           </div>
-          <small className="campaign-selection-count">{selectedSearches.length
-            ? `Todos os resultados de ${selectedSearches.length} busca(s) selecionados${selectedContacts.length ? ` + ${selectedContacts.length} individual(is)` : ''}${excludedContacts.length ? `, exceto ${excludedContacts.length}` : ''}`
-            : `${selectedContacts.length} contato(s) selecionado(s)`}</small>
+          <small className="campaign-selection-count">{campaignSelectionSummary(selectedSearches.length, selectedContacts.length, excludedContacts.length)}</small>
         </div> : <div className="campaign-csv-area">
           <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => void chooseFile(event.target.files?.[0])} />
           <button type="button" className={`campaign-file-drop ${csvName ? 'has-file' : ''}`} onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropOnField}>
@@ -551,12 +644,12 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
 
       {source === 'contacts' && <section className="campaign-form-section">
         <div className="campaign-form-section-title"><span>3</span><div><h3>Mensagens</h3><p>Crie uma ou mais mensagens. Elas serão enviadas na ordem exibida.</p></div></div>
-        <div className="campaign-message-list">{messages.map((message, index) => <div className="campaign-message-item" key={index}>
-          <header><strong>Mensagem {index + 1}</strong>{messages.length > 1 && <button type="button" onClick={() => setMessages((current) => current.filter((_, position) => position !== index))}><Trash2 size={15} />Remover</button>}</header>
-          <textarea rows={4} value={message} onChange={(event) => updateMessage(index, event.target.value)} placeholder={index === 0 ? 'Olá {{nome}}, tudo bem?' : 'Digite a próxima mensagem…'} required />
+        <div className="campaign-message-list">{messages.map((message, index) => <div className="campaign-message-item" key={message.id}>
+          <header><strong>Mensagem {index + 1}</strong>{messages.length > 1 && <button type="button" onClick={() => removeMessage(message.id)}><Trash2 size={15} />Remover</button>}</header>
+          <textarea rows={4} value={message.content} onChange={(event) => updateMessage(message.id, event.target.value)} placeholder={index === 0 ? 'Olá {{nome}}, tudo bem?' : 'Digite a próxima mensagem…'} required />
         </div>)}</div>
         <div className="campaign-message-tools">
-          <Button type="button" variant="secondary" onClick={() => setMessages((current) => [...current, ''])}><Plus size={15} />Adicionar mensagem</Button>
+          <Button type="button" variant="secondary" onClick={() => setMessages((current) => [...current, createDraftMessage()])}><Plus size={15} />Adicionar mensagem</Button>
           <div className="variable-list"><span>Variáveis:</span><button type="button" onClick={() => addVariable('{{saudacao}}')}>{'{{saudacao}}'}</button><button type="button" onClick={() => addVariable('{{nome}}')}>{'{{nome}}'}</button><button type="button" onClick={() => addVariable('{{telefone}}')}>{'{{telefone}}'}</button><button type="button" onClick={() => addVariable('{{email}}')}>{'{{email}}'}</button><button type="button" onClick={() => addVariable('{{empresa}}')}>{'{{empresa}}'}</button><button type="button" onClick={() => addVariable('{{cargo}}')}>{'{{cargo}}'}</button></div>
         </div>
       </section>}
@@ -576,7 +669,88 @@ function CampaignModal({ instances, onClose, onCreated }: { instances: Instance[
   </Modal>;
 }
 
-function CampaignDetails({ campaignId, onClose }: { campaignId: string; onClose(): void }) {
+function CampaignRecipientCard({ campaign, recipient }: Readonly<{ campaign: Campaign; recipient: CampaignRecipient }>) {
+  const messages = withRenderKeys(campaignRecipientMessages(campaign, recipient));
+  let messageContent: ReactNode = <p className="campaign-recipient-empty">Nenhuma mensagem configurada para este contato.</p>;
+  if (messages.length) {
+    messageContent = messages.map((message, index) => <div key={message.renderKey}>
+      <small>Mensagem {index + 1}{recipient.lastBubblePosition >= index ? ' · enviada' : ''}</small>
+      <p>{message.content}</p>
+    </div>);
+  }
+
+  return <article>
+    <header>
+      <span className="contact-avatar">{initials(recipient.contact.name)}</span>
+      <div><strong>{recipient.contact.name}</strong><small>{recipient.contact.phone || recipient.contact.email || 'Sem contato informado'}</small></div>
+      <Status value={recipient.status} />
+    </header>
+    <div className="campaign-recipient-messages">{messageContent}</div>
+    {(recipient.sentAt || recipient.repliedAt || recipient.exclusionReason) && <footer>
+      {recipient.sentAt && <span>Enviado em {dateTime(recipient.sentAt)}</span>}
+      {recipient.repliedAt && <span>Respondeu em {dateTime(recipient.repliedAt)}</span>}
+      {recipient.exclusionReason && <span className="negative">{recipient.exclusionReason}</span>}
+    </footer>}
+  </article>;
+}
+
+function CampaignDetailContent({
+  campaign,
+  progress,
+  progressPercent,
+  downloadPending,
+  onDownloadInvalid,
+}: Readonly<{
+  campaign: Campaign;
+  progress: CampaignProgress;
+  progressPercent: number;
+  downloadPending: boolean;
+  onDownloadInvalid(): void;
+}>) {
+  const bubbles = withRenderKeys(campaign.bubbles);
+  let recipients: ReactNode = <p className="campaign-recipient-empty">Nenhum destinatário foi adicionado à campanha.</p>;
+  if (campaign.recipients?.length) {
+    recipients = campaign.recipients.map((recipient) => <CampaignRecipientCard key={recipient.id} campaign={campaign} recipient={recipient} />);
+  }
+
+  return <div className="campaign-detail">
+    <div className="detail-status">
+      <Status value={campaign.status} />
+      <span>{campaign.instance?.name || 'Sem número de envio'}</span>
+      <span>Agendada em {dateTime(campaign.scheduledAt)}</span>
+      <div className="campaign-detail-actions">
+        {['RUNNING', 'SCHEDULED'].includes(campaign.status) && <span className="campaign-detail-live"><i />Atualização automática</span>}
+        <Button variant="secondary" loading={downloadPending} onClick={onDownloadInvalid}>
+          <Download size={15} />Baixar números inválidos
+        </Button>
+      </div>
+    </div>
+    <div className="detail-grid campaign-progress-grid">
+      <div><Users /><span>Audiência</span><strong>{progress.audience}</strong></div>
+      <div><Send /><span>Enviados</span><strong>{progress.sent}</strong></div>
+      <div><MessageSquareText /><span>Responderam</span><strong>{progress.replied}</strong></div>
+      <div><Clock3 /><span>Faltam enviar</span><strong>{progress.remaining}</strong></div>
+    </div>
+    <div className="campaign-progress-summary">
+      <div><i style={{ transform: `scaleX(${progressPercent / 100})` }} /></div>
+      <p><strong>{progressPercent}% processado</strong><span>{progress.failed ? `${progress.failed} falharam · ` : ''}{progress.skipped ? `${progress.skipped} ignorados · ` : ''}{progress.remaining} aguardando envio</span></p>
+    </div>
+
+    {bubbles.length > 0 && <>
+      <h3>Sequência configurada</h3>
+      <div className="bubble-preview">{bubbles.map((bubble, index) => <div key={bubble.renderKey}><small>Mensagem {index + 1}</small><p>{bubble.content}</p></div>)}</div>
+    </>}
+
+    <div className="campaign-recipient-heading">
+      <div><h3>Mensagens por contato</h3><p>Conteúdo final após aplicar as variáveis de cada destinatário.</p></div>
+      <span>{campaign.recipients?.length || 0} de {progress.audience}</span>
+    </div>
+    <div className="campaign-recipient-list">{recipients}</div>
+    {campaign.recipientsTruncated && <p className="campaign-recipient-truncated">Mostrando os primeiros 500 contatos. Os contadores acima consideram toda a campanha.</p>}
+  </div>;
+}
+
+function CampaignDetails({ campaignId, onClose }: Readonly<{ campaignId: string; onClose(): void }>) {
   const invalidWhatsappDownload = useInvalidWhatsappDownload();
   const details = useQuery({
     queryKey: ['campaign', campaignId],
@@ -590,75 +764,20 @@ function CampaignDetails({ campaignId, onClose }: { campaignId: string; onClose(
     ? Math.min(100, Math.round((processed / progress.audience) * 100))
     : 0;
 
-  return <Modal title={campaign?.name || 'Detalhes da campanha'} width={900} onClose={onClose}>
-    {details.isLoading
-      ? <PageLoading />
-      : details.isError || !campaign || !progress
-        ? <div className="campaign-detail-error">Não foi possível carregar os detalhes desta campanha.</div>
-        : <div className="campaign-detail">
-          <div className="detail-status">
-            <Status value={campaign.status} />
-            <span>{campaign.instance?.name || 'Sem número de envio'}</span>
-            <span>Agendada em {dateTime(campaign.scheduledAt)}</span>
-            <div className="campaign-detail-actions">
-              {['RUNNING', 'SCHEDULED'].includes(campaign.status) && <span className="campaign-detail-live"><i />Atualização automática</span>}
-              <Button
-                variant="secondary"
-                loading={invalidWhatsappDownload.isPending}
-                onClick={() => invalidWhatsappDownload.mutate(campaign)}
-              >
-                <Download size={15} />Baixar números inválidos
-              </Button>
-            </div>
-          </div>
-          <div className="detail-grid campaign-progress-grid">
-            <div><Users /><span>Audiência</span><strong>{progress.audience}</strong></div>
-            <div><Send /><span>Enviados</span><strong>{progress.sent}</strong></div>
-            <div><MessageSquareText /><span>Responderam</span><strong>{progress.replied}</strong></div>
-            <div><Clock3 /><span>Faltam enviar</span><strong>{progress.remaining}</strong></div>
-          </div>
-          <div className="campaign-progress-summary">
-            <div><i style={{ transform: `scaleX(${progressPercent / 100})` }} /></div>
-            <p><strong>{progressPercent}% processado</strong><span>{progress.failed ? `${progress.failed} falharam · ` : ''}{progress.skipped ? `${progress.skipped} ignorados · ` : ''}{progress.remaining} aguardando envio</span></p>
-          </div>
+  let content: ReactNode;
+  if (details.isLoading) {
+    content = <PageLoading />;
+  } else if (details.isError || !campaign || !progress) {
+    content = <div className="campaign-detail-error">Não foi possível carregar os detalhes desta campanha.</div>;
+  } else {
+    content = <CampaignDetailContent
+      campaign={campaign}
+      progress={progress}
+      progressPercent={progressPercent}
+      downloadPending={invalidWhatsappDownload.isPending}
+      onDownloadInvalid={() => invalidWhatsappDownload.mutate(campaign)}
+    />;
+  }
 
-          {campaign.bubbles.length > 0 && <>
-            <h3>Sequência configurada</h3>
-            <div className="bubble-preview">{campaign.bubbles.map((bubble, index) => <div key={index}><small>Mensagem {index + 1}</small><p>{bubble.content}</p></div>)}</div>
-          </>}
-
-          <div className="campaign-recipient-heading">
-            <div><h3>Mensagens por contato</h3><p>Conteúdo final após aplicar as variáveis de cada destinatário.</p></div>
-            <span>{campaign.recipients?.length || 0} de {progress.audience}</span>
-          </div>
-          <div className="campaign-recipient-list">
-            {campaign.recipients?.length
-              ? campaign.recipients.map((recipient) => {
-                const messages = campaignRecipientMessages(campaign, recipient);
-                return <article key={recipient.id}>
-                  <header>
-                    <span className="contact-avatar">{initials(recipient.contact.name)}</span>
-                    <div><strong>{recipient.contact.name}</strong><small>{recipient.contact.phone || recipient.contact.email || 'Sem contato informado'}</small></div>
-                    <Status value={recipient.status} />
-                  </header>
-                  <div className="campaign-recipient-messages">
-                    {messages.length
-                      ? messages.map((message, index) => <div key={`${recipient.id}-${index}`}>
-                        <small>Mensagem {index + 1}{recipient.lastBubblePosition >= index ? ' · enviada' : ''}</small>
-                        <p>{message.content}</p>
-                      </div>)
-                      : <p className="campaign-recipient-empty">Nenhuma mensagem configurada para este contato.</p>}
-                  </div>
-                  {(recipient.sentAt || recipient.repliedAt || recipient.exclusionReason) && <footer>
-                    {recipient.sentAt && <span>Enviado em {dateTime(recipient.sentAt)}</span>}
-                    {recipient.repliedAt && <span>Respondeu em {dateTime(recipient.repliedAt)}</span>}
-                    {recipient.exclusionReason && <span className="negative">{recipient.exclusionReason}</span>}
-                  </footer>}
-                </article>;
-              })
-              : <p className="campaign-recipient-empty">Nenhum destinatário foi adicionado à campanha.</p>}
-          </div>
-          {campaign.recipientsTruncated && <p className="campaign-recipient-truncated">Mostrando os primeiros 500 contatos. Os contadores acima consideram toda a campanha.</p>}
-        </div>}
-  </Modal>;
+  return <Modal title={campaign?.name || 'Detalhes da campanha'} width={900} onClose={onClose}>{content}</Modal>;
 }

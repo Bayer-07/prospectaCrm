@@ -1,7 +1,9 @@
 export type InboxFilter = 'waiting' | 'open' | 'closed';
 
 export function inboxFilterForStatus(status: string): InboxFilter {
-  return status === 'CLOSED' ? 'closed' : status === 'WAITING' ? 'waiting' : 'open';
+  if (status === 'CLOSED') return 'closed';
+  if (status === 'WAITING') return 'waiting';
+  return 'open';
 }
 
 export function shouldSyncInboxFilter(

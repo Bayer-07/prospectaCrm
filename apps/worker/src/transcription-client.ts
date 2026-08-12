@@ -43,11 +43,7 @@ export class TranscriptionClient {
       const detail = this.errorMessage(data) || raw || `HTTP ${response.status}`;
       throw new Error(`Falha no provedor de transcrição (${response.status}): ${detail}`.slice(0, 2_000));
     }
-    const text = typeof data?.text === 'string'
-      ? data.text.trim()
-      : typeof data?.transcription === 'string'
-        ? data.transcription.trim()
-        : '';
+    const text = transcriptionText(data);
     if (!text) throw new Error('O provedor não retornou texto para este áudio');
 
     return {
@@ -92,11 +88,9 @@ export class TranscriptionClient {
   }
 
   private async downloadLocalModel() {
-    if (!this.modelDownloadPromise) {
-      this.modelDownloadPromise = this.performModelDownload().finally(() => {
-        this.modelDownloadPromise = null;
-      });
-    }
+    this.modelDownloadPromise ??= this.performModelDownload().finally(() => {
+      this.modelDownloadPromise = null;
+    });
     return this.modelDownloadPromise;
   }
 
@@ -154,4 +148,9 @@ export class TranscriptionClient {
       return 'transcrição';
     }
   }
+}
+
+function transcriptionText(data: Record<string, any> | null) {
+  if (typeof data?.text === 'string') return data.text.trim();
+  return typeof data?.transcription === 'string' ? data.transcription.trim() : '';
 }

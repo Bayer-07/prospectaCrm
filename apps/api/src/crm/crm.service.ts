@@ -24,11 +24,15 @@ function csvSeparatorCount(line: string, separator: string) {
 function csvDelimiter(csv: string) {
   const firstLine = csv.replace(/^\uFEFF/, '').split(/\r?\n/, 1)[0] || '';
   return [',', ';', '\t'].reduce((best, current) =>
-    csvSeparatorCount(firstLine, current) > csvSeparatorCount(firstLine, best) ? current : best);
+    csvSeparatorCount(firstLine, current) > csvSeparatorCount(firstLine, best) ? current : best, ',');
+}
+
+function primitiveText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 }
 
 function importedContactPhone(value: unknown) {
-  const raw = String(value || '').trim();
+  const raw = primitiveText(value).trim();
   if (!raw) return undefined;
   const digits = raw.replace(/\D/g, '');
   if (!digits) return raw;
@@ -51,6 +55,29 @@ function csvImportError(error: unknown) {
   return error instanceof Error ? error.message : 'Erro desconhecido';
 }
 
+type ContactListQuery = {
+  cursor?: string;
+  limit?: number;
+  search?: string;
+  consent?: string;
+  emailOnly?: string;
+  ownerId?: string;
+  teamId?: string;
+  tagId?: string;
+  company?: string;
+  hasPhone?: string;
+  hasEmail?: string;
+};
+
+type OpportunityProposalInput = { type?: unknown; url?: unknown; mediaAssetId?: unknown };
+type CsvImportInput = {
+  entityType: 'companies' | 'contacts';
+  csv: string;
+  mapping: Record<string, string>;
+  commit?: boolean;
+};
+type CsvImportResult = { row: number; status: string; id?: string; error?: string };
+
 @Injectable()
 export class CrmService {
   constructor(
@@ -68,7 +95,7 @@ export class CrmService {
       this.db.contact.count({ where: { organizationId: auth.organizationId, archivedAt: null, ...contactScope } }),
       this.db.task.count({ where: { organizationId: auth.organizationId, status: 'OPEN', dueAt: { lt: new Date() }, ...this.taskScope(auth) } }),
       this.db.conversation.count({ where: { organizationId: auth.organizationId, status: { in: ['WAITING', 'OPEN'] } } }),
-      this.db.opportunity.aggregate({ where: { organizationId: auth.organizationId, status: 'WON', wonAt: { gte: new Date(Date.now() - 30 * 86400_000) }, ...opportunityScope }, _count: true, _sum: { valueCents: true } }),
+      this.db.opportunity.aggregate({ where: { organizationId: auth.organizationId, status: 'WON', wonAt: { gte: new Date(Date.now() - 30 * 86_400_000) }, ...opportunityScope }, _count: true, _sum: { valueCents: true } }),
       this.db.pipelineStage.findMany({
         where: { pipeline: { organizationId: auth.organizationId } }, orderBy: { position: 'asc' },
         include: { _count: { select: { opportunities: { where: { status: 'OPEN', archivedAt: null, ...opportunityScope } } } } },
@@ -256,35 +283,9 @@ export class CrmService {
     await this.audit(auth, 'company.archived', 'Company', id, before, company); return company;
   }
 
-  listContacts(auth: AuthContext, query: {
-    cursor?: string;
-    limit?: number;
-    search?: string;
-    consent?: string;
-    emailOnly?: string;
-    ownerId?: string;
-    teamId?: string;
-    tagId?: string;
-    company?: string;
-    hasPhone?: string;
-    hasEmail?: string;
-  }) {
+  listContacts(auth: AuthContext, query: ContactListQuery) {
     const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
-    const ownerId = this.contactFilterId(query.ownerId, 'responsável');
-    const teamId = this.contactFilterId(query.teamId, 'equipe');
-    const tagId = this.contactFilterId(query.tagId, 'tag', false);
-    const company = String(query.company || '').trim().slice(0, 160);
-    const hasPhone = this.booleanFilter(query.hasPhone, 'telefone');
-    const hasEmail = this.booleanFilter(query.hasEmail, 'e-mail');
-    const filters: Prisma.ContactWhereInput[] = [
-      scopedWhere(auth, 'contacts') as Prisma.ContactWhereInput,
-    ];
-    if (ownerId) filters.push({ ownerId: ownerId === 'none' ? null : ownerId });
-    if (teamId) filters.push({ teamId: teamId === 'none' ? null : teamId });
-    if (tagId) filters.push({ tags: { some: { tagId } } });
-    if (company) filters.push({ companies: { some: { isPrimary: true, company: { name: { contains: company, mode: 'insensitive' } } } } });
-    if (hasPhone !== undefined) filters.push(hasPhone ? { phone: { not: null } } : { phone: null });
-    if (hasEmail !== undefined) filters.push(hasEmail ? { email: { not: null } } : { email: null });
+    const filters = this.contactFilters(auth, query);
     return this.db.contact.findMany({
       where: {
         organizationId: auth.organizationId, archivedAt: null, AND: filters,
@@ -314,7 +315,8 @@ export class CrmService {
       },
       tasks: { orderBy: { dueAt: 'asc' } }, consentEvents: { orderBy: { occurredAt: 'desc' } }, conversations: { include: { instance: true }, orderBy: { lastMessageAt: 'desc' } },
     } });
-    if (!contact) throw new NotFoundException('Contato não encontrado'); return contact;
+    if (!contact) throw new NotFoundException('Contato não encontrado');
+    return contact;
   }
 
   async createContact(auth: AuthContext, raw: unknown) {
@@ -508,7 +510,8 @@ export class CrmService {
 
   async getOpportunity(auth: AuthContext, id: string) {
     const opportunity = await this.db.opportunity.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'opportunities') }, include: { company: true, pipeline: true, stage: true, owner: true, team: true, proposalAsset: { select: { id: true, filename: true, contentType: true, sizeBytes: true } }, contacts: { include: { contact: true } }, tasks: true, notes: true, activities: { orderBy: { occurredAt: 'desc' } }, tags: { include: { tag: true } } } });
-    if (!opportunity) throw new NotFoundException('Oportunidade não encontrada'); return opportunity;
+    if (!opportunity) throw new NotFoundException('Oportunidade não encontrada');
+    return opportunity;
   }
 
   async setOpportunityProposal(auth: AuthContext, id: string, raw: unknown) {
@@ -517,31 +520,7 @@ export class CrmService {
       select: { id: true, companyId: true, proposalUrl: true, proposalAssetId: true },
     });
     if (!current) throw new NotFoundException('Oportunidade não encontrada');
-    if (!raw || typeof raw !== 'object') throw new BadRequestException('Informe o tipo da proposta');
-    const input = raw as { type?: unknown; url?: unknown; mediaAssetId?: unknown };
-    const type = String(input.type || '').trim().toUpperCase();
-    let proposalUrl: string | null = null;
-    let proposalAssetId: string | null = null;
-    if (type === 'LINK') {
-      const candidate = String(input.url || '').trim();
-      if (!candidate || candidate.length > 2048) throw new BadRequestException('Informe um link válido de até 2048 caracteres');
-      try {
-        const parsed = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
-        if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) throw new Error('invalid protocol');
-        proposalUrl = parsed.toString();
-      } catch {
-        throw new BadRequestException('Informe um link HTTP ou HTTPS válido');
-      }
-    } else if (type === 'FILE') {
-      proposalAssetId = String(input.mediaAssetId || '').trim();
-      if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(proposalAssetId)) {
-        throw new BadRequestException('Arquivo da proposta inválido');
-      }
-      if (!this.media) throw new ServiceUnavailableException('Armazenamento de propostas indisponível');
-      await this.media.confirmOpportunityProposalAsset(auth, proposalAssetId, current.id);
-    } else {
-      throw new BadRequestException('Selecione arquivo ou link para a proposta');
-    }
+    const { proposalUrl, proposalAssetId } = await this.opportunityProposalData(auth, current.id, raw);
     const opportunity = await this.db.opportunity.update({
       where: { id: current.id },
       data: { proposalUrl, proposalAssetId, proposalAddedAt: new Date() },
@@ -618,15 +597,8 @@ export class CrmService {
   }
 
   async tasks(auth: AuthContext, query: { from?: string; to?: string; status?: string } = {}) {
-    const from = query.from ? new Date(query.from) : undefined;
-    const to = query.to ? new Date(query.to) : undefined;
-    if (from && Number.isNaN(from.getTime())) throw new BadRequestException('Data inicial inválida');
-    if (to && Number.isNaN(to.getTime())) throw new BadRequestException('Data final inválida');
-    if (from && to && from >= to) throw new BadRequestException('O período da agenda é inválido');
-    const normalizedStatus = query.status?.trim().toUpperCase();
-    if (normalizedStatus && !['OPEN', 'COMPLETED', 'CANCELLED', 'ALL'].includes(normalizedStatus)) {
-      throw new BadRequestException('Status de tarefa inválido');
-    }
+    const { from, to } = this.taskDateRange(query);
+    const normalizedStatus = this.taskStatus(query.status);
     return this.db.task.findMany({
       where: {
         organizationId: auth.organizationId,
@@ -760,7 +732,7 @@ export class CrmService {
     await this.db.segment.delete({ where: { id } }); return { deleted: true };
   }
 
-  async importCsv(auth: AuthContext, input: { entityType: 'companies' | 'contacts'; csv: string; mapping: Record<string, string>; commit?: boolean }) {
+  async importCsv(auth: AuthContext, input: CsvImportInput) {
     const { parse } = await import('csv-parse/sync');
     if (!input.csv?.trim()) throw new BadRequestException('Selecione um arquivo CSV preenchido');
     const mapping = Object.entries(input.mapping || {}).filter(([source, target]) => source.trim() && target.trim());
@@ -780,32 +752,16 @@ export class CrmService {
     }
     if (!rows.length) throw new BadRequestException('O arquivo CSV não possui contatos para importar');
     if (rows.length > 10_000) throw new BadRequestException('O limite por importação é 10 mil linhas');
-    const results: Array<{ row: number; status: string; id?: string; error?: string }> = [];
-    let valid = 0;
-    let errors = 0;
+    const results: CsvImportResult[] = [];
     for (let index = 0; index < rows.length; index += 1) {
-      const mapped = Object.fromEntries(mapping.flatMap(([source, target]) => {
-        const value = rows[index][source]?.trim();
-        return value ? [[target, value]] : [];
-      }));
-      if (input.entityType === 'contacts' && mapped.phone) mapped.phone = importedContactPhone(mapped.phone) || mapped.phone;
-      const item = {
-        row: index + 2,
-        data: mapped,
-      };
       try {
-        const parsed = input.entityType === 'companies' ? companyInputSchema.parse(item.data) : contactInputSchema.parse(item.data);
-        if (!input.commit) results.push({ row: item.row, status: 'valid' });
-        else {
-          const created = input.entityType === 'companies' ? await this.createCompany(auth, parsed) : await this.createContact(auth, parsed);
-          results.push({ row: item.row, status: 'created', id: created.id });
-        }
-        valid += 1;
+        results.push(await this.importCsvRow(auth, input, mapping, rows[index], index + 2));
       } catch (error) {
-        errors += 1;
-        results.push({ row: item.row, status: 'error', error: csvImportError(error) });
+        results.push({ row: index + 2, status: 'error', error: csvImportError(error) });
       }
     }
+    const errors = results.filter((result) => result.status === 'error').length;
+    const valid = results.length - errors;
     return { total: rows.length, valid, errors, results };
   }
 
@@ -816,12 +772,107 @@ export class CrmService {
     return auth.userId ? { assigneeId: auth.userId } : { id: '__none__' };
   }
 
+  private mappedImportData(mapping: Array<[string, string]>, row: Record<string, string>, entityType: CsvImportInput['entityType']) {
+    const mapped = Object.fromEntries(mapping.flatMap(([source, target]) => {
+      const value = row[source]?.trim();
+      return value ? [[target, value]] : [];
+    })) as Record<string, string>;
+    if (entityType === 'contacts' && mapped.phone) mapped.phone = importedContactPhone(mapped.phone) || mapped.phone;
+    return mapped;
+  }
+
+  private async importCsvRow(
+    auth: AuthContext,
+    input: CsvImportInput,
+    mapping: Array<[string, string]>,
+    row: Record<string, string>,
+    rowNumber: number,
+  ): Promise<CsvImportResult> {
+    const data = this.mappedImportData(mapping, row, input.entityType);
+    const parsed = input.entityType === 'companies' ? companyInputSchema.parse(data) : contactInputSchema.parse(data);
+    if (!input.commit) return { row: rowNumber, status: 'valid' };
+    const created = input.entityType === 'companies'
+      ? await this.createCompany(auth, parsed)
+      : await this.createContact(auth, parsed);
+    return { row: rowNumber, status: 'created', id: created.id };
+  }
+
+  private taskDateRange(query: { from?: string; to?: string }) {
+    const from = query.from ? new Date(query.from) : undefined;
+    const to = query.to ? new Date(query.to) : undefined;
+    if (from && Number.isNaN(from.getTime())) throw new BadRequestException('Data inicial inválida');
+    if (to && Number.isNaN(to.getTime())) throw new BadRequestException('Data final inválida');
+    if (from && to && from >= to) throw new BadRequestException('O período da agenda é inválido');
+    return { from, to };
+  }
+
+  private taskStatus(status?: string) {
+    const normalized = status?.trim().toUpperCase();
+    if (normalized && !['OPEN', 'COMPLETED', 'CANCELLED', 'ALL'].includes(normalized)) {
+      throw new BadRequestException('Status de tarefa inválido');
+    }
+    return normalized;
+  }
+
+  private proposalLink(value: unknown) {
+    const candidate = primitiveText(value).trim();
+    if (!candidate || candidate.length > 2_048) throw new BadRequestException('Informe um link válido de até 2048 caracteres');
+    try {
+      const parsed = new URL(/^https?:\/\//i.test(candidate) ? candidate : `https://${candidate}`);
+      if (!['http:', 'https:'].includes(parsed.protocol) || !parsed.hostname) throw new Error('invalid protocol');
+      return parsed.toString();
+    } catch {
+      throw new BadRequestException('Informe um link HTTP ou HTTPS válido');
+    }
+  }
+
+  private async proposalFile(auth: AuthContext, opportunityId: string, value: unknown) {
+    const assetId = primitiveText(value).trim();
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(assetId)) {
+      throw new BadRequestException('Arquivo da proposta inválido');
+    }
+    if (!this.media) throw new ServiceUnavailableException('Armazenamento de propostas indisponível');
+    await this.media.confirmOpportunityProposalAsset(auth, assetId, opportunityId);
+    return assetId;
+  }
+
+  private async opportunityProposalData(auth: AuthContext, opportunityId: string, raw: unknown) {
+    if (!raw || typeof raw !== 'object') throw new BadRequestException('Informe o tipo da proposta');
+    const input = raw as OpportunityProposalInput;
+    const type = primitiveText(input.type).trim().toUpperCase();
+    if (type === 'LINK') return { proposalUrl: this.proposalLink(input.url), proposalAssetId: null };
+    if (type === 'FILE') {
+      return { proposalUrl: null, proposalAssetId: await this.proposalFile(auth, opportunityId, input.mediaAssetId) };
+    }
+    throw new BadRequestException('Selecione arquivo ou link para a proposta');
+  }
+
+  private contactFilters(auth: AuthContext, query: ContactListQuery) {
+    const ownerId = this.contactFilterId(query.ownerId, 'responsável');
+    const teamId = this.contactFilterId(query.teamId, 'equipe');
+    const tagId = this.contactFilterId(query.tagId, 'tag', false);
+    const company = primitiveText(query.company).trim().slice(0, 160);
+    const hasPhone = this.booleanFilter(query.hasPhone, 'telefone');
+    const hasEmail = this.booleanFilter(query.hasEmail, 'e-mail');
+    const filters: Prisma.ContactWhereInput[] = [scopedWhere(auth, 'contacts') as Prisma.ContactWhereInput];
+    if (ownerId) filters.push({ ownerId: ownerId === 'none' ? null : ownerId });
+    if (teamId) filters.push({ teamId: teamId === 'none' ? null : teamId });
+    if (tagId) filters.push({ tags: { some: { tagId } } });
+    if (company) filters.push({ companies: { some: { isPrimary: true, company: { name: { contains: company, mode: 'insensitive' } } } } });
+    if (hasPhone !== undefined) filters.push(hasPhone ? { phone: { not: null } } : { phone: null });
+    if (hasEmail !== undefined) filters.push(hasEmail ? { email: { not: null } } : { email: null });
+    return filters;
+  }
+
   private async assertOwnedResource(model: 'tag' | 'customFieldDefinition' | 'segment', organizationId: string, id: string) {
-    const resource = model === 'tag'
-      ? await this.db.tag.findFirst({ where: { id, organizationId }, select: { id: true } })
-      : model === 'segment'
-        ? await this.db.segment.findFirst({ where: { id, organizationId }, select: { id: true } })
-        : await this.db.customFieldDefinition.findFirst({ where: { id, organizationId }, select: { id: true } });
+    let resource: { id: string } | null;
+    if (model === 'tag') {
+      resource = await this.db.tag.findFirst({ where: { id, organizationId }, select: { id: true } });
+    } else if (model === 'segment') {
+      resource = await this.db.segment.findFirst({ where: { id, organizationId }, select: { id: true } });
+    } else {
+      resource = await this.db.customFieldDefinition.findFirst({ where: { id, organizationId }, select: { id: true } });
+    }
     if (!resource) throw new NotFoundException('Recurso não encontrado');
   }
 
@@ -857,7 +908,7 @@ export class CrmService {
   private normalizeCnpj(value: string) { return normalizeCnpj(value); }
 
   private activity(auth: AuthContext, type: string, title: string, values: { companyId?: string; contactId?: string; opportunityId?: string; details?: object }) {
-    return this.db.activity.create({ data: { userId: auth.userId, type, title, ...values, details: (values.details || {}) as Prisma.InputJsonValue } });
+    return this.db.activity.create({ data: { userId: auth.userId, type, title, ...values, details: (values.details ?? {}) as Prisma.InputJsonValue } });
   }
 
   private async audit(auth: AuthContext, action: string, entityType: string, entityId: string, before: unknown, after: unknown) {
@@ -889,6 +940,6 @@ export class CrmService {
     const target = 'meta' in error && error.meta && typeof error.meta === 'object' && 'target' in error.meta
       ? error.meta.target
       : undefined;
-    return Array.isArray(target) ? target.includes(field) : String(target || '').includes(field);
+    return Array.isArray(target) ? target.includes(field) : primitiveText(target).includes(field);
   }
 }

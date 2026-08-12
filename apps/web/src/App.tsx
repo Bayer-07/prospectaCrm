@@ -35,7 +35,7 @@ type AuthValue = { user: UserContext | null; loading: boolean; refresh(): Promis
 const AuthContext = createContext<AuthValue | null>(null);
 export const useAuth = () => useContext(AuthContext)!;
 
-function AuthProvider({ children }: { children: React.ReactNode }) {
+function AuthProvider({ children }: Readonly<{ children: React.ReactNode }>) {
   const queryClient = useQueryClient();
   const query = useQuery({
     queryKey: ['me'],

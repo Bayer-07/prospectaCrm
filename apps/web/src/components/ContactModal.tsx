@@ -6,7 +6,7 @@ import { Button, Field, Modal, SelectField } from './ui';
 import { toast } from '../lib/toast';
 import { formatBrazilPhoneInput, toBrazilE164Phone } from '../lib/phone-input';
 
-export function ContactModal({ contact, onClose, onSaved }: { contact?: Contact; onClose(): void; onSaved(): void }) {
+export function ContactModal({ contact, onClose, onSaved }: Readonly<{ contact?: Contact; onClose(): void; onSaved(): void }>) {
   const companies = useQuery({ queryKey: ['contact-company-options'], queryFn: () => api<Envelope<Company[]>>('/companies?limit=100'), staleTime: 5 * 60_000 });
   const [form, setForm] = useState({
     name: contact?.name || '',
@@ -48,7 +48,7 @@ export function ContactModal({ contact, onClose, onSaved }: { contact?: Contact;
         <SelectField label="Empresa" value={form.companyId} onChange={set('companyId')} disabled={companies.isLoading || companies.isError}><option value="">{companies.isLoading ? 'Carregando empresas…' : 'Sem empresa'}</option>{sortedCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</SelectField>
       </div>
       <SelectField label="Consentimento WhatsApp" value={form.consentStatus} onChange={set('consentStatus')}><option value="unknown">Não informado</option><option value="granted">Consentido</option><option value="revoked">Revogado</option></SelectField>
-      {contact && <label className={`contact-campaign-block${form.campaignsBlocked ? ' active' : ''}`}>
+      {contact && <label aria-label="Não enviar campanhas" className={`contact-campaign-block${form.campaignsBlocked ? ' active' : ''}`}>
         <input
           type="checkbox"
           checked={form.campaignsBlocked}

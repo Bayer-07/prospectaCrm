@@ -3,7 +3,7 @@ RUN corepack enable
 WORKDIR /workspace
 COPY package.json pnpm-workspace.yaml pnpm-lock.yaml tsconfig.base.json ./
 COPY apps/mcp/package.json apps/mcp/package.json
-RUN pnpm install --frozen-lockfile --filter @prospecta/mcp...
+RUN pnpm install --frozen-lockfile --ignore-scripts --filter @prospecta/mcp...
 COPY apps/mcp apps/mcp
 RUN pnpm --filter @prospecta/mcp build
 

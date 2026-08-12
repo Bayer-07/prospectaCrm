@@ -29,7 +29,7 @@ async function main() {
     create: { name: 'Minha Empresa', slug: 'empresa' },
   });
 
-  const prospeccao = await db.team.upsert({
+  await db.team.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: 'Prospecção' } },
     update: {}, create: { organizationId: organization.id, name: 'Prospecção', color: '#635bff' },
   });
@@ -53,8 +53,9 @@ async function main() {
     });
   }
 
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD || 'Prospecta@2026!';
-  const admin = await db.user.upsert({
+  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
+  if (!adminPassword) throw new Error('Defina SEED_ADMIN_PASSWORD antes de executar o seed');
+  await db.user.upsert({
     where: { organizationId_email: { organizationId: organization.id, email: 'admin@empresa.local' } },
     update: {},
     create: {
@@ -73,14 +74,13 @@ async function main() {
     ['Novos leads', '#7c6ff2', 10], ['Contato iniciado', '#2f80ed', 25],
     ['Qualificado', '#f59e0b', 50], ['Proposta', '#ef7c3a', 75], ['Fechado', '#16a36a', 100],
   ] as const;
-  const stages = [];
   for (let position = 0; position < stageData.length; position += 1) {
     const [name, color, probability] = stageData[position];
-    stages.push(await db.pipelineStage.upsert({
+    await db.pipelineStage.upsert({
       where: { pipelineId_position: { pipelineId: pipeline.id, position } },
       update: { name, color, probability },
       create: { pipelineId: pipeline.id, position, name, color, probability, isWon: name === 'Fechado' },
-    }));
+    });
   }
 
   await db.tag.createMany({
@@ -102,7 +102,11 @@ async function main() {
     skipDuplicates: true,
   });
 
-  console.log(`Seed concluído. Login: admin@empresa.local / ${adminPassword}`);
+  console.log('Seed concluído. Login: admin@empresa.local');
 }
 
-main().finally(() => db.$disconnect());
+try {
+  await main();
+} finally {
+  await db.$disconnect();
+}

@@ -9,7 +9,10 @@
     <script>
       (() => {
         const saved = localStorage.getItem('prospecta_theme');
-        const theme = saved === 'dark' || saved === 'light' ? saved : (matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light');
+        let theme = saved;
+        if (theme !== 'dark' && theme !== 'light') {
+          theme = matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+        }
         document.documentElement.dataset.theme = theme;
         document.documentElement.style.colorScheme = theme;
       })();

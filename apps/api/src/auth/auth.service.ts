@@ -10,6 +10,21 @@ import { SessionTokenService } from './session-token.service.js';
 
 const hash = (value: string) => createHash('sha256').update(value).digest('hex');
 const MAX_LOGIN_ATTEMPT_ENTRIES = 10_000;
+type AttemptEntry = { count: number; resetAt: number };
+
+function isValidEmailAddress(value: string) {
+  if (!value || value.length > 254 || /\s/u.test(value)) return false;
+  const separator = value.indexOf('@');
+  if (separator <= 0 || separator !== value.lastIndexOf('@')) return false;
+  const domain = value.slice(separator + 1);
+  return domain.length > 2 && domain.includes('.') && !domain.startsWith('.') && !domain.endsWith('.');
+}
+
+function withoutTrailingSlash(value: string) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
+}
 
 @Injectable()
 export class AuthService {
@@ -23,31 +38,46 @@ export class AuthService {
     @Inject(TRANSACTIONAL_EMAIL_QUEUE) private readonly transactionalEmails: Queue<PasswordResetEmailJob>,
   ) {}
 
+  private ensureLoginAllowed(attemptKey: string, now: number) {
+    const attempts = this.loginAttempts.get(attemptKey);
+    if (attempts && attempts.resetAt > now && attempts.count >= 5) {
+      throw new HttpException('Muitas tentativas. Aguarde 15 minutos.', HttpStatus.TOO_MANY_REQUESTS);
+    }
+    if (attempts && attempts.resetAt <= now) this.loginAttempts.delete(attemptKey);
+  }
+
+  private pruneAttemptMap(attempts: Map<string, AttemptEntry>, now: number) {
+    if (attempts.size < MAX_LOGIN_ATTEMPT_ENTRIES) return;
+    for (const [key, entry] of attempts) {
+      if (entry.resetAt <= now) attempts.delete(key);
+    }
+    if (attempts.size < MAX_LOGIN_ATTEMPT_ENTRIES) return;
+    const oldestKey = attempts.keys().next().value;
+    if (oldestKey) attempts.delete(oldestKey);
+  }
+
+  private recordFailedLogin(attemptKey: string, now: number) {
+    const current = this.loginAttempts.get(attemptKey);
+    if (!current) this.pruneAttemptMap(this.loginAttempts, now);
+    this.loginAttempts.set(attemptKey, {
+      count: (current?.count ?? 0) + 1,
+      resetAt: current?.resetAt ?? now + 15 * 60_000,
+    });
+  }
+
   async login(email: string, password: string, metadata: { ip?: string; userAgent?: string }) {
     const normalizedEmail = email.trim().toLowerCase();
     const attemptKey = `${metadata.ip || 'unknown'}:${normalizedEmail}`;
     const now = Date.now();
-    const attempts = this.loginAttempts.get(attemptKey);
-    if (attempts && attempts.resetAt > now && attempts.count >= 5) throw new HttpException('Muitas tentativas. Aguarde 15 minutos.', HttpStatus.TOO_MANY_REQUESTS);
-    if (attempts && attempts.resetAt <= now) this.loginAttempts.delete(attemptKey);
+    this.ensureLoginAllowed(attemptKey, now);
     const user = await this.db.user.findFirst({ where: { email: normalizedEmail, status: 'ACTIVE' } });
     if (!user?.passwordHash || !(await argon2.verify(user.passwordHash, password))) {
-      const current = this.loginAttempts.get(attemptKey);
-      if (!current && this.loginAttempts.size >= MAX_LOGIN_ATTEMPT_ENTRIES) {
-        for (const [key, entry] of this.loginAttempts) {
-          if (entry.resetAt <= now) this.loginAttempts.delete(key);
-        }
-        if (this.loginAttempts.size >= MAX_LOGIN_ATTEMPT_ENTRIES) {
-          const oldestKey = this.loginAttempts.keys().next().value;
-          if (oldestKey) this.loginAttempts.delete(oldestKey);
-        }
-      }
-      this.loginAttempts.set(attemptKey, { count: (current?.count || 0) + 1, resetAt: current?.resetAt || now + 15 * 60_000 });
+      this.recordFailedLogin(attemptKey, now);
       throw new UnauthorizedException('E-mail ou senha inválidos');
     }
     this.loginAttempts.delete(attemptKey);
     const csrfToken = randomBytes(24).toString('base64url');
-    const expiresAt = new Date(Date.now() + 7 * 86400_000);
+    const expiresAt = new Date(Date.now() + 7 * 86_400_000);
     const sessionId = randomUUID();
     const token = await this.sessionTokens.issue({ sessionId, userId: user.id, expiresAt });
     await this.db.$transaction([
@@ -101,12 +131,9 @@ export class AuthService {
       count: (attempts?.count || 0) + 1,
       resetAt: attempts?.resetAt || now + 15 * 60_000,
     });
-    if (this.passwordResetAttempts.size > MAX_LOGIN_ATTEMPT_ENTRIES) {
-      const oldestKey = this.passwordResetAttempts.keys().next().value;
-      if (oldestKey) this.passwordResetAttempts.delete(oldestKey);
-    }
+    this.pruneAttemptMap(this.passwordResetAttempts, now);
 
-    if (!normalizedEmail || normalizedEmail.length > 254 || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+    if (!isValidEmailAddress(normalizedEmail)) {
       return { accepted: true };
     }
     const user = await this.db.user.findFirst({
@@ -143,7 +170,7 @@ export class AuthService {
         },
       }),
     ]);
-    const appUrl = (process.env.APP_URL || 'http://localhost:5173').replace(/\/+$/, '');
+    const appUrl = withoutTrailingSlash(process.env.APP_URL || 'http://localhost:5173');
     const resetUrl = `${appUrl}/redefinir-senha?token=${rawToken}`;
     try {
       await this.transactionalEmails.add(

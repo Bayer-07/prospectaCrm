@@ -61,13 +61,7 @@ async function handleRequest(request: IncomingMessage, response: ServerResponse)
     await handleMcp(request, response);
   } catch (error) {
     if (response.headersSent) return;
-    if (error instanceof BzsApiError) {
-      const status = error.status === 401 || error.status === 403 ? error.status : 502;
-      if (status === 401) response.setHeader('WWW-Authenticate', 'Bearer realm="BZS One MCP"');
-      return json(response, status, { error: error.message });
-    }
-    console.error('[mcp-request]', error);
-    return json(response, 500, { error: 'Falha interna no servidor MCP' });
+    return respondRequestError(response, error);
   }
 }
 
@@ -77,8 +71,20 @@ server.listen(port, host, () => {
 
 function bearerToken(request: IncomingMessage) {
   const value = request.headers.authorization;
-  const match = value?.match(/^Bearer\s+(.+)$/i);
-  return match?.[1]?.trim();
+  if (!value) return undefined;
+  const separator = value.indexOf(' ');
+  if (separator < 0 || value.slice(0, separator).toLowerCase() !== 'bearer') return undefined;
+  return value.slice(separator + 1).trim() || undefined;
+}
+
+function respondRequestError(response: ServerResponse, error: unknown) {
+  if (error instanceof BzsApiError) {
+    const status = error.status === 401 || error.status === 403 ? error.status : 502;
+    if (status === 401) response.setHeader('WWW-Authenticate', 'Bearer realm="BZS One MCP"');
+    return json(response, status, { error: error.message });
+  }
+  console.error('[mcp-request]', error);
+  return json(response, 500, { error: 'Falha interna no servidor MCP' });
 }
 
 function commaList(value: string | undefined, fallback: string[]) {

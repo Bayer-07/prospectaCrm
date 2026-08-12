@@ -40,7 +40,8 @@ try {
     await processor.process({ data: { eventId: event.id } } as Job<{ eventId: string }>);
     processed += 1;
   }
-  console.log(`Reprocessados ${processed} evento(s) da instância ${instanceKey}${requestedType ? ` do tipo ${requestedType}` : ''}.`);
+  const typeDescription = requestedType ? ` do tipo ${requestedType}` : '';
+  console.log(`Reprocessados ${processed} evento(s) da instância ${instanceKey}${typeDescription}.`);
 } finally {
   await prisma.$disconnect();
 }

@@ -12,28 +12,63 @@ export type WhatsappLinkPart = {
   href?: string;
 };
 
-const tokenPattern = /```([\s\S]+?)```|`([^`\n]+?)`|\*([^*\n]+?)\*|_([^_\n]+?)_|~([^~\n]+?)~/g;
 const linkPattern = /https?:\/\/[^\s<>]+|www\.[^\s<>]+/gi;
 const trailingLinkPunctuation = /[.,!?;:)}\]"'’”]+$/;
+const markers = { bold: '*', italic: '_', strike: '~', code: '```' } as const;
+
+type FormattedTokenType = Exclude<WhatsappToken['type'], 'text'>;
+type FormatDefinition = { type: FormattedTokenType; marker: string; multiline: boolean };
+type FormatMatch = { index: number; end: number; type: FormattedTokenType; marker: string; value: string };
+
+const formatDefinitions: readonly FormatDefinition[] = [
+  { type: 'code', marker: '```', multiline: true },
+  { type: 'code', marker: '`', multiline: false },
+  { type: 'bold', marker: '*', multiline: false },
+  { type: 'italic', marker: '_', multiline: false },
+  { type: 'strike', marker: '~', multiline: false },
+];
+
+function findFormatForDefinition(text: string, cursor: number, definition: FormatDefinition): FormatMatch | null {
+  let index = text.indexOf(definition.marker, cursor);
+  while (index >= 0) {
+    const valueStart = index + definition.marker.length;
+    const end = text.indexOf(definition.marker, valueStart);
+    if (end < 0) return null;
+    const value = text.slice(valueStart, end);
+    if (value && (definition.multiline || !value.includes('\n'))) {
+      return { index, end: end + definition.marker.length, type: definition.type, marker: definition.marker, value };
+    }
+    index = text.indexOf(definition.marker, valueStart);
+  }
+  return null;
+}
+
+function findNextFormat(text: string, cursor: number): FormatMatch | null {
+  let earliest: FormatMatch | null = null;
+  for (const definition of formatDefinitions) {
+    const candidate = findFormatForDefinition(text, cursor, definition);
+    if (candidate && (!earliest || candidate.index < earliest.index)) earliest = candidate;
+  }
+  return earliest;
+}
 
 export function tokenizeWhatsappText(text: string): WhatsappToken[] {
   const tokens: WhatsappToken[] = [];
   let cursor = 0;
-  for (const match of text.matchAll(tokenPattern)) {
-    const index = match.index ?? 0;
-    if (index > cursor) tokens.push({ type: 'text', value: text.slice(cursor, index) });
-    const type = match[1] !== undefined || match[2] !== undefined ? 'code' : match[3] !== undefined ? 'bold' : match[4] !== undefined ? 'italic' : 'strike';
-    const value = match[1] ?? match[2] ?? match[3] ?? match[4] ?? match[5] ?? '';
-    const marker = match[1] !== undefined ? '```' : match[2] !== undefined ? '`' : markers[type];
-    if (!value || value.trim() !== value) tokens.push({ type: 'text', value: match[0] });
-    else tokens.push({ type, value, marker });
-    cursor = index + match[0].length;
+  let match = findNextFormat(text, cursor);
+  while (match) {
+    if (match.index > cursor) tokens.push({ type: 'text', value: text.slice(cursor, match.index) });
+    if (match.value.trim() !== match.value) {
+      tokens.push({ type: 'text', value: text.slice(match.index, match.end) });
+    } else {
+      tokens.push({ type: match.type, value: match.value, marker: match.marker });
+    }
+    cursor = match.end;
+    match = findNextFormat(text, cursor);
   }
   if (cursor < text.length) tokens.push({ type: 'text', value: text.slice(cursor) });
   return tokens;
 }
-
-const markers = { bold: '*', italic: '_', strike: '~', code: '```' } as const;
 
 export function linkifyWhatsappText(text: string): WhatsappLinkPart[] {
   const parts: WhatsappLinkPart[] = [];
@@ -42,7 +77,7 @@ export function linkifyWhatsappText(text: string): WhatsappLinkPart[] {
     const index = match.index ?? 0;
     if (index > cursor) parts.push({ type: 'text', value: text.slice(cursor, index) });
     const raw = match[0];
-    const trailing = raw.match(trailingLinkPunctuation)?.[0] || '';
+    const trailing = trailingLinkPunctuation.exec(raw)?.[0] || '';
     const value = trailing ? raw.slice(0, -trailing.length) : raw;
     if (value) parts.push({ type: 'link', value, href: value.toLocaleLowerCase('pt-BR').startsWith('www.') ? `https://${value}` : value });
     if (trailing) parts.push({ type: 'text', value: trailing });
@@ -76,13 +111,7 @@ function renderTokens(text: string, showMarkers: boolean): ReactNode[] {
     }
     const marker = token.marker || markers[token.type];
     const content = token.type === 'code' ? token.value : renderTokens(token.value, showMarkers);
-    const formatted = token.type === 'bold'
-      ? <strong>{content}</strong>
-      : token.type === 'italic'
-        ? <em>{content}</em>
-        : token.type === 'strike'
-          ? <del>{content}</del>
-          : <code>{content}</code>;
+    const formatted = renderFormattedToken(token.type, content);
     rendered.push(<span key={`${token.type}-${index}`} className={`whatsapp-format whatsapp-format-${token.type}`}>
       {showMarkers && <span className="whatsapp-marker">{marker}</span>}
       {formatted}
@@ -92,7 +121,14 @@ function renderTokens(text: string, showMarkers: boolean): ReactNode[] {
   return rendered;
 }
 
-export const WhatsappText = memo(function WhatsappText({ text, showMarkers = false }: { text: string; showMarkers?: boolean }) {
+function renderFormattedToken(type: FormattedTokenType, content: ReactNode) {
+  if (type === 'bold') return <strong>{content}</strong>;
+  if (type === 'italic') return <em>{content}</em>;
+  if (type === 'strike') return <del>{content}</del>;
+  return <code>{content}</code>;
+}
+
+export const WhatsappText = memo(function WhatsappText({ text, showMarkers = false }: Readonly<{ text: string; showMarkers?: boolean }>) {
   return <>{renderTokens(text, showMarkers)}</>;
 });
 
@@ -155,7 +191,13 @@ function appendComposerText(target: Node, text: string) {
     openingMarker.className = 'whatsapp-marker';
     openingMarker.textContent = marker;
     wrapper.appendChild(openingMarker);
-    const formatted = document.createElement(token.type === 'bold' ? 'strong' : token.type === 'italic' ? 'em' : token.type === 'strike' ? 'del' : 'code');
+    const elementByType: Record<FormattedTokenType, keyof HTMLElementTagNameMap> = {
+      bold: 'strong',
+      italic: 'em',
+      strike: 'del',
+      code: 'code',
+    };
+    const formatted = document.createElement(elementByType[token.type]);
     if (token.type === 'code') formatted.textContent = token.value;
     else appendComposerText(formatted, token.value);
     wrapper.appendChild(formatted);
@@ -171,7 +213,7 @@ function renderComposerText(root: HTMLElement, text: string) {
   root.replaceChildren(fragment);
 }
 
-export const WhatsappComposer = forwardRef<WhatsappComposerHandle, {
+export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
   value: string;
   disabled?: boolean;
   placeholder: string;
@@ -179,7 +221,7 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, {
   onPaste(event: ClipboardEvent<HTMLDivElement>): void;
   onKeyDown?(event: KeyboardEvent<HTMLDivElement>): boolean;
   onSubmit(): void;
-}>(function WhatsappComposer({ value, disabled = false, placeholder, onChange, onPaste, onKeyDown, onSubmit }, forwardedRef) {
+}>>(function WhatsappComposer({ value, disabled = false, placeholder, onChange, onPaste, onKeyDown, onSubmit }, forwardedRef) {
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const lastSelectionRef = useRef<{ start: number; end: number } | null>(null);
@@ -244,8 +286,7 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, {
     className="whatsapp-composer"
     contentEditable={!disabled}
     suppressContentEditableWarning
-    role="textbox"
-    aria-multiline="true"
+    aria-label="Mensagem"
     aria-disabled={disabled}
     data-placeholder={placeholder}
     tabIndex={disabled ? -1 : 0}
@@ -262,7 +303,7 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, {
     onPaste={(event) => {
       onPaste(event);
       if (event.defaultPrevented) return;
-      const pastedText = event.clipboardData.getData('text/plain').replace(/\r\n/g, '\n');
+      const pastedText = event.clipboardData.getData('text/plain').replaceAll('\r\n', '\n');
       if (!pastedText) return;
       event.preventDefault();
       replaceSelection(pastedText);

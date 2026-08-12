@@ -9,6 +9,87 @@ export type ChatbotNode = { id: string; type: string; data?: Record<string, unkn
 export type ChatbotEdge = { id?: string; source: string; target: string; sourceHandle?: string | null };
 export type ChatbotGraph = { nodes: ChatbotNode[]; edges: ChatbotEdge[] };
 
+function primitiveText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+}
+
+function nodeLabel(node: ChatbotNode) {
+  return primitiveText(node.data?.label).trim() || node.id;
+}
+
+function instanceTeamFilter(auth: AuthContext, scope: string) {
+  if (scope === 'ALL') return {};
+  return auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' };
+}
+
+function validateNodeText(node: ChatbotNode) {
+  if (['message', 'question'].includes(node.type) && !primitiveText(node.data?.text).trim()) {
+    throw new BadRequestException(`Preencha o texto do bloco ${nodeLabel(node)}`);
+  }
+}
+
+function validateOutgoingConnections(node: ChatbotNode, outgoing: ChatbotEdge[]) {
+  if (node.type === 'condition') {
+    if (!primitiveText(node.data?.value).trim()) {
+      throw new BadRequestException(`Preencha a regra do bloco ${nodeLabel(node)}`);
+    }
+    const handles = new Set(outgoing.map((edge) => edge.sourceHandle));
+    if (!handles.has('true') || !handles.has('false')) {
+      throw new BadRequestException('Toda condição precisa das saídas “Sim” e “Não”');
+    }
+    return;
+  }
+  if (['handoff', 'close', 'end'].includes(node.type)) {
+    if (outgoing.length) throw new BadRequestException('Blocos finais não podem possuir saída');
+    return;
+  }
+  if (outgoing.length !== 1) {
+    throw new BadRequestException(`O bloco ${nodeLabel(node)} precisa ter uma saída`);
+  }
+}
+
+function validateNodeConnections(graph: ChatbotGraph) {
+  for (const node of graph.nodes) {
+    validateNodeText(node);
+    validateOutgoingConnections(node, graph.edges.filter((edge) => edge.source === node.id));
+  }
+}
+
+function graphAdjacency(graph: ChatbotGraph, ids: Set<string>) {
+  const adjacency = new Map<string, string[]>();
+  for (const id of ids) adjacency.set(id, []);
+  for (const edge of graph.edges) adjacency.get(edge.source)!.push(edge.target);
+  return adjacency;
+}
+
+function assertAllNodesReachable(triggerId: string, ids: Set<string>, adjacency: Map<string, string[]>) {
+  const reachable = new Set<string>();
+  const visit = (id: string) => {
+    if (reachable.has(id)) return;
+    reachable.add(id);
+    adjacency.get(id)!.forEach(visit);
+  };
+  visit(triggerId);
+  if (reachable.size !== ids.size) throw new BadRequestException('Todos os blocos precisam estar conectados à entrada');
+}
+
+function assertCyclesWaitForQuestion(graph: ChatbotGraph, ids: Set<string>, adjacency: Map<string, string[]>) {
+  const questionIds = new Set(graph.nodes.filter((node) => node.type === 'question').map((node) => node.id));
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string) => {
+    if (questionIds.has(id) || visited.has(id)) return;
+    if (visiting.has(id)) throw new BadRequestException('Todo ciclo precisa passar por um bloco de pergunta');
+    visiting.add(id);
+    adjacency.get(id)!.forEach((target) => {
+      if (!questionIds.has(target)) visit(target);
+    });
+    visiting.delete(id);
+    visited.add(id);
+  };
+  for (const id of ids) visit(id);
+}
+
 @Injectable()
 export class ChatbotsService {
   constructor(private readonly db: PrismaService) {}
@@ -27,7 +108,7 @@ export class ChatbotsService {
 
   async metadata(auth: AuthContext) {
     const scope = permissionScope(auth, 'workflows', 'read');
-    const teamFilter = scope === 'ALL' ? {} : auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' };
+    const teamFilter = instanceTeamFilter(auth, scope);
     const [instances, tags] = await Promise.all([
       this.db.whatsappInstance.findMany({
         where: { organizationId: auth.organizationId, archivedAt: null, ...teamFilter },
@@ -165,47 +246,10 @@ export class ChatbotsService {
     const triggers = graph.nodes.filter((node) => node.type === 'trigger');
     if (triggers.length !== 1) throw new BadRequestException('O chatbot precisa ter exatamente uma entrada de mensagem');
     if (!graph.nodes.some((node) => ['handoff', 'close', 'end'].includes(node.type))) throw new BadRequestException('Adicione ao menos um bloco de transferência, encerramento ou fim');
-    for (const node of graph.nodes) {
-      const outgoing = graph.edges.filter((edge) => edge.source === node.id);
-      if (['message', 'question'].includes(node.type) && !String(node.data?.text || '').trim()) throw new BadRequestException(`Preencha o texto do bloco ${node.data?.label || node.id}`);
-      if (node.type === 'condition') {
-        if (!String(node.data?.value || '').trim()) throw new BadRequestException(`Preencha a regra do bloco ${node.data?.label || node.id}`);
-        if (!outgoing.some((edge) => edge.sourceHandle === 'true') || !outgoing.some((edge) => edge.sourceHandle === 'false')) throw new BadRequestException('Toda condição precisa das saídas “Sim” e “Não”');
-      } else if (['handoff', 'close', 'end'].includes(node.type)) {
-        if (outgoing.length) throw new BadRequestException('Blocos finais não podem possuir saída');
-      } else if (outgoing.length !== 1) {
-        throw new BadRequestException(`O bloco ${node.data?.label || node.id} precisa ter uma saída`);
-      }
-    }
-
-    const adjacency = new Map<string, string[]>();
-    for (const id of ids) adjacency.set(id, []);
-    for (const edge of graph.edges) adjacency.get(edge.source)!.push(edge.target);
-    const reachable = new Set<string>();
-    const visitReachable = (id: string) => {
-      if (reachable.has(id)) return;
-      reachable.add(id);
-      adjacency.get(id)!.forEach(visitReachable);
-    };
-    visitReachable(triggers[0].id);
-    if (reachable.size !== ids.size) throw new BadRequestException('Todos os blocos precisam estar conectados à entrada');
-
-    // Todo ciclo precisa aguardar uma nova mensagem em algum ponto. Ao retirar
-    // os blocos de pergunta, o restante do mapa deve continuar acíclico.
-    const questionIds = new Set(graph.nodes.filter((node) => node.type === 'question').map((node) => node.id));
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
-    const visitWithoutQuestions = (id: string) => {
-      if (questionIds.has(id) || visited.has(id)) return;
-      if (visiting.has(id)) throw new BadRequestException('Todo ciclo precisa passar por um bloco de pergunta');
-      visiting.add(id);
-      adjacency.get(id)!.forEach((target) => {
-        if (!questionIds.has(target)) visitWithoutQuestions(target);
-      });
-      visiting.delete(id);
-      visited.add(id);
-    };
-    for (const id of ids) visitWithoutQuestions(id);
+    validateNodeConnections(graph);
+    const adjacency = graphAdjacency(graph, ids);
+    assertAllNodesReachable(triggers[0].id, ids, adjacency);
+    assertCyclesWaitForQuestion(graph, ids, adjacency);
   }
 
   private defaultGraph(): ChatbotGraph {
@@ -231,7 +275,7 @@ export class ChatbotsService {
 
   private async assertInstance(auth: AuthContext, instanceId: string) {
     const scope = permissionScope(auth, 'workflows', 'read');
-    const teamFilter = scope === 'ALL' ? {} : auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' };
+    const teamFilter = instanceTeamFilter(auth, scope);
     const allowed = await this.db.whatsappInstance.findFirst({
       where: { id: instanceId, organizationId: auth.organizationId, archivedAt: null, ...teamFilter },
       select: { id: true },

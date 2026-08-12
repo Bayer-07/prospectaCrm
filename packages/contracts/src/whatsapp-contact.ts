@@ -50,13 +50,18 @@ function vcardField(vcard: string, field: string) {
 
 function vcardPhone(vcard: string) {
   const unfolded = vcard.replace(/\r?\n[ \t]/g, '');
-  const telephone = unfolded.split(/\r?\n/).find((line) => /^TEL(?:;|:)/i.test(line));
+  const telephone = unfolded.split(/\r?\n/).find((line) => /^TEL[;:]/i.test(line));
   if (!telephone) return null;
   const separator = telephone.indexOf(':');
   const metadata = separator >= 0 ? telephone.slice(0, separator) : telephone;
   const value = separator >= 0 ? telephone.slice(separator + 1) : '';
-  const whatsappId = metadata.match(/(?:^|;)waid=([1-9]\d{7,14})(?:;|$)/i)?.[1];
+  const whatsappId = /(?:^|;)waid=([1-9]\d{7,14})(?:;|$)/i.exec(metadata)?.[1];
   return normalizePhoneKey(whatsappId || value);
+}
+
+function nodePhone(node: Record<string, any>) {
+  if (typeof node.phoneNumber === 'string') return node.phoneNumber;
+  return typeof node.phone === 'string' ? node.phone : '';
 }
 
 /**
@@ -75,8 +80,7 @@ export function extractSharedWhatsappContacts(input: unknown): SharedWhatsappCon
 
   for (const node of nodes) {
     const vcard = typeof node.vcard === 'string' ? node.vcard : '';
-    const phone = vcardPhone(vcard)
-      || normalizePhoneKey(typeof node.phoneNumber === 'string' ? node.phoneNumber : typeof node.phone === 'string' ? node.phone : '');
+    const phone = vcardPhone(vcard) || normalizePhoneKey(nodePhone(node));
     if (!phone) continue;
     const name = String(node.displayName || vcardField(vcard, 'FN') || vcardField(vcard, 'N') || 'Contato WhatsApp').trim();
     contacts.set(phone, { name: name || 'Contato WhatsApp', phone });

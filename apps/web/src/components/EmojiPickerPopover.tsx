@@ -1,7 +1,7 @@
 import EmojiPicker, { EmojiStyle, SuggestionMode, Theme } from 'emoji-picker-react';
 import portugueseEmojiData from 'emoji-picker-react/dist/data/emojis-pt';
 
-export default function EmojiPickerPopover({ onEmojiSelect }: { onEmojiSelect(emoji: string): void }) {
+export default function EmojiPickerPopover({ onEmojiSelect }: Readonly<{ onEmojiSelect(emoji: string): void }>) {
   const theme = document.documentElement.dataset.theme === 'dark' ? Theme.DARK : Theme.LIGHT;
 
   return <EmojiPicker

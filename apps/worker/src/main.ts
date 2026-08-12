@@ -125,7 +125,7 @@ const syncRecentEvolutionMessages = async () => {
     recentSyncRunning = false;
   }
 };
-void syncRecentEvolutionMessages();
+await syncRecentEvolutionMessages();
 const recentSyncTimer = setInterval(() => void syncRecentEvolutionMessages(), 5_000);
 
 const shutdown = async () => {

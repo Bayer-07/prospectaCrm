@@ -13,6 +13,42 @@ type WorkflowNode = { id: string; type: string; data?: Record<string, unknown>; 
 type WorkflowEdge = { id?: string; source: string; target: string; sourceHandle?: string };
 type WorkflowGraph = { nodes: WorkflowNode[]; edges: WorkflowEdge[] };
 
+function primitiveText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+}
+
+function validateWorkflowNode(node: WorkflowNode) {
+  const data = node.data ?? {};
+  if (node.type === 'send_whatsapp' && !primitiveText(data.text).trim()) throw new BadRequestException('Configure a mensagem do bloco Enviar WhatsApp');
+  if (node.type === 'condition' && !primitiveText(data.field).trim()) throw new BadRequestException('Configure o campo do bloco Condição');
+  if (node.type === 'wait') {
+    const duration = data.seconds ?? data.minutes;
+    if (!Number.isFinite(Number(duration)) || Number(duration) < 1) throw new BadRequestException('Configure um tempo de espera válido');
+  }
+  if (node.type === 'update_record' && !primitiveText(data.field).trim()) throw new BadRequestException('Configure o campo que será atualizado');
+  if (node.type === 'move_stage' && !primitiveText(data.stageId).trim()) throw new BadRequestException('Configure a etapa de destino');
+  if (node.type === 'assign' && !data.userId && !data.teamId) throw new BadRequestException('Configure um usuário ou equipe para atribuição');
+  if (['add_tag', 'remove_tag'].includes(node.type) && !primitiveText(data.tagId).trim()) throw new BadRequestException('Configure a tag da automação');
+}
+
+function assertWorkflowConnectivity(graph: WorkflowGraph, ids: Set<string>, triggerId: string) {
+  const adjacency = new Map<string, string[]>();
+  for (const id of ids) adjacency.set(id, []);
+  for (const edge of graph.edges) adjacency.get(edge.source)!.push(edge.target);
+  const visiting = new Set<string>();
+  const visited = new Set<string>();
+  const visit = (id: string) => {
+    if (visiting.has(id)) throw new BadRequestException('Ciclos não são permitidos na v1');
+    if (visited.has(id)) return;
+    visiting.add(id);
+    adjacency.get(id)!.forEach(visit);
+    visiting.delete(id);
+    visited.add(id);
+  };
+  visit(triggerId);
+  if (visited.size !== ids.size) throw new BadRequestException('Todos os blocos precisam estar conectados ao gatilho');
+}
+
 @Injectable()
 export class WorkflowsService {
   constructor(private readonly db: PrismaService, @Inject(AUTOMATION_QUEUE) private readonly queue: Queue) {}
@@ -233,33 +269,8 @@ export class WorkflowsService {
     const triggers = graph.nodes.filter((node) => node.type === 'trigger');
     if (triggers.length !== 1) throw new BadRequestException('A automação publicada precisa ter exatamente um gatilho');
     if (!graph.nodes.some((node) => node.type === 'end')) throw new BadRequestException('A automação precisa de um bloco de fim');
-    for (const node of graph.nodes) {
-      const data = node.data || {};
-      if (node.type === 'send_whatsapp' && !String(data.text || '').trim()) throw new BadRequestException('Configure a mensagem do bloco Enviar WhatsApp');
-      if (node.type === 'condition' && !String(data.field || '').trim()) throw new BadRequestException('Configure o campo do bloco Condição');
-      if (node.type === 'wait') {
-        const duration = data.seconds ?? data.minutes;
-        if (!Number.isFinite(Number(duration)) || Number(duration) < 1) throw new BadRequestException('Configure um tempo de espera válido');
-      }
-      if (node.type === 'update_record' && !String(data.field || '').trim()) throw new BadRequestException('Configure o campo que será atualizado');
-      if (node.type === 'move_stage' && !String(data.stageId || '').trim()) throw new BadRequestException('Configure a etapa de destino');
-      if (node.type === 'assign' && !data.userId && !data.teamId) throw new BadRequestException('Configure um usuário ou equipe para atribuição');
-      if ((node.type === 'add_tag' || node.type === 'remove_tag') && !String(data.tagId || '').trim()) throw new BadRequestException('Configure a tag da automação');
-    }
-    const adjacency = new Map<string, string[]>();
-    for (const id of ids) adjacency.set(id, []);
-    for (const edge of graph.edges) adjacency.get(edge.source)!.push(edge.target);
-    const visiting = new Set<string>();
-    const visited = new Set<string>();
-    const visit = (id: string) => {
-      if (visiting.has(id)) throw new BadRequestException('Ciclos não são permitidos na v1');
-      if (visited.has(id)) return;
-      visiting.add(id);
-      adjacency.get(id)!.forEach(visit);
-      visiting.delete(id); visited.add(id);
-    };
-    visit(triggers[0].id);
-    if (visited.size !== ids.size) throw new BadRequestException('Todos os blocos precisam estar conectados ao gatilho');
+    graph.nodes.forEach(validateWorkflowNode);
+    assertWorkflowConnectivity(graph, ids, triggers[0].id);
   }
 
   private defaultGraph(): WorkflowGraph {

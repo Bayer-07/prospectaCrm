@@ -57,4 +57,4 @@ async function bootstrap() {
   console.log(`BZS One API ouvindo em ${host}:${port}`);
 }
 
-void bootstrap();
+await bootstrap();

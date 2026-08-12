@@ -7,6 +7,7 @@ type Node = { id: string; type: string; data?: Record<string, unknown> };
 type Edge = { source: string; target: string; sourceHandle?: string | null };
 type Graph = { nodes: Node[]; edges: Edge[] };
 type SessionContext = ChatbotRuleContext & { previousMessage?: string };
+type NodeExecution = { nextNodeId: string | null; shouldStop: boolean };
 
 export class ChatbotProcessor {
   private readonly providers: Map<string, ChatbotResponseProvider>;
@@ -49,7 +50,7 @@ export class ChatbotProcessor {
         },
       },
     });
-    if (!inbound || inbound.direction !== 'INBOUND') return;
+    if (inbound?.direction !== 'INBOUND') return;
     const conversation = inbound.conversation;
     if (conversation.assigneeId || conversation.status === 'CLOSED' || conversation.contact.consentStatus === 'REVOKED') return;
 
@@ -81,30 +82,18 @@ export class ChatbotProcessor {
       contactCompany: conversation.contact.companies[0]?.company.name,
       conversationId: conversation.id,
     };
-    let session = conversation.chatbotSession;
-    if (session?.lastInboundMessageId === inbound.id) return;
-    if (session && ['HANDED_OFF', 'STOPPED'].includes(session.status)) return;
-
-    if (!session || session.chatbotId !== chatbot.id || session.versionId !== version.id || ['COMPLETED', 'FAILED'].includes(session.status)) {
-      if (!provider.matches(trigger.data || {}, context)) return;
-      session = await this.db.chatbotSession.upsert({
-        where: { conversationId: conversation.id },
-        create: { chatbotId: chatbot.id, versionId: version.id, conversationId: conversation.id, currentNodeId: trigger.id, lastInboundMessageId: inbound.id, context: context as unknown as Prisma.InputJsonValue },
-        update: { chatbotId: chatbot.id, versionId: version.id, status: 'ACTIVE', currentNodeId: trigger.id, lastInboundMessageId: inbound.id, context: context as unknown as Prisma.InputJsonValue, stopReason: null, startedAt: new Date(), completedAt: null },
-      });
-    } else {
-      const waitingNode = session.currentNodeId ? graph.nodes.find((node) => node.id === session!.currentNodeId) : undefined;
-      let nextNodeId = session.currentNodeId || trigger.id;
-      if (session.status === 'WAITING') {
-        if (waitingNode?.type !== 'question') return this.fail(session.id, 'O bloco aguardando resposta não é uma pergunta');
-        nextNodeId = this.next(graph, waitingNode.id)?.target || '';
-      }
-      if (!nextNodeId) return this.complete(session.id, conversation.id, 'Fluxo finalizado após a resposta');
-      session = await this.db.chatbotSession.update({
-        where: { id: session.id },
-        data: { status: 'ACTIVE', currentNodeId: nextNodeId, lastInboundMessageId: inbound.id, context: context as unknown as Prisma.InputJsonValue },
-      });
-    }
+    const session = await this.prepareSession({
+      existing: conversation.chatbotSession,
+      chatbotId: chatbot.id,
+      versionId: version.id,
+      conversationId: conversation.id,
+      inboundMessageId: inbound.id,
+      context,
+      graph,
+      trigger,
+      provider,
+    });
+    if (!session) return;
 
     try {
       await this.run(graph, session, conversation.contact.id, inbound.id, context, provider);
@@ -115,51 +104,140 @@ export class ChatbotProcessor {
     }
   }
 
+  private async prepareSession(input: {
+    existing: any;
+    chatbotId: string;
+    versionId: string;
+    conversationId: string;
+    inboundMessageId: string;
+    context: SessionContext;
+    graph: Graph;
+    trigger: Node;
+    provider: ChatbotResponseProvider;
+  }) {
+    const session = input.existing;
+    if (session?.lastInboundMessageId === input.inboundMessageId) return null;
+    if (session && ['HANDED_OFF', 'STOPPED'].includes(session.status)) return null;
+    const startsNew = !session
+      || session.chatbotId !== input.chatbotId
+      || session.versionId !== input.versionId
+      || ['COMPLETED', 'FAILED'].includes(session.status);
+    if (startsNew) return this.startSession(input);
+    return this.resumeSession(session, input);
+  }
+
+  private startSession(input: {
+    chatbotId: string;
+    versionId: string;
+    conversationId: string;
+    inboundMessageId: string;
+    context: SessionContext;
+    trigger: Node;
+    provider: ChatbotResponseProvider;
+  }) {
+    if (!input.provider.matches(input.trigger.data || {}, input.context)) return null;
+    return this.db.chatbotSession.upsert({
+      where: { conversationId: input.conversationId },
+      create: { chatbotId: input.chatbotId, versionId: input.versionId, conversationId: input.conversationId, currentNodeId: input.trigger.id, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue },
+      update: { chatbotId: input.chatbotId, versionId: input.versionId, status: 'ACTIVE', currentNodeId: input.trigger.id, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue, stopReason: null, startedAt: new Date(), completedAt: null },
+    });
+  }
+
+  private async resumeSession(session: any, input: {
+    conversationId: string;
+    inboundMessageId: string;
+    context: SessionContext;
+    graph: Graph;
+    trigger: Node;
+  }) {
+    const waitingNode = session.currentNodeId
+      ? input.graph.nodes.find((node) => node.id === session.currentNodeId)
+      : undefined;
+    let nextNodeId = session.currentNodeId || input.trigger.id;
+    if (session.status === 'WAITING') {
+      if (waitingNode?.type !== 'question') {
+        await this.fail(session.id, 'O bloco aguardando resposta não é uma pergunta');
+        return null;
+      }
+      nextNodeId = this.next(input.graph, waitingNode.id)?.target || '';
+    }
+    if (!nextNodeId) {
+      await this.complete(session.id, input.conversationId, 'Fluxo finalizado após a resposta');
+      return null;
+    }
+    return this.db.chatbotSession.update({
+      where: { id: session.id },
+      data: { status: 'ACTIVE', currentNodeId: nextNodeId, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue },
+    });
+  }
+
   private async run(graph: Graph, session: { id: string; conversationId: string; currentNodeId: string | null }, contactId: string, inboundMessageId: string, context: SessionContext, provider: ChatbotResponseProvider) {
     let currentId = session.currentNodeId;
     for (let step = 0; currentId && step < 100; step += 1) {
       const node = graph.nodes.find((item) => item.id === currentId);
       if (!node) throw new Error('Bloco atual do chatbot não encontrado');
+      const execution = await this.executeNode(graph, session, node, contactId, inboundMessageId, context, provider);
+      if (execution.shouldStop) return;
+      currentId = execution.nextNodeId;
+    }
+    if (currentId) throw new Error('Limite de blocos excedido');
+    await this.complete(session.id, session.conversationId, 'Fluxo finalizado');
+  }
 
-      if (node.type === 'message') {
-        await this.sendReply(session.id, session.conversationId, node, inboundMessageId, provider.interpolate(String(node.data?.text || ''), context));
-      } else if (node.type === 'question') {
-        await this.sendReply(session.id, session.conversationId, node, inboundMessageId, provider.interpolate(String(node.data?.text || ''), context));
+  private async executeNode(
+    graph: Graph,
+    session: { id: string; conversationId: string },
+    node: Node,
+    contactId: string,
+    inboundMessageId: string,
+    context: SessionContext,
+    provider: ChatbotResponseProvider,
+  ): Promise<NodeExecution> {
+    switch (node.type) {
+      case 'message':
+        await this.sendReply(session.id, session.conversationId, node, inboundMessageId, provider.interpolate(textValue(node.data?.text), context));
+        return this.moveSessionToNextNode(graph, session.id, node.id);
+      case 'question':
+        await this.sendReply(session.id, session.conversationId, node, inboundMessageId, provider.interpolate(textValue(node.data?.text), context));
         await this.db.chatbotSession.update({ where: { id: session.id }, data: { status: 'WAITING', currentNodeId: node.id } });
-        return;
-      } else if (node.type === 'condition') {
+        return { nextNodeId: node.id, shouldStop: true };
+      case 'condition': {
         const handle = provider.matches(node.data || {}, context) ? 'true' : 'false';
         await this.record(session.id, node.id, inboundMessageId, context, { handle });
-        currentId = this.next(graph, node.id, handle)?.target || null;
-        if (currentId) await this.db.chatbotSession.update({ where: { id: session.id }, data: { currentNodeId: currentId } });
-        continue;
-      } else if (node.type === 'add_tag') {
-        const tagId = String(node.data?.tagId || '');
+        return this.moveSessionToNextNode(graph, session.id, node.id, handle);
+      }
+      case 'add_tag': {
+        const tagId = textValue(node.data?.tagId);
         if (tagId) {
           await this.db.contactTag.upsert({ where: { contactId_tagId: { contactId, tagId } }, update: {}, create: { contactId, tagId } });
         }
         await this.record(session.id, node.id, inboundMessageId, context, { tagId });
-      } else if (node.type === 'handoff') {
+        return this.moveSessionToNextNode(graph, session.id, node.id);
+      }
+      case 'handoff':
         await this.record(session.id, node.id, inboundMessageId, context, { status: 'HANDED_OFF' });
         await this.handoff(session.id, session.conversationId);
-        return;
-      } else if (node.type === 'close') {
+        return { nextNodeId: null, shouldStop: true };
+      case 'close':
         await this.record(session.id, node.id, inboundMessageId, context, { status: 'COMPLETED' });
         await this.complete(session.id, session.conversationId, 'Conversa encerrada pelo chatbot', true);
-        return;
-      } else if (node.type === 'end') {
+        return { nextNodeId: null, shouldStop: true };
+      case 'end':
         await this.record(session.id, node.id, inboundMessageId, context, { status: 'COMPLETED' });
         await this.complete(session.id, session.conversationId, 'Fluxo finalizado');
-        return;
-      } else {
+        return { nextNodeId: null, shouldStop: true };
+      default:
         await this.record(session.id, node.id, inboundMessageId, context, {});
-      }
-
-      currentId = this.next(graph, node.id)?.target || null;
-      if (currentId) await this.db.chatbotSession.update({ where: { id: session.id }, data: { currentNodeId: currentId } });
+        return this.moveSessionToNextNode(graph, session.id, node.id);
     }
-    if (currentId) throw new Error('Limite de blocos excedido');
-    await this.complete(session.id, session.conversationId, 'Fluxo finalizado');
+  }
+
+  private async moveSessionToNextNode(graph: Graph, sessionId: string, nodeId: string, sourceHandle?: string): Promise<NodeExecution> {
+    const nextNodeId = this.next(graph, nodeId, sourceHandle)?.target || null;
+    if (nextNodeId) {
+      await this.db.chatbotSession.update({ where: { id: sessionId }, data: { currentNodeId: nextNodeId } });
+    }
+    return { nextNodeId, shouldStop: false };
   }
 
   private async sendReply(sessionId: string, conversationId: string, node: Node, inboundMessageId: string, text: string) {
@@ -249,4 +327,8 @@ export class ChatbotProcessor {
   private next(graph: Graph, source: string, sourceHandle?: string) {
     return graph.edges.find((edge) => edge.source === source && (sourceHandle ? edge.sourceHandle === sourceHandle : !edge.sourceHandle));
   }
+}
+
+function textValue(value: unknown) {
+  return typeof value === 'string' ? value : '';
 }

@@ -54,6 +54,21 @@ function jsonRecord(value: Prisma.JsonValue): Record<string, unknown> {
 }
 
 type CampaignMessageTemplate = { type: string; content: string; mediaKey?: string | null };
+type PreflightContact = {
+  id: string;
+  phone: string | null;
+  email: string | null;
+  campaignsBlocked: boolean;
+  suppressions: Array<{ channel: string }>;
+};
+type PreflightRecipient = { recipientId?: string; contact: PreflightContact };
+type PreflightResult = {
+  recipientId?: string;
+  contactId: string;
+  phone?: string | null;
+  status: 'PENDING' | 'SKIPPED';
+  reason?: string;
+};
 
 function recipientMessageTemplates(value: Prisma.JsonValue, fallback: CampaignMessageTemplate[]) {
   const custom = Array.isArray(value)
@@ -82,7 +97,19 @@ export function campaignSendingSchedule(input: Pick<CreateCampaignInput, 'sendin
 }
 
 function csvCell(value: string) {
-  return /[;"\r\n]/.test(value) ? `"${value.replace(/"/g, '""')}"` : value;
+  return /[;"\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
+}
+
+function primitiveText(value: unknown) {
+  return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
+}
+
+function trimCharacter(value: string, character: string) {
+  let start = 0;
+  let end = value.length;
+  while (start < end && value[start] === character) start += 1;
+  while (end > start && value[end - 1] === character) end -= 1;
+  return value.slice(start, end);
 }
 
 export function invalidWhatsappRecipientsCsv(
@@ -92,17 +119,17 @@ export function invalidWhatsappRecipientsCsv(
     csvCell(contact.name),
     csvCell(contact.phone || ''),
   ].join(';'));
-  return `\uFEFFnome;número\r\n${rows.length ? `${rows.join('\r\n')}\r\n` : ''}`;
+  const body = rows.length ? `${rows.join('\r\n')}\r\n` : '';
+  return `\uFEFFnome;número\r\n${body}`;
 }
 
 function campaignFilenamePart(value: string) {
-  return value
+  const normalized = value
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')
-    .slice(0, 80);
+    .replace(/[^a-z0-9]+/g, '-');
+  return trimCharacter(normalized, '-').slice(0, 80);
 }
 
 export type CreateCampaignInput = {
@@ -282,35 +309,9 @@ export class CampaignsService {
   async create(auth: AuthContext, input: CreateCampaignInput) {
     const userId = auth.userId;
     if (!userId) throw new BadRequestException('Campanha exige usuário');
-    if (!input.name?.trim()) throw new BadRequestException('O título da campanha é obrigatório');
     const cadence = campaignCadenceSchema.parse(input.cadence || {});
-    const channel = (input.channel || 'whatsapp').toUpperCase() as 'WHATSAPP' | 'EMAIL';
-    if (channel === 'WHATSAPP' && !input.instanceId) throw new BadRequestException('Selecione um número de WhatsApp');
-    if (channel === 'EMAIL' && !input.emailSubject?.trim()) throw new BadRequestException('Informe o assunto do e-mail');
-    const bubbles = (input.bubbles || [])
-      .map((bubble) => ({ ...bubble, content: bubble.content?.trim() }))
-      .filter((bubble) => Boolean(bubble.content));
-    if (input.audience?.source !== 'csv' && !bubbles.length) throw new BadRequestException('Informe ao menos uma mensagem');
-    if (
-      input.audience?.source === 'contacts'
-      && !input.audience.contactIds?.length
-      && !input.audience.contactSearches?.length
-    ) throw new BadRequestException('Selecione ao menos um contato');
-    if (input.audience?.source === 'csv' && !input.audience.csv) throw new BadRequestException('Selecione um arquivo CSV');
-
-    if (channel === 'WHATSAPP') {
-      const instance = await this.db.whatsappInstance.findFirst({
-        where: { id: input.instanceId, organizationId: auth.organizationId, archivedAt: null, status: 'CONNECTED' },
-        select: { id: true },
-      });
-      if (!instance) throw new BadRequestException('Selecione um número de WhatsApp conectado');
-    }
-
-    const mediaKeys = bubbles.map((bubble) => bubble.mediaKey).filter((key): key is string => Boolean(key));
-    if (mediaKeys.length) {
-      const media = await this.db.mediaAsset.findMany({ where: { key: { in: mediaKeys } }, select: { key: true } });
-      if (media.length !== new Set(mediaKeys).size || media.some((item) => !item.key.startsWith(`${auth.organizationId}/`))) throw new BadRequestException('Uma ou mais mídias são inválidas');
-    }
+    const { channel, bubbles } = this.validateCampaignInput(input);
+    await this.validateCampaignResources(auth, input, channel, bubbles);
 
     const audience = await this.prepareAudience(auth, input);
     const sendingSchedule = campaignSendingSchedule(input);
@@ -389,111 +390,27 @@ export class CampaignsService {
     if (!['DRAFT', 'PAUSED'].includes(campaign.status)) throw new BadRequestException('Campanha não pode ser revalidada neste estado');
     const filters = ((campaign.stats as Record<string, unknown>)?.filters || {}) as Record<string, unknown>;
     const existingRecipientCount = await this.db.campaignRecipient.count({ where: { campaignId: id } });
-    const storedRecipients = existingRecipientCount ? await this.db.campaignRecipient.findMany({
-      where: { campaignId: id, status: { in: ['PENDING', 'SKIPPED'] } },
-      select: {
-        id: true,
-        contact: {
-          select: {
-            id: true,
-            phone: true,
-            email: true,
-            consentStatus: true,
-            campaignsBlocked: true,
-            suppressions: { select: { channel: true } },
-          },
-        },
-      },
-      orderBy: { createdAt: 'asc' },
-    }) : [];
-    const legacyContacts = existingRecipientCount ? [] : await this.resolveAudience(auth.organizationId, campaign.segmentId, filters);
-    const recipients = existingRecipientCount
-      ? storedRecipients.map((recipient) => ({ recipientId: recipient.id, contact: recipient.contact }))
-      : legacyContacts.map((contact) => ({ recipientId: undefined as string | undefined, contact }));
-    const seen = new Set<string>();
-    const results: Array<{ recipientId?: string; contactId: string; phone?: string | null; status: 'PENDING' | 'SKIPPED'; reason?: string }> = [];
-    const reasons: Record<string, number> = {};
-    for (const { recipientId, contact } of recipients) {
-      let reason: string | undefined;
-      if (contact.campaignsBlocked) {
-        reason = 'Campanhas bloqueadas para este contato';
-      } else if (campaign.channel === 'WHATSAPP') {
-        if (!contact.phone) reason = 'Telefone ausente';
-        else if (contact.suppressions.some((item) => item.channel === 'WHATSAPP')) reason = 'Contato bloqueado ou descadastrado';
-        else if (seen.has(contact.phone!)) reason = 'Telefone duplicado';
-        if (contact.phone) seen.add(contact.phone);
-      } else if (!contact.email) {
-        reason = 'E-mail ausente';
-      } else if (contact.suppressions.some((item) => item.channel === 'EMAIL')) {
-        reason = 'Contato descadastrado do e-mail';
-      } else {
-        const emailKey = contact.email.toLowerCase();
-        if (seen.has(emailKey)) reason = 'E-mail duplicado';
-        seen.add(emailKey);
-      }
-      results.push({ recipientId, contactId: contact.id, phone: contact.phone, status: reason ? 'SKIPPED' : 'PENDING', reason });
-    }
-
-    const whatsappCandidates = results.filter((result) => result.status === 'PENDING' && result.phone);
-    if (campaign.channel === 'WHATSAPP' && whatsappCandidates.length) {
-      if (!campaign.instance || campaign.instance.status !== 'CONNECTED') throw new BadRequestException('O número de envio não está conectado');
-      const checked = await this.evolution.checkWhatsappNumbers(campaign.instance.instanceKey, whatsappCandidates.map((result) => result.phone!));
-      const existsByPhone = new Map(checked.map((result) => [result.number, result.exists]));
-      for (const result of whatsappCandidates) {
-        if (existsByPhone.get(result.phone!.replace(/\D/g, '')) !== true) {
-          result.status = 'SKIPPED';
-          result.reason = 'Número não possui WhatsApp';
-        }
-      }
-    }
+    const recipients = await this.preflightRecipients(auth, id, campaign.segmentId, filters, existingRecipientCount);
+    const results = this.preflightResults(campaign.channel, recipients);
+    await this.verifyWhatsappRecipients(campaign.channel, campaign.instance, results);
 
     const eligible = results.filter((result) => result.status === 'PENDING').length;
     const skipped = results.length - eligible;
-    for (const result of results) {
-      if (result.reason) reasons[result.reason] = (reasons[result.reason] || 0) + 1;
-    }
+    const reasons = this.preflightReasonCounts(results);
     const verifiedAt = new Date();
-
-    await this.db.$transaction(async (tx) => {
-      if (!existingRecipientCount) {
-        for (let index = 0; index < results.length; index += RECIPIENT_INSERT_BATCH_SIZE) {
-          const batch = results.slice(index, index + RECIPIENT_INSERT_BATCH_SIZE);
-          await tx.campaignRecipient.createMany({ data: batch.map((result) => ({
-            campaignId: id,
-            contactId: result.contactId,
-            status: result.status,
-            exclusionReason: result.reason,
-            whatsappVerifiedAt: campaign.channel === 'WHATSAPP' && result.status === 'PENDING' ? verifiedAt : undefined,
-          })) });
-        }
-      } else {
-        const eligibleIds = results.filter((result) => result.status === 'PENDING').map((result) => result.recipientId!);
-        if (eligibleIds.length) await tx.campaignRecipient.updateMany({
-          where: { id: { in: eligibleIds } },
-          data: { status: 'PENDING', exclusionReason: null, whatsappVerifiedAt: campaign.channel === 'WHATSAPP' ? verifiedAt : null },
-        });
-        const skippedByReason = new Map<string, string[]>();
-        for (const result of results.filter((item) => item.status === 'SKIPPED')) {
-          const reason = result.reason || 'Destinatário inválido';
-          skippedByReason.set(reason, [...(skippedByReason.get(reason) || []), result.recipientId!]);
-        }
-        for (const [reason, recipientIds] of skippedByReason) {
-          await tx.campaignRecipient.updateMany({
-            where: { id: { in: recipientIds } },
-            data: { status: 'SKIPPED', exclusionReason: reason, whatsappVerifiedAt: null },
-          });
-        }
-      }
-      await tx.campaign.update({ where: { id }, data: { stats: {
-        ...(campaign.stats as Record<string, unknown>),
-        filters,
-        audience: existingRecipientCount || recipients.length,
-        eligible,
-        skipped,
-        reasons,
-        preflightAt: verifiedAt.toISOString(),
-      } as Prisma.InputJsonValue } });
-    }, { timeout: 60_000 });
+    await this.persistPreflight({
+      campaignId: id,
+      channel: campaign.channel,
+      previousStats: campaign.stats,
+      filters,
+      existingRecipientCount,
+      recipientsCount: recipients.length,
+      results,
+      eligible,
+      skipped,
+      reasons,
+      verifiedAt,
+    });
     return { audience: existingRecipientCount || recipients.length, eligible, skipped, reasons };
   }
 
@@ -534,6 +451,158 @@ export class CampaignsService {
     return updated;
   }
 
+  private async preflightRecipients(
+    auth: AuthContext,
+    campaignId: string,
+    segmentId: string | null,
+    filters: Record<string, unknown>,
+    existingRecipientCount: number,
+  ): Promise<PreflightRecipient[]> {
+    if (existingRecipientCount) {
+      const stored = await this.db.campaignRecipient.findMany({
+        where: { campaignId, status: { in: ['PENDING', 'SKIPPED'] } },
+        select: {
+          id: true,
+          contact: {
+            select: {
+              id: true,
+              phone: true,
+              email: true,
+              campaignsBlocked: true,
+              suppressions: { select: { channel: true } },
+            },
+          },
+        },
+        orderBy: { createdAt: 'asc' },
+      });
+      return stored.map((recipient) => ({ recipientId: recipient.id, contact: recipient.contact }));
+    }
+    const contacts = await this.resolveAudience(auth.organizationId, segmentId, filters);
+    return contacts.map((contact) => ({ contact }));
+  }
+
+  private recipientExclusionReason(channel: string, contact: PreflightContact, seen: Set<string>) {
+    if (contact.campaignsBlocked) return 'Campanhas bloqueadas para este contato';
+    if (channel === 'WHATSAPP') {
+      if (!contact.phone) return 'Telefone ausente';
+      const duplicate = seen.has(contact.phone);
+      seen.add(contact.phone);
+      if (contact.suppressions.some((item) => item.channel === 'WHATSAPP')) return 'Contato bloqueado ou descadastrado';
+      return duplicate ? 'Telefone duplicado' : undefined;
+    }
+    if (!contact.email) return 'E-mail ausente';
+    if (contact.suppressions.some((item) => item.channel === 'EMAIL')) return 'Contato descadastrado do e-mail';
+    const emailKey = contact.email.toLowerCase();
+    const duplicate = seen.has(emailKey);
+    seen.add(emailKey);
+    return duplicate ? 'E-mail duplicado' : undefined;
+  }
+
+  private preflightResults(channel: string, recipients: PreflightRecipient[]) {
+    const seen = new Set<string>();
+    return recipients.map(({ recipientId, contact }): PreflightResult => {
+      const reason = this.recipientExclusionReason(channel, contact, seen);
+      return {
+        recipientId,
+        contactId: contact.id,
+        phone: contact.phone,
+        status: reason ? 'SKIPPED' : 'PENDING',
+        reason,
+      };
+    });
+  }
+
+  private async verifyWhatsappRecipients(
+    channel: string,
+    instance: { status: string; instanceKey: string } | null,
+    results: PreflightResult[],
+  ) {
+    const candidates = results.filter((result) => result.status === 'PENDING' && result.phone);
+    if (channel !== 'WHATSAPP' || !candidates.length) return;
+    if (instance?.status !== 'CONNECTED') throw new BadRequestException('O número de envio não está conectado');
+    const checked = await this.evolution.checkWhatsappNumbers(instance.instanceKey, candidates.map((result) => result.phone!));
+    const existsByPhone = new Map(checked.map((result) => [result.number, result.exists]));
+    for (const result of candidates) {
+      if (existsByPhone.get(result.phone!.replace(/\D/g, '')) === true) continue;
+      result.status = 'SKIPPED';
+      result.reason = 'Número não possui WhatsApp';
+    }
+  }
+
+  private preflightReasonCounts(results: PreflightResult[]) {
+    const reasons: Record<string, number> = {};
+    for (const result of results) {
+      if (result.reason) reasons[result.reason] = (reasons[result.reason] || 0) + 1;
+    }
+    return reasons;
+  }
+
+  private async persistPreflight(input: {
+    campaignId: string;
+    channel: string;
+    previousStats: Prisma.JsonValue;
+    filters: Record<string, unknown>;
+    existingRecipientCount: number;
+    recipientsCount: number;
+    results: PreflightResult[];
+    eligible: number;
+    skipped: number;
+    reasons: Record<string, number>;
+    verifiedAt: Date;
+  }) {
+    await this.db.$transaction(async (tx) => {
+      if (!input.existingRecipientCount) {
+        for (let index = 0; index < input.results.length; index += RECIPIENT_INSERT_BATCH_SIZE) {
+          const batch = input.results.slice(index, index + RECIPIENT_INSERT_BATCH_SIZE);
+          await tx.campaignRecipient.createMany({ data: batch.map((result) => ({
+            campaignId: input.campaignId,
+            contactId: result.contactId,
+            status: result.status,
+            exclusionReason: result.reason,
+            whatsappVerifiedAt: input.channel === 'WHATSAPP' && result.status === 'PENDING' ? input.verifiedAt : undefined,
+          })) });
+        }
+      } else {
+        await this.updateStoredPreflightRecipients(tx, input);
+      }
+      await tx.campaign.update({ where: { id: input.campaignId }, data: { stats: {
+        ...(input.previousStats as Record<string, unknown>),
+        filters: input.filters,
+        audience: input.existingRecipientCount || input.recipientsCount,
+        eligible: input.eligible,
+        skipped: input.skipped,
+        reasons: input.reasons,
+        preflightAt: input.verifiedAt.toISOString(),
+      } as Prisma.InputJsonValue } });
+    }, { timeout: 60_000 });
+  }
+
+  private async updateStoredPreflightRecipients(
+    tx: Prisma.TransactionClient,
+    input: {
+      channel: string;
+      results: PreflightResult[];
+      verifiedAt: Date;
+    },
+  ) {
+    const eligibleIds = input.results.filter((result) => result.status === 'PENDING').map((result) => result.recipientId!);
+    if (eligibleIds.length) await tx.campaignRecipient.updateMany({
+      where: { id: { in: eligibleIds } },
+      data: { status: 'PENDING', exclusionReason: null, whatsappVerifiedAt: input.channel === 'WHATSAPP' ? input.verifiedAt : null },
+    });
+    const skippedByReason = new Map<string, string[]>();
+    for (const result of input.results.filter((item) => item.status === 'SKIPPED')) {
+      const reason = result.reason || 'Destinatário inválido';
+      skippedByReason.set(reason, [...(skippedByReason.get(reason) || []), result.recipientId!]);
+    }
+    for (const [reason, recipientIds] of skippedByReason) {
+      await tx.campaignRecipient.updateMany({
+        where: { id: { in: recipientIds } },
+        data: { status: 'SKIPPED', exclusionReason: reason, whatsappVerifiedAt: null },
+      });
+    }
+  }
+
   private async prepareAudience(auth: AuthContext, input: CreateCampaignInput) {
     const empty = {
       recipients: [] as Array<{ contactId: string; messages: Array<{ type: string; content: string }> }>,
@@ -541,61 +610,7 @@ export class CampaignsService {
       csvPreview: undefined as ReturnType<typeof parseCampaignCsv> | undefined,
     };
     if (!input.audience) return empty;
-
-    if (input.audience.source === 'contacts') {
-      const contactIds = [...new Set(input.audience.contactIds || [])];
-      const contactSearches = [...new Set(
-        (input.audience.contactSearches || [])
-          .filter((search): search is string => typeof search === 'string')
-          .map((search) => search.trim())
-          .slice(0, 20),
-      )];
-      const excludedContactIds = [...new Set(input.audience.excludedContactIds || [])];
-      const explicitlySelected = contactIds.length
-        ? await this.db.contact.findMany({
-          where: {
-            id: { in: contactIds },
-            organizationId: auth.organizationId,
-            archivedAt: null,
-            ...scopedWhere(auth, 'contacts'),
-          },
-          select: { id: true },
-        })
-        : [];
-      if (explicitlySelected.length !== contactIds.length) {
-        throw new BadRequestException('Um ou mais contatos selecionados não estão disponíveis');
-      }
-
-      const selectsAllContacts = contactSearches.includes('');
-      const selectionConditions: Prisma.ContactWhereInput[] = [
-        ...(contactIds.length ? [{ id: { in: contactIds } }] : []),
-        ...contactSearches
-          .filter(Boolean)
-          .map((search): Prisma.ContactWhereInput => ({
-            OR: [
-              { name: { contains: search, mode: 'insensitive' } },
-              { email: { contains: search, mode: 'insensitive' } },
-              { phone: { contains: search } },
-            ],
-          })),
-      ];
-      const contacts = await this.db.contact.findMany({
-        where: {
-          organizationId: auth.organizationId,
-          archivedAt: null,
-          ...scopedWhere(auth, 'contacts'),
-          ...(excludedContactIds.length ? { id: { notIn: excludedContactIds } } : {}),
-          ...(String(input.channel || 'whatsapp').toUpperCase() === 'EMAIL' ? { email: { not: null } } : {}),
-          ...(!selectsAllContacts ? { OR: selectionConditions } : {}),
-        },
-        select: { id: true },
-      });
-      if (!contacts.length) throw new BadRequestException('A seleção não possui contatos disponíveis');
-      return {
-        ...empty,
-        recipients: contacts.map(({ id: contactId }) => ({ contactId, messages: [] })),
-      };
-    }
+    if (input.audience.source === 'contacts') return this.prepareContactAudience(auth, input, empty);
 
     let csvPreview: ReturnType<typeof parseCampaignCsv>;
     try {
@@ -653,15 +668,105 @@ export class CampaignsService {
     };
   }
 
+  private async prepareContactAudience(
+    auth: AuthContext,
+    input: CreateCampaignInput,
+    empty: {
+      recipients: Array<{ contactId: string; messages: Array<{ type: string; content: string }> }>;
+      newContacts: Prisma.ContactCreateManyInput[];
+      csvPreview: ReturnType<typeof parseCampaignCsv> | undefined;
+    },
+  ) {
+    const audience = input.audience!;
+    const contactIds = [...new Set(audience.contactIds || [])];
+    const contactSearches = [...new Set(
+      (audience.contactSearches || [])
+        .filter((search): search is string => typeof search === 'string')
+        .map((search) => search.trim())
+        .slice(0, 20),
+    )];
+    const excludedContactIds = [...new Set(audience.excludedContactIds || [])];
+    const explicitlySelected = contactIds.length
+      ? await this.db.contact.findMany({
+        where: { id: { in: contactIds }, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts') },
+        select: { id: true },
+      })
+      : [];
+    if (explicitlySelected.length !== contactIds.length) {
+      throw new BadRequestException('Um ou mais contatos selecionados não estão disponíveis');
+    }
+    const selectsAllContacts = contactSearches.includes('');
+    const selectionConditions: Prisma.ContactWhereInput[] = [
+      ...(contactIds.length ? [{ id: { in: contactIds } }] : []),
+      ...contactSearches.filter(Boolean).map((search): Prisma.ContactWhereInput => ({
+        OR: [
+          { name: { contains: search, mode: 'insensitive' } },
+          { email: { contains: search, mode: 'insensitive' } },
+          { phone: { contains: search } },
+        ],
+      })),
+    ];
+    const contacts = await this.db.contact.findMany({
+      where: {
+        organizationId: auth.organizationId,
+        archivedAt: null,
+        ...scopedWhere(auth, 'contacts'),
+        ...(excludedContactIds.length ? { id: { notIn: excludedContactIds } } : {}),
+        ...((input.channel || 'whatsapp').toUpperCase() === 'EMAIL' ? { email: { not: null } } : {}),
+        ...(!selectsAllContacts ? { OR: selectionConditions } : {}),
+      },
+      select: { id: true },
+    });
+    if (!contacts.length) throw new BadRequestException('A seleção não possui contatos disponíveis');
+    return { ...empty, recipients: contacts.map(({ id: contactId }) => ({ contactId, messages: [] })) };
+  }
+
+  private validateCampaignInput(input: CreateCampaignInput) {
+    if (!input.name?.trim()) throw new BadRequestException('O título da campanha é obrigatório');
+    const channel = (input.channel || 'whatsapp').toUpperCase() as 'WHATSAPP' | 'EMAIL';
+    if (channel === 'WHATSAPP' && !input.instanceId) throw new BadRequestException('Selecione um número de WhatsApp');
+    if (channel === 'EMAIL' && !input.emailSubject?.trim()) throw new BadRequestException('Informe o assunto do e-mail');
+    const bubbles = (input.bubbles || [])
+      .map((bubble) => ({ ...bubble, content: bubble.content?.trim() }))
+      .filter((bubble) => Boolean(bubble.content));
+    if (input.audience?.source !== 'csv' && !bubbles.length) throw new BadRequestException('Informe ao menos uma mensagem');
+    if (input.audience?.source === 'contacts' && !input.audience.contactIds?.length && !input.audience.contactSearches?.length) {
+      throw new BadRequestException('Selecione ao menos um contato');
+    }
+    if (input.audience?.source === 'csv' && !input.audience.csv) throw new BadRequestException('Selecione um arquivo CSV');
+    return { channel, bubbles };
+  }
+
+  private async validateCampaignResources(
+    auth: AuthContext,
+    input: CreateCampaignInput,
+    channel: 'WHATSAPP' | 'EMAIL',
+    bubbles: Array<{ type?: string; content: string; mediaKey?: string }>,
+  ) {
+    if (channel === 'WHATSAPP') {
+      const instance = await this.db.whatsappInstance.findFirst({
+        where: { id: input.instanceId, organizationId: auth.organizationId, archivedAt: null, status: 'CONNECTED' },
+        select: { id: true },
+      });
+      if (!instance) throw new BadRequestException('Selecione um número de WhatsApp conectado');
+    }
+    const mediaKeys = bubbles.map((bubble) => bubble.mediaKey).filter((key): key is string => Boolean(key));
+    if (!mediaKeys.length) return;
+    const media = await this.db.mediaAsset.findMany({ where: { key: { in: mediaKeys } }, select: { key: true } });
+    if (media.length !== new Set(mediaKeys).size || media.some((item) => !item.key.startsWith(`${auth.organizationId}/`))) {
+      throw new BadRequestException('Uma ou mais mídias são inválidas');
+    }
+  }
+
   private async resolveAudience(organizationId: string, segmentId: string | null, filters: Record<string, unknown>) {
     const staticMemberIds = segmentId ? await this.db.segmentMember.findMany({ where: { segmentId }, select: { contactId: true } }) : [];
     return this.db.contact.findMany({
       where: {
         organizationId, archivedAt: null,
         ...(staticMemberIds.length ? { id: { in: staticMemberIds.map((item) => item.contactId) } } : {}),
-        ...(filters.teamId ? { teamId: String(filters.teamId) } : {}),
-        ...(filters.ownerId ? { ownerId: String(filters.ownerId) } : {}),
-        ...(filters.tagId ? { tags: { some: { tagId: String(filters.tagId) } } } : {}),
+        ...(filters.teamId ? { teamId: primitiveText(filters.teamId) } : {}),
+        ...(filters.ownerId ? { ownerId: primitiveText(filters.ownerId) } : {}),
+        ...(filters.tagId ? { tags: { some: { tagId: primitiveText(filters.tagId) } } } : {}),
       },
       select: {
         id: true,
