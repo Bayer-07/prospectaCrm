@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../auth/types.js';
+import { OutboundWebhookUrlService } from './outbound-webhook-url.service.js';
 import { ReportsService } from './reports.service.js';
 
 const auth: AuthContext = {
@@ -10,11 +11,17 @@ const auth: AuthContext = {
   permissions: [{ resource: '*', action: '*', scope: 'ALL' }],
 };
 
+const publicResolver = vi.fn().mockResolvedValue([{ address: '8.8.8.8', family: 4 }]);
+
+function reportsService(db: object) {
+  return new ReportsService(db as never, new OutboundWebhookUrlService(publicResolver));
+}
+
 describe('configuração de webhooks', () => {
   it('cria vários webhooks desativados e com apenas uma ação por registro', async () => {
     const create = vi.fn()
       .mockImplementation(({ data }) => Promise.resolve({ id: crypto.randomUUID(), ...data }));
-    const service = new ReportsService({ outboundWebhook: { create } } as never);
+    const service = reportsService({ outboundWebhook: { create } });
 
     await service.createOutboundWebhook(auth, {
       name: 'Novo contato',
@@ -45,13 +52,18 @@ describe('configuração de webhooks', () => {
   });
 
   it('rejeita endpoints e ações inválidas', async () => {
-    const service = new ReportsService({} as never);
+    const service = reportsService({});
 
     await expect(service.createOutboundWebhook(auth, {
       name: 'Webhook inválido',
       endpoint: 'ftp://example.com/entrada',
       action: 'contact.created',
     })).rejects.toThrow('endpoint HTTP ou HTTPS');
+    await expect(service.createOutboundWebhook(auth, {
+      name: 'Webhook inválido',
+      endpoint: 'http://169.254.169.254/latest/meta-data',
+      action: 'contact.created',
+    })).rejects.toThrow('endpoint HTTP ou HTTPS público');
     await expect(service.createOutboundWebhook(auth, {
       name: 'Webhook inválido',
       endpoint: 'https://example.com/entrada',
@@ -69,7 +81,7 @@ describe('configuração de webhooks', () => {
       createdAt: new Date(),
       updatedAt: new Date(),
     });
-    const service = new ReportsService({
+    const service = reportsService({
       outboundWebhook: {
         findFirst: vi.fn().mockResolvedValue({
           id: 'webhook-1',
@@ -80,7 +92,7 @@ describe('configuração de webhooks', () => {
         }),
         update,
       },
-    } as never);
+    });
 
     const result = await service.updateOutboundWebhook(auth, 'webhook-1', { enabled: true });
 

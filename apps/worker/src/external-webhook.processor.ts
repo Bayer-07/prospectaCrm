@@ -1,6 +1,7 @@
 import type { Job } from 'bullmq';
 import type { PrismaClient } from '@prisma/client';
 import { createDecipheriv, createHash, createHmac } from 'node:crypto';
+import { publicHttpGet } from './public-http-get.js';
 
 let decryptionKey: Buffer | undefined;
 
@@ -13,7 +14,13 @@ function decryptSecret(value: string) {
   return Buffer.concat([decipher.update(Buffer.from(encrypted, 'base64url')), decipher.final()]).toString('utf8');
 }
 
-export async function processExternalWebhook(db: PrismaClient, job: Job<{ deliveryId: string }>) {
+type ExternalWebhookDependencies = { get: typeof publicHttpGet };
+
+export async function processExternalWebhook(
+  db: PrismaClient,
+  job: Job<{ deliveryId: string }>,
+  dependencies: ExternalWebhookDependencies = { get: publicHttpGet },
+) {
   const delivery = await db.webhookDelivery.findUnique({
     where: { id: job.data.deliveryId },
     select: {
@@ -44,8 +51,7 @@ export async function processExternalWebhook(db: PrismaClient, job: Job<{ delive
     const signature = createHmac('sha256', secret)
       .update(`${timestamp}.${delivery.eventId}.${delivery.eventType}.${entityType}.${entityId}`)
       .digest('hex');
-    const response = await fetch(target, {
-      method: 'GET',
+    const response = await dependencies.get(target.toString(), {
       headers: {
         Accept: 'application/json',
         'X-BZS-One-Event': delivery.eventType,

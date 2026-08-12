@@ -45,6 +45,34 @@ type ProposalLinkPreview = {
   siteName?: string;
 };
 
+function moveOpportunityInPipeline(current: Envelope<Pipeline> | undefined, opportunityId: string, stageId: string) {
+  if (!current) return current;
+  const moving = current.data.stages.flatMap((stage) => stage.opportunities).find((item) => item.id === opportunityId);
+  if (!moving) return current;
+  const stages = current.data.stages.map((stage) => {
+    const remaining = stage.opportunities.filter((item) => item.id !== opportunityId);
+    return { ...stage, opportunities: stage.id === stageId ? [{ ...moving, stageId }, ...remaining] : remaining };
+  });
+  return { ...current, data: { ...current.data, stages } };
+}
+
+function applyMovedOpportunity(
+  current: Envelope<Pipeline> | undefined,
+  opportunityId: string,
+  response: Opportunity & { status: string },
+) {
+  if (!current) return current;
+  const stages = current.data.stages.map((stage) => ({
+    ...stage,
+    opportunities: stage.opportunities.flatMap((opportunity) => {
+      if (opportunity.id !== opportunityId) return [opportunity];
+      if (response.status !== 'OPEN') return [];
+      return [{ ...opportunity, ...response, company: opportunity.company, owner: opportunity.owner }];
+    }),
+  }));
+  return { ...current, data: { ...current.data, stages } };
+}
+
 const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, overlay = false }: Readonly<{ opportunity: Opportunity; onOpen?: () => void; overlay?: boolean }>) {
   const drag = useDraggable({ id: opportunity.id, data: { stageId: opportunity.stageId }, disabled: overlay });
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
@@ -119,33 +147,13 @@ export function PipelinePage() {
     onMutate: async ({ id, stageId }) => {
       await client.cancelQueries({ queryKey: kanbanKey });
       const previous = client.getQueryData<Envelope<Pipeline>>(kanbanKey);
-      client.setQueryData<Envelope<Pipeline>>(kanbanKey, (current) => {
-        if (!current) return current;
-        const moving = current.data.stages.flatMap((stage) => stage.opportunities).find((item) => item.id === id);
-        if (!moving) return current;
-        return { ...current, data: { ...current.data, stages: current.data.stages.map((stage) => ({
-          ...stage,
-          opportunities: stage.id === stageId
-            ? [{ ...moving, stageId }, ...stage.opportunities.filter((item) => item.id !== id)]
-            : stage.opportunities.filter((item) => item.id !== id),
-        })) } };
-      });
+      client.setQueryData<Envelope<Pipeline>>(kanbanKey, (current) => moveOpportunityInPipeline(current, id, stageId));
       return { previous };
     },
     onError: (_error, _variables, context) => { if (context?.previous) client.setQueryData(kanbanKey, context.previous); },
     onSuccess: (response, variables) => {
       toast.success('Oportunidade movida.');
-      client.setQueryData<Envelope<Pipeline>>(kanbanKey, (current) => {
-        if (!current) return current;
-        return { ...current, data: { ...current.data, stages: current.data.stages.map((stage) => ({
-          ...stage,
-          opportunities: stage.opportunities.flatMap((opportunity) => {
-            if (opportunity.id !== variables.id) return [opportunity];
-            if (response.data.status !== 'OPEN') return [];
-            return [{ ...opportunity, ...response.data, company: opportunity.company, owner: opportunity.owner }];
-          }),
-        })) } };
-      });
+      client.setQueryData<Envelope<Pipeline>>(kanbanKey, (current) => applyMovedOpportunity(current, variables.id, response.data));
     },
   });
   const sensors = useSensors(

@@ -1,4 +1,4 @@
-import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
+import { BadRequestException, Injectable, NotFoundException, Optional } from '@nestjs/common';
 import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { sgaProspectingEmailTemplates } from '@prospecta/contracts';
@@ -9,6 +9,7 @@ import { encryptSecret } from '../common/encryption.js';
 import { campaignEmailConfigurationStatus } from '../email/campaign-email-config.js';
 import { buildReportPdf } from './report-pdf.js';
 import { isOutboundWebhookAction, OUTBOUND_WEBHOOK_ACTIONS, type OutboundWebhookAction } from './webhook-actions.js';
+import { OutboundWebhookUrlService } from './outbound-webhook-url.service.js';
 
 type OutboundWebhookInput = {
   name: string;
@@ -23,8 +24,14 @@ type OutboundWebhookUpdate = Partial<OutboundWebhookInput> & {
 @Injectable()
 export class ReportsService {
   private readonly initializedEmailTemplateOrganizations = new Set<string>();
+  private readonly outboundWebhookUrls: OutboundWebhookUrlService;
 
-  constructor(private readonly db: PrismaService) {}
+  constructor(
+    private readonly db: PrismaService,
+    @Optional() outboundWebhookUrls?: OutboundWebhookUrlService,
+  ) {
+    this.outboundWebhookUrls = outboundWebhookUrls || new OutboundWebhookUrlService();
+  }
 
   async summary(auth: AuthContext, query: { from?: string; to?: string }) {
     const from = query.from ? new Date(query.from) : new Date(Date.now() - 30 * 86_400_000);
@@ -225,7 +232,7 @@ export class ReportsService {
   }
 
   async createOutboundWebhook(auth: AuthContext, input: OutboundWebhookInput) {
-    const normalized = this.validateOutboundWebhook(input);
+    const normalized = await this.validateOutboundWebhook(input);
     const secret = randomBytes(32).toString('base64url');
     const webhook = await this.db.outboundWebhook.create({ data: {
       organizationId: auth.organizationId,
@@ -251,7 +258,7 @@ export class ReportsService {
       select: { id: true, name: true, url: true, events: true, enabled: true },
     });
     if (!existing) throw new NotFoundException('Webhook não encontrado');
-    const normalized = this.validateOutboundWebhook({
+    const normalized = await this.validateOutboundWebhook({
       name: input.name ?? existing.name,
       endpoint: input.endpoint ?? existing.url,
       action: input.action ?? this.webhookAction(existing.events),
@@ -291,11 +298,11 @@ export class ReportsService {
     return { id, deleted: true };
   }
 
-  private validateOutboundWebhook(input: OutboundWebhookInput): {
+  private async validateOutboundWebhook(input: OutboundWebhookInput): Promise<{
     name: string;
     endpoint: string;
     action: OutboundWebhookAction;
-  } {
+  }> {
     const name = String(input.name || '').trim();
     if (name.length < 2 || name.length > 120) {
       throw new BadRequestException('Informe um nome válido para o webhook');
@@ -304,23 +311,16 @@ export class ReportsService {
     if (!endpoint || endpoint.length > 2_048) {
       throw new BadRequestException('Informe um endpoint válido');
     }
-    let parsed: URL;
-    try {
-      parsed = new URL(endpoint);
-    } catch {
-      throw new BadRequestException('Informe um endpoint HTTP ou HTTPS válido');
-    }
-    if (!['http:', 'https:'].includes(parsed.protocol) || parsed.username || parsed.password) {
-      throw new BadRequestException('Informe um endpoint HTTP ou HTTPS válido, sem credenciais na URL');
-    }
     if (!isOutboundWebhookAction(input.action)) {
       throw new BadRequestException('Selecione uma ação válida para o webhook');
     }
-    return { name, endpoint: parsed.toString(), action: input.action };
+    const safeEndpoint = await this.outboundWebhookUrls.validate(endpoint);
+    return { name, endpoint: safeEndpoint, action: input.action };
   }
 
   private webhookAction(value: Prisma.JsonValue): OutboundWebhookAction {
-    const action = Array.isArray(value) ? String(value[0] || '') : '';
+    const candidate = Array.isArray(value) ? value[0] : undefined;
+    const action = typeof candidate === 'string' ? candidate : '';
     return isOutboundWebhookAction(action) ? action : 'company.created';
   }
 }

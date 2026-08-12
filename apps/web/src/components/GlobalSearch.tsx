@@ -94,8 +94,7 @@ function SearchResultList({ results, activeIndex, onActivate, onOpen }: Readonly
           id={`global-result-${result.type}-${result.id}`}
           type="button"
           className={`global-search-result${activeIndex === index ? ' active' : ''}`}
-          role="option"
-          aria-selected={activeIndex === index}
+          aria-current={activeIndex === index ? 'true' : undefined}
           onMouseEnter={() => onActivate(index)}
           onClick={() => onOpen(result)}
         >
@@ -268,10 +267,8 @@ export function GlobalSearch() {
         () => { setOpen(false); inputRef.current?.blur(); },
       )}
       placeholder="Buscar atendimentos, empresas, contatos ou oportunidades…"
-      role="combobox"
-      aria-expanded={open}
-      aria-controls="global-search-results"
-      aria-activedescendant={results[activeIndex] ? `global-result-${results[activeIndex].type}-${results[activeIndex].id}` : undefined}
+      type="search"
+      aria-label="Buscar no sistema"
       autoComplete="off"
     />
     {query
@@ -287,10 +284,10 @@ export function GlobalSearch() {
       ><X size={14} /></button>
       : <kbd>Ctrl + K</kbd>}
 
-    {open && <div className="global-search-results" id="global-search-results" role="listbox">
+    {open && <section className="global-search-results" id="global-search-results" aria-label="Resultados da busca">
       {searchState(ready, loading, failed, results, term)
         ?? <SearchResultList results={results} activeIndex={activeIndex} onActivate={setActiveIndex} onOpen={openResult} />}
       {loading && results.length > 0 && <LoaderCircle className="global-search-inline-loader spin" size={15} />}
-    </div>}
+    </section>}
   </div>;
 }

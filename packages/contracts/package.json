@@ -12,6 +12,10 @@
     "./whatsapp-contact": {
       "types": "./dist/whatsapp-contact.d.ts",
       "import": "./dist/whatsapp-contact.js"
+    },
+    "./public-http-url": {
+      "types": "./dist/public-http-url.d.ts",
+      "import": "./dist/public-http-url.js"
     }
   },
   "scripts": {

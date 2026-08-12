@@ -85,6 +85,83 @@ const pageInfo: Record<string, { title: string; description: string }> = {
   '/integracoes': { title: 'Integrações', description: 'API, webhooks e documentação técnica.' },
 };
 
+type SidebarNavItemProps = Readonly<{
+  item: NavItem;
+  canRead(resource?: string): boolean | undefined;
+  currentPath: string;
+  integrationsOpen: boolean;
+  onToggleIntegrations(): void;
+  onNavigate(): void;
+}>;
+
+function SidebarChildLink({ child, onNavigate }: Readonly<{
+  child: NonNullable<NavItem['children']>[number];
+  onNavigate(): void;
+}>) {
+  return <NavLink
+    to={child.to}
+    onClick={onNavigate}
+    className={({ isActive }) => `nav-subitem ${isActive ? 'active' : ''}`}
+  >
+    <child.icon size={14} strokeWidth={1.9} />
+    <span>{child.label}</span>
+  </NavLink>;
+}
+
+function SidebarNavItem({ item, canRead, currentPath, integrationsOpen, onToggleIntegrations, onNavigate }: SidebarNavItemProps) {
+  const visibleChildren = item.children?.filter((child) => canRead(child.resource));
+  if (item.children) {
+    if (!visibleChildren?.length) return null;
+    const active = currentPath.startsWith(item.to);
+    return <div className="nav-submenu-wrap">
+      <button
+        type="button"
+        className={`nav-item nav-parent ${active ? 'active' : ''}`}
+        onClick={onToggleIntegrations}
+        aria-expanded={integrationsOpen}
+      >
+        <item.icon size={17} strokeWidth={1.9} />
+        <span>{item.label}</span>
+        <ChevronDown className="nav-parent-chevron" size={14} />
+      </button>
+      {integrationsOpen && <div className="nav-submenu">
+        {visibleChildren.map((child) => <SidebarChildLink key={child.to} child={child} onNavigate={onNavigate} />)}
+      </div>}
+    </div>;
+  }
+  if (!canRead(item.resource)) return null;
+  return <NavLink
+    end={item.to === '/'}
+    to={item.to}
+    onClick={onNavigate}
+    className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
+  >
+    <item.icon size={17} strokeWidth={1.9} />
+    <span>{item.label}</span>
+  </NavLink>;
+}
+
+function SidebarNavigation({ canRead, currentPath, integrationsOpen, onToggleIntegrations, onNavigate }: Readonly<{
+  canRead(resource?: string): boolean | undefined;
+  currentPath: string;
+  integrationsOpen: boolean;
+  onToggleIntegrations(): void;
+  onNavigate(): void;
+}>) {
+  return <nav>{nav.map((group) => <div className="nav-group" key={group.section}>
+    <span className="nav-section">{group.section}</span>
+    {group.items.map((item) => <SidebarNavItem
+      key={item.to}
+      item={item}
+      canRead={canRead}
+      currentPath={currentPath}
+      integrationsOpen={integrationsOpen}
+      onToggleIntegrations={onToggleIntegrations}
+      onNavigate={onNavigate}
+    />)}
+  </div>)}</nav>;
+}
+
 export function Shell() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [notificationsOpen, setNotificationsOpen] = useState(false);
@@ -232,7 +309,7 @@ export function Shell() {
       } else {
         const activeHistories = queryClient.getQueryCache().findAll({ queryKey: ['conversation-messages'] })
           .filter((query) => query.getObserversCount() > 0)
-          .map((query) => String(query.queryKey[1] || ''))
+          .map((query) => typeof query.queryKey[1] === 'string' ? query.queryKey[1] : '')
           .filter(Boolean);
         for (const conversationId of activeHistories) void refreshLatestHistory(conversationId);
       }
@@ -266,43 +343,17 @@ export function Shell() {
     };
   }, [queryClient]);
 
+  const closeMobileNavigation = () => setMobileOpen(false);
+  const toggleIntegrations = () => setIntegrationsOpen((open) => !open);
   const sidebar = <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
     <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo BZS One" /><div><strong>BZS One</strong></div><button type="button" className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
-    <nav>{nav.map((group) => <div className="nav-group" key={group.section}>
-      <span className="nav-section">{group.section}</span>
-      {group.items.map((item) => {
-        const visibleChildren = item.children?.filter((child) => canRead(child.resource));
-        if (item.children) {
-          if (!visibleChildren?.length) return null;
-          const active = location.pathname.startsWith(item.to);
-          return <div className="nav-submenu-wrap" key={item.to}>
-            <button
-              type="button"
-              className={`nav-item nav-parent ${active ? 'active' : ''}`}
-              onClick={() => setIntegrationsOpen((open) => !open)}
-              aria-expanded={integrationsOpen}
-            >
-              <item.icon size={17} strokeWidth={1.9} />
-              <span>{item.label}</span>
-              <ChevronDown className="nav-parent-chevron" size={14} />
-            </button>
-            {integrationsOpen && <div className="nav-submenu">
-              {visibleChildren.map((child) => <NavLink
-                key={child.to}
-                to={child.to}
-                onClick={() => setMobileOpen(false)}
-                className={({ isActive }) => `nav-subitem ${isActive ? 'active' : ''}`}
-              >
-                <child.icon size={14} strokeWidth={1.9} />
-                <span>{child.label}</span>
-              </NavLink>)}
-            </div>}
-          </div>;
-        }
-        if (!canRead(item.resource)) return null;
-        return <NavLink end={item.to === '/'} key={item.to} to={item.to} onClick={() => setMobileOpen(false)} className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}><item.icon size={17} strokeWidth={1.9} /><span>{item.label}</span></NavLink>;
-      })}
-    </div>)}</nav>
+    <SidebarNavigation
+      canRead={canRead}
+      currentPath={location.pathname}
+      integrationsOpen={integrationsOpen}
+      onToggleIntegrations={toggleIntegrations}
+      onNavigate={closeMobileNavigation}
+    />
     <div className="sidebar-footer"><img className="workspace-avatar" src="/brand-logo.png" alt="Logo BZS" /><div><strong>BZS Tecnologia</strong><span>Ambiente corporativo</span></div><ChevronDown size={15} /></div>
   </aside>;
 

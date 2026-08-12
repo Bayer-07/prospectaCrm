@@ -117,7 +117,7 @@ export class ChatbotProcessor {
   }) {
     const session = input.existing;
     if (session?.lastInboundMessageId === input.inboundMessageId) return null;
-    if (session && ['HANDED_OFF', 'STOPPED'].includes(session.status)) return null;
+    if (session?.status && ['HANDED_OFF', 'STOPPED'].includes(session.status)) return null;
     const startsNew = !session
       || session.chatbotId !== input.chatbotId
       || session.versionId !== input.versionId

@@ -217,9 +217,10 @@ const mediaNode = (record: AnyObject, type: string) => {
 };
 
 const serializedValue = (value: unknown) => {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return JSON.stringify(value);
-  return String(value);
+  if (typeof value === 'string') return value;
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') return String(value);
+  if (value && typeof value === 'object') return JSON.stringify(value) ?? '';
+  return '';
 };
 
 const isUniqueContactRace = (error: unknown, phoneKey: string | null) => {

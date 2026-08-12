@@ -169,7 +169,7 @@ services:
       MINIO_ROOT_USER: ${S3_ACCESS_KEY:-prospecta}
       MINIO_ROOT_PASSWORD: ${S3_SECRET_KEY:?Defina S3_SECRET_KEY no .env}
     ports:
-      - "${S3_BIND_ADDRESS:-0.0.0.0}:9000:9000"
+      - "${S3_BIND_ADDRESS:-127.0.0.1}:9000:9000"
     volumes:
       - minio_data:/data
     healthcheck:
@@ -181,6 +181,20 @@ services:
       app:
         aliases:
           - minio.local
+
+  evolution-volume-init:
+    image: alpine:3.22
+    restart: "no"
+    user: "0:0"
+    read_only: true
+    network_mode: none
+    cap_drop: [ALL]
+    cap_add: [CHOWN, DAC_OVERRIDE, FOWNER]
+    # A imagem oficial deriva de node:alpine, cujo usuário node usa UID/GID 1000.
+    # O preparo também migra volumes criados por versões antigas executadas como root.
+    command: ["sh", "-c", "chown -R 1000:1000 /evolution/instances && chmod 700 /evolution/instances"]
+    volumes:
+      - evolution_instances:/evolution/instances
 
   evolution:
     image: ${EVOLUTION_CUSTOM_IMAGE:-bzs-one/evolution-api:2.3.7-link-preview}
@@ -239,6 +253,7 @@ services:
       - "127.0.0.1:${EVOLUTION_BIND_PORT:-8082}:8080"
     expose: ["8080"]
     depends_on:
+      evolution-volume-init: { condition: service_completed_successfully }
       evolution-postgres: { condition: service_healthy }
       evolution-redis: { condition: service_healthy }
       evolution-minio: { condition: service_healthy }

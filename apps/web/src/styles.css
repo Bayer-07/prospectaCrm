@@ -252,7 +252,9 @@ svg { flex: none; }
 .form-error { padding: 9px 10px; border-radius: 8px; background: var(--red-soft); color: #b6353b; font-size: 11px; }
 .form-message { padding: 9px 11px; border-radius: 8px; background: var(--green-soft); color: #087b52; font-size: 9.5px; }
 .modal-backdrop { position: fixed; inset: 0; z-index: 100; padding: 28px 16px; background: rgba(17,15,26,.52); display: grid; place-items: center; backdrop-filter: blur(3px); }
+.modal-backdrop-dismiss { position: absolute; inset: 0; border: 0; background: transparent; cursor: default; }
 .modal { width: 100%; max-height: calc(100vh - 56px); overflow-y: auto; border: 1px solid rgba(255,255,255,.25); border-radius: 15px; background: #fff; box-shadow: 0 30px 90px rgba(19,16,31,.28); }
+.modal-backdrop > .modal { position: relative; z-index: 1; }
 .modal > header { padding: 18px 20px 14px; border-bottom: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; }
 .modal > header h2 { margin-top: 2px; font-size: 16px; }
 .eyebrow { color: var(--violet); font-size: 8px; font-weight: 750; letter-spacing: .9px; text-transform: uppercase; }

@@ -8,11 +8,15 @@ type Graph = { nodes: Node[]; edges: Edge[] };
 type WorkflowContext = { source?: string; conversationId?: string; instanceId?: string; initiatedByUserId?: string };
 type WorkflowWhatsappContact = { consentStatus?: string; suppressions?: Array<{ channel?: string }> };
 type RealtimeEvent = { organizationId: string; event: 'inbox.updated'; payload: { conversationId: string } };
+type WorkflowTerminalStatus = 'COMPLETED' | 'STOPPED' | 'FAILED';
 
 const normalizedConditionValue = (value: unknown) => {
-  if (value === null || value === undefined) return '';
-  if (typeof value === 'object') return JSON.stringify(value).toLocaleLowerCase('pt-BR');
-  return String(value).toLocaleLowerCase('pt-BR');
+  if (typeof value === 'string') return value.toLocaleLowerCase('pt-BR');
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value).toLocaleLowerCase('pt-BR');
+  }
+  if (value && typeof value === 'object') return (JSON.stringify(value) ?? '').toLocaleLowerCase('pt-BR');
+  return '';
 };
 
 const conditionMatches = (actual: unknown, expected: unknown, operator: unknown) => {
@@ -32,14 +36,14 @@ const opportunityStatus = (stage: { isWon: boolean; isLost: boolean }) => {
   return 'OPEN' as const;
 };
 
-const workflowStopText = (name: string, status: 'COMPLETED' | 'STOPPED' | 'FAILED', reason?: string) => {
+const workflowStopText = (name: string, status: WorkflowTerminalStatus, reason?: string) => {
   if (status === 'COMPLETED') return `Automação “${name}” foi finalizada`;
   const suffix = reason ? `: ${reason}` : '';
   if (status === 'FAILED') return `Automação “${name}” foi interrompida por erro${suffix}`;
   return `Automação “${name}” foi interrompida${suffix}`;
 };
 
-const workflowStopEventType = (status: 'COMPLETED' | 'STOPPED' | 'FAILED') => {
+const workflowStopEventType = (status: WorkflowTerminalStatus) => {
   if (status === 'COMPLETED') return 'workflow_completed';
   if (status === 'FAILED') return 'workflow_failed';
   return 'workflow_stopped';
@@ -308,7 +312,7 @@ export class WorkflowProcessor {
     } });
   }
 
-  private async stop(id: string, status: 'COMPLETED' | 'STOPPED' | 'FAILED', reason?: string): Promise<RealtimeEvent | undefined> {
+  private async stop(id: string, status: WorkflowTerminalStatus, reason?: string): Promise<RealtimeEvent | undefined> {
     const enrollment = await this.db.workflowEnrollment.update({
       where: { id },
       data: { status, stopReason: reason, completedAt: new Date(), wakeAt: null },

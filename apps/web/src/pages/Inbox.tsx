@@ -114,6 +114,156 @@ function inboxEmptyText(filter: InboxFilter): [string, string] {
   return ['Nenhum ticket encerrado', 'Atendimentos finalizados ficarão guardados aqui.'];
 }
 
+function inlineContactValue(field: ContactInlineField, contact: Contact, companyId?: string) {
+  if (field === 'phone') return contact.phone || '';
+  if (field === 'email') return contact.email || '';
+  return companyId || '';
+}
+
+function opportunityStatusLabel(status: string) {
+  if (status === 'OPEN') return 'Em andamento';
+  if (status === 'WON') return 'Ganha';
+  return 'Perdida';
+}
+
+type ShortcutMenuKeyOptions<T> = {
+  itemCount: number;
+  selectedIndex: number;
+  setSelectedIndex(updater: (current: number) => number): void;
+  close(): void;
+  select(item: T): void;
+  items: T[];
+};
+
+function handleShortcutMenuKey<T>(event: React.KeyboardEvent<HTMLDivElement>, options: ShortcutMenuKeyOptions<T>) {
+  if (event.key === 'Escape') {
+    options.close();
+    return true;
+  }
+  if (event.key === 'ArrowDown') {
+    options.setSelectedIndex((current) => options.itemCount ? (current + 1) % options.itemCount : 0);
+    return true;
+  }
+  if (event.key === 'ArrowUp') {
+    options.setSelectedIndex((current) => options.itemCount ? (current - 1 + options.itemCount) % options.itemCount : 0);
+    return true;
+  }
+  if (event.key !== 'Enter' || event.shiftKey) return false;
+  const item = options.items[options.selectedIndex];
+  if (item) options.select(item);
+  return true;
+}
+
+function conversationListPreview(conversation: Conversation) {
+  const latestMessage = conversation.messages[0];
+  if (latestMessage?.text) return latestMessage.text;
+  if (latestMessage?.type === 'location') return 'Localização compartilhada';
+  return 'Mídia ou nova conversa';
+}
+
+type InboxFilterPanelProps = Readonly<{
+  draft: ConversationListFilters;
+  activeCount: number;
+  invalidDateRange: boolean;
+  options?: ConversationFilterOptions;
+  optionsLoading: boolean;
+  optionsError: boolean;
+  onChange(field: keyof ConversationListFilters, value: string): void;
+  onClose(): void;
+  onClear(): void;
+  onApply(): void;
+}>;
+
+function InboxFilterPanel(props: InboxFilterPanelProps) {
+  const { draft, activeCount, invalidDateRange, options, optionsLoading, optionsError } = props;
+  const hasDraftFilters = Object.values(draft).some(Boolean);
+  return <div className="conversation-filter-panel">
+    <header><div><strong>Filtrar conversas</strong><span>Refine os tickets desta aba</span></div><button type="button" onClick={props.onClose} aria-label="Fechar filtros"><X size={16} /></button></header>
+    <div className="conversation-filter-section">
+      <span>Última interação</span>
+      <div className="conversation-filter-dates">
+        <span><small>De</small><input type="date" value={draft.lastInteractionFrom} max={draft.lastInteractionTo || undefined} onChange={(event) => props.onChange('lastInteractionFrom', event.target.value)} /></span>
+        <span><small>Até</small><input type="date" value={draft.lastInteractionTo} min={draft.lastInteractionFrom || undefined} onChange={(event) => props.onChange('lastInteractionTo', event.target.value)} /></span>
+      </div>
+      {invalidDateRange && <p>A data final deve ser igual ou posterior à inicial.</p>}
+    </div>
+    <label className="conversation-filter-field"><span>Conexão Evolution</span><select value={draft.instanceId} onChange={(event) => props.onChange('instanceId', event.target.value)}><option value="">Todas as conexões</option>{optionsLoading && <option disabled>Carregando conexões…</option>}{(options?.instances || []).map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''} · {instance.status === 'CONNECTED' ? 'Conectada' : 'Desconectada'}</option>)}</select></label>
+    <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draft.assigneeId} onChange={(event) => props.onChange('assigneeId', event.target.value)}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{optionsLoading && <option disabled>Carregando usuários…</option>}{(options?.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
+    {optionsError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
+    <footer><button type="button" className="conversation-filter-clear" onClick={props.onClear} disabled={!activeCount && !hasDraftFilters}>Limpar</button><Button type="button" onClick={props.onApply} disabled={invalidDateRange}>Aplicar filtros</Button></footer>
+  </div>;
+}
+
+type InboxConversationListProps = Readonly<{
+  conversations: Conversation[];
+  selectedId: string;
+  activeFilterCount: number;
+  onSelect(id: string): void;
+  onContextMenu(event: React.MouseEvent<HTMLButtonElement>, conversation: Conversation): void;
+  onClearFilters(): void;
+}>;
+
+function InboxConversationList(props: InboxConversationListProps) {
+  if (!props.conversations.length) {
+    const description = props.activeFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.';
+    return <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{description}</span>{props.activeFilterCount > 0 && <button type="button" onClick={props.onClearFilters}>Limpar filtros</button>}</div>;
+  }
+  return <>{props.conversations.map((item) => <button
+    type="button"
+    key={item.id}
+    className={`${item.id === props.selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
+    onClick={() => props.onSelect(item.id)}
+    onContextMenu={(event) => props.onContextMenu(event, item)}
+  ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{conversationListPreview(item)}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>)}</>;
+}
+
+type InboxSidebarProps = Readonly<{
+  isAdmin: boolean;
+  showAll: boolean;
+  filter: InboxFilter;
+  counts?: { waiting: number; open: number; closed: number };
+  search: string;
+  activeFilterCount: number;
+  filterPanelOpen: boolean;
+  draftFilters: ConversationListFilters;
+  invalidDateRange: boolean;
+  filterOptions?: ConversationFilterOptions;
+  filterOptionsLoading: boolean;
+  filterOptionsError: boolean;
+  conversations: Conversation[];
+  selectedId: string;
+  onToggleAll(): void;
+  onNewConversation(): void;
+  onFilterChange(filter: InboxFilter): void;
+  onSearch(value: string): void;
+  onToggleFilterPanel(): void;
+  onCloseFilterPanel(): void;
+  onDraftFilterChange(field: keyof ConversationListFilters, value: string): void;
+  onClearFilters(): void;
+  onApplyFilters(): void;
+  onSelectConversation(id: string): void;
+  onContextMenu(event: React.MouseEvent<HTMLButtonElement>, conversation: Conversation): void;
+}>;
+
+function InboxSidebar(props: InboxSidebarProps) {
+  const allLabel = props.showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos';
+  return <aside className="conversation-sidebar">
+    <div className="conversation-sidebar-heading"><strong>Conversas</strong><div className="conversation-sidebar-actions">{props.isAdmin && <button type="button" className={`icon-button conversation-view-all${props.showAll ? ' active' : ''}`} onClick={props.onToggleAll} aria-label={allLabel} title={allLabel}><Eye size={16} /></button>}<button type="button" className="icon-button conversation-new-button" onClick={props.onNewConversation} aria-label="Nova conversa" title="Nova conversa"><MessageCirclePlus size={18} /></button></div></div>
+    <div className="inbox-tabs">
+      <button type="button" className={props.filter === 'waiting' ? 'active' : ''} onClick={() => props.onFilterChange('waiting')}>Aguardando <span>{props.counts?.waiting || 0}</span></button>
+      <button type="button" className={props.filter === 'open' ? 'active' : ''} onClick={() => props.onFilterChange('open')}>Abertas <span>{props.counts?.open || 0}</span></button>
+      <button type="button" className={props.filter === 'closed' ? 'active' : ''} onClick={() => props.onFilterChange('closed')}>Encerradas <span>{props.counts?.closed || 0}</span></button>
+    </div>
+    <div className="conversation-search">
+      <Search size={15} />
+      <input value={props.search} onChange={(event) => props.onSearch(event.target.value)} placeholder="Buscar conversa…" />
+      <button type="button" className={props.activeFilterCount ? 'active' : ''} onClick={props.onToggleFilterPanel} aria-label="Filtrar conversas" aria-expanded={props.filterPanelOpen} title={props.activeFilterCount ? `${props.activeFilterCount} filtro(s) ativo(s)` : 'Filtrar conversas'}><Filter size={14} />{props.activeFilterCount > 0 && <b>{props.activeFilterCount}</b>}</button>
+      {props.filterPanelOpen && <InboxFilterPanel draft={props.draftFilters} activeCount={props.activeFilterCount} invalidDateRange={props.invalidDateRange} options={props.filterOptions} optionsLoading={props.filterOptionsLoading} optionsError={props.filterOptionsError} onChange={props.onDraftFilterChange} onClose={props.onCloseFilterPanel} onClear={props.onClearFilters} onApply={props.onApplyFilters} />}
+    </div>
+    <div className="conversation-list"><InboxConversationList conversations={props.conversations} selectedId={props.selectedId} activeFilterCount={props.activeFilterCount} onSelect={props.onSelectConversation} onContextMenu={props.onContextMenu} onClearFilters={props.onClearFilters} /></div>
+  </aside>;
+}
+
 export function InboxPage() {
   const { conversationId } = useParams();
   const { user } = useAuth();
@@ -401,41 +551,33 @@ export function InboxPage() {
     conversationContent = <div className="conversation-empty"><Empty icon={<Inbox />} title={emptyText[0]} description={emptyText[1]} /></div>;
   }
   return <div className="inbox-layout">
-    <aside className="conversation-sidebar">
-      <div className="conversation-sidebar-heading"><strong>Conversas</strong><div className="conversation-sidebar-actions">{isAdmin && <button type="button" className={`icon-button conversation-view-all${showAll ? ' active' : ''}`} onClick={toggleAll} aria-label={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'} title={showAll ? 'Mostrar somente meus atendimentos' : 'Visualizar todos os atendimentos'}><Eye size={16} /></button>}<button type="button" className="icon-button conversation-new-button" onClick={() => setStartingConversation(true)} aria-label="Nova conversa" title="Nova conversa"><MessageCirclePlus size={18} /></button></div></div>
-      <div className="inbox-tabs">
-        <button type="button" className={filter === 'waiting' ? 'active' : ''} onClick={() => changeFilter('waiting')}>Aguardando <span>{counts.data?.data.waiting || 0}</span></button>
-        <button type="button" className={filter === 'open' ? 'active' : ''} onClick={() => changeFilter('open')}>Abertas <span>{counts.data?.data.open || 0}</span></button>
-        <button type="button" className={filter === 'closed' ? 'active' : ''} onClick={() => changeFilter('closed')}>Encerradas <span>{counts.data?.data.closed || 0}</span></button>
-      </div>
-      <div className="conversation-search">
-        <Search size={15} />
-        <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar conversa…" />
-        <button type="button" className={activeListFilterCount ? 'active' : ''} onClick={toggleFilterPanel} aria-label="Filtrar conversas" aria-expanded={filterPanelOpen} title={activeListFilterCount ? `${activeListFilterCount} filtro(s) ativo(s)` : 'Filtrar conversas'}><Filter size={14} />{activeListFilterCount > 0 && <b>{activeListFilterCount}</b>}</button>
-        {filterPanelOpen && <div className="conversation-filter-panel">
-          <header><div><strong>Filtrar conversas</strong><span>Refine os tickets desta aba</span></div><button type="button" onClick={() => setFilterPanelOpen(false)} aria-label="Fechar filtros"><X size={16} /></button></header>
-          <div className="conversation-filter-section">
-            <span>Última interação</span>
-            <div className="conversation-filter-dates">
-              <span><small>De</small><input type="date" value={draftListFilters.lastInteractionFrom} max={draftListFilters.lastInteractionTo || undefined} onChange={(event) => setDraftListFilters((current) => ({ ...current, lastInteractionFrom: event.target.value }))} /></span>
-              <span><small>Até</small><input type="date" value={draftListFilters.lastInteractionTo} min={draftListFilters.lastInteractionFrom || undefined} onChange={(event) => setDraftListFilters((current) => ({ ...current, lastInteractionTo: event.target.value }))} /></span>
-            </div>
-            {invalidFilterDateRange && <p>A data final deve ser igual ou posterior à inicial.</p>}
-          </div>
-          <label className="conversation-filter-field"><span>Conexão Evolution</span><select value={draftListFilters.instanceId} onChange={(event) => setDraftListFilters((current) => ({ ...current, instanceId: event.target.value }))}><option value="">Todas as conexões</option>{filterOptions.isLoading && <option disabled>Carregando conexões…</option>}{(filterOptions.data?.data.instances || []).map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''} · {instance.status === 'CONNECTED' ? 'Conectada' : 'Desconectada'}</option>)}</select></label>
-          <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draftListFilters.assigneeId} onChange={(event) => setDraftListFilters((current) => ({ ...current, assigneeId: event.target.value }))}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{filterOptions.isLoading && <option disabled>Carregando usuários…</option>}{(filterOptions.data?.data.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
-          {filterOptions.isError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
-          <footer><button type="button" className="conversation-filter-clear" onClick={clearListFilters} disabled={!activeListFilterCount && !Object.values(draftListFilters).some(Boolean)}>Limpar</button><Button type="button" onClick={applyListFilters} disabled={invalidFilterDateRange}>Aplicar filtros</Button></footer>
-        </div>}
-      </div>
-      <div className="conversation-list">{shown.length ? shown.map((item) => <button
-        type="button"
-        key={item.id}
-        className={`${item.id === selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
-        onClick={() => { setTicketMenu(null); navigate(`/inbox/${item.id}`); }}
-        onContextMenu={(event) => openTicketMenu(event, item)}
-      ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{item.messages[0]?.text || (item.messages[0]?.type === 'location' ? 'Localização compartilhada' : 'Mídia ou nova conversa')}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>) : <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{activeListFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.'}</span>{activeListFilterCount > 0 && <button type="button" onClick={clearListFilters}>Limpar filtros</button>}</div>}</div>
-    </aside>
+    <InboxSidebar
+      isAdmin={isAdmin}
+      showAll={showAll}
+      filter={filter}
+      counts={counts.data?.data}
+      search={search}
+      activeFilterCount={activeListFilterCount}
+      filterPanelOpen={filterPanelOpen}
+      draftFilters={draftListFilters}
+      invalidDateRange={invalidFilterDateRange}
+      filterOptions={filterOptions.data?.data}
+      filterOptionsLoading={filterOptions.isLoading}
+      filterOptionsError={filterOptions.isError}
+      conversations={shown}
+      selectedId={selectedId}
+      onToggleAll={toggleAll}
+      onNewConversation={() => setStartingConversation(true)}
+      onFilterChange={changeFilter}
+      onSearch={setSearch}
+      onToggleFilterPanel={toggleFilterPanel}
+      onCloseFilterPanel={() => setFilterPanelOpen(false)}
+      onDraftFilterChange={(field, value) => setDraftListFilters((current) => ({ ...current, [field]: value }))}
+      onClearFilters={clearListFilters}
+      onApplyFilters={applyListFilters}
+      onSelectConversation={(id) => { setTicketMenu(null); navigate(`/inbox/${id}`); }}
+      onContextMenu={openTicketMenu}
+    />
     {conversationContent}
     <TicketContextActions
       menu={ticketMenu}
@@ -1329,43 +1471,24 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       return true;
     }
     if (quickReplyMenuOpen) {
-      if (event.key === 'Escape') {
-        setQuickReplyMenuOpen(false);
-        return true;
-      }
-      if (event.key === 'ArrowDown') {
-        setQuickReplyIndex((current) => quickReplyOptions.length ? (current + 1) % quickReplyOptions.length : 0);
-        return true;
-      }
-      if (event.key === 'ArrowUp') {
-        setQuickReplyIndex((current) => quickReplyOptions.length ? (current - 1 + quickReplyOptions.length) % quickReplyOptions.length : 0);
-        return true;
-      }
-      if (event.key === 'Enter' && !event.shiftKey) {
-        const reply = quickReplyOptions[quickReplyIndex];
-        if (reply) selectQuickReply(reply);
-        return true;
-      }
+      return handleShortcutMenuKey(event, {
+        itemCount: quickReplyOptions.length,
+        selectedIndex: quickReplyIndex,
+        setSelectedIndex: setQuickReplyIndex,
+        close: () => setQuickReplyMenuOpen(false),
+        select: selectQuickReply,
+        items: quickReplyOptions,
+      });
     }
     if (!automationMenuOpen) return false;
-    if (event.key === 'Escape') {
-      setAutomationMenuOpen(false);
-      return true;
-    }
-    if (event.key === 'ArrowDown') {
-      setAutomationIndex((current) => workflowOptions.length ? (current + 1) % workflowOptions.length : 0);
-      return true;
-    }
-    if (event.key === 'ArrowUp') {
-      setAutomationIndex((current) => workflowOptions.length ? (current - 1 + workflowOptions.length) % workflowOptions.length : 0);
-      return true;
-    }
-    if (event.key === 'Enter' && !event.shiftKey) {
-      const workflow = workflowOptions[automationIndex];
-      if (workflow) selectWorkflow(workflow);
-      return true;
-    }
-    return false;
+    return handleShortcutMenuKey(event, {
+      itemCount: workflowOptions.length,
+      selectedIndex: automationIndex,
+      setSelectedIndex: setAutomationIndex,
+      close: () => setAutomationMenuOpen(false),
+      select: selectWorkflow,
+      items: workflowOptions,
+    });
   };
   const submitCurrentMessage = () => {
     if (!canReply) return;
@@ -1630,104 +1753,53 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     if (!send.isPending && !edit.isPending && !startWorkflow.isPending && !insertQuickReply.isPending) submitCurrentMessage();
   };
 
-  return <section className="conversation-view" onDragEnter={handleAttachmentDragEnter} onDragOver={handleAttachmentDragOver} onDragLeave={handleAttachmentDragLeave} onDrop={handleAttachmentDrop}>
-    {draggingAttachment && <div className={`conversation-file-drop${canAcceptDrop ? '' : ' unavailable'}`} aria-hidden="true"><div><span><Upload size={28} /></span><strong>{dropCopy.title}</strong><small>{dropCopy.description}</small></div></div>}
-    <header className="conversation-header">
-      <button type="button" className="conversation-person conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
-        <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
-        <div><strong>{conversation.contact.name}</strong><span><i /> {formatPhone(conversation.contact.phone) || 'Sem telefone'} · {conversation.instance.name}</span></div>
-      </button>
-      <div className="conversation-actions">
-        {connectionUnavailable && <button
-          type="button"
-          className="button button-secondary conversation-change-instance-button"
-          onClick={() => {
-            setInstanceTarget('');
-            changeInstance.reset();
-            setInstanceChangeOpen(true);
-          }}
-          title="Escolher outra conexão para as próximas mensagens"
-        ><Cable size={15} /><span>Trocar conexão</span></button>}
-        <button type="button" className="button button-secondary" onClick={onAssign} disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa para alterar o responsável' : undefined}>{conversation.assignee ? <><UserCheck size={15} />{conversation.assignee.name}</> : <><UserPlus size={15} />Assumir</>}</button>
-        <button type="button" className={`conversation-status-button ${currentStatusAction.className}`} onClick={onClose} disabled={statusChanging} aria-busy={statusChanging} title={currentStatusAction.title} aria-label={currentStatusAction.label}>{currentStatusAction.icon}<span>{currentStatusAction.shortLabel}</span></button>
-        <button type="button" className="icon-button" onClick={openConversationMenu} aria-label="Mais ações da conversa" aria-expanded={Boolean(conversationMenu)} title="Mais ações"><MoreHorizontal size={18} /></button>
-      </div>
-    </header>
+  const renderHeader = () => <header className="conversation-header">
+    <button type="button" className="conversation-person conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
+      <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
+      <div><strong>{conversation.contact.name}</strong><span><i /> {formatPhone(conversation.contact.phone) || 'Sem telefone'} · {conversation.instance.name}</span></div>
+    </button>
+    <div className="conversation-actions">
+      {connectionUnavailable && <button type="button" className="button button-secondary conversation-change-instance-button" onClick={() => { setInstanceTarget(''); changeInstance.reset(); setInstanceChangeOpen(true); }} title="Escolher outra conexão para as próximas mensagens"><Cable size={15} /><span>Trocar conexão</span></button>}
+      <button type="button" className="button button-secondary" onClick={onAssign} disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa para alterar o responsável' : undefined}>{conversation.assignee ? <><UserCheck size={15} />{conversation.assignee.name}</> : <><UserPlus size={15} />Assumir</>}</button>
+      <button type="button" className={`conversation-status-button ${currentStatusAction.className}`} onClick={onClose} disabled={statusChanging} aria-busy={statusChanging} title={currentStatusAction.title} aria-label={currentStatusAction.label}>{currentStatusAction.icon}<span>{currentStatusAction.shortLabel}</span></button>
+      <button type="button" className="icon-button" onClick={openConversationMenu} aria-label="Mais ações da conversa" aria-expanded={Boolean(conversationMenu)} title="Mais ações"><MoreHorizontal size={18} /></button>
+    </div>
+  </header>;
+  const renderTimeline = () => <>
     <div ref={bodyRef} className="conversation-body" onScroll={updateScrollPosition}>
       <ConversationHistoryLoader loading={loadingOlderMessages} hasOlder={hasOlderMessages} hasMessages={conversation.messages.length > 0} onLoad={requestOlderMessages} />
       {grouped.map((group) => <div className="message-day" key={group.date}><span>{group.label}</span>{group.items.map((item) => item.kind === 'event'
         ? <ConversationEventLog key={`event-${item.event.id}`} event={item.event} />
-        : <MessageBubble
-            key={item.message.id}
-            message={item.message}
-            replyTo={messageReplyTarget(item.message, messagesById, messagesByProviderId)}
-            replyFallback={messageQuotedPreview(item.message)}
-            contactName={conversation.contact.name}
-            menuOpen={messageMenu?.message.id === item.message.id}
-            onMenu={openMessageMenu}
-            onReactionMenu={openReactionMenu}
-            onJumpToReply={jumpToMessage}
-            onReply={startReply}
-            onRetry={retryMessage}
-            retrying={retry.isPending && retry.variables === item.message.id}
-            canRetry={canReply}
-            onStartSharedContact={setSharedContactToStart}
-            onMediaReady={keepLatestVisible}
-            audioPlaybackRate={audioPlaybackRate}
-            onCycleAudioPlaybackRate={cycleAudioPlaybackRate}
-          />)}</div>)}
+        : <MessageBubble key={item.message.id} message={item.message} replyTo={messageReplyTarget(item.message, messagesById, messagesByProviderId)} replyFallback={messageQuotedPreview(item.message)} contactName={conversation.contact.name} menuOpen={messageMenu?.message.id === item.message.id} onMenu={openMessageMenu} onReactionMenu={openReactionMenu} onJumpToReply={jumpToMessage} onReply={startReply} onRetry={retryMessage} retrying={retry.isPending && retry.variables === item.message.id} canRetry={canReply} onStartSharedContact={setSharedContactToStart} onMediaReady={keepLatestVisible} audioPlaybackRate={audioPlaybackRate} onCycleAudioPlaybackRate={cycleAudioPlaybackRate} />)}</div>)}
     </div>
     {showScrollToLatest && <button type="button" className="scroll-to-latest" onClick={scrollToLatest} aria-label="Ir para a mensagem mais recente" title="Ir para a mensagem mais recente"><ChevronDown size={21} /></button>}
-    <form className={`composer ${canReply ? '' : 'locked'}`} onSubmit={submit}>
-      <label className={`composer-signature${signatureEnabled ? ' active' : ''}${signaturePreference.isPending ? ' saving' : ''}`} title="Assinatura"><Pencil size={16} /><input type="checkbox" checked={signatureEnabled} disabled={signaturePreference.isPending || recordingStatus !== 'idle'} onChange={(event) => signaturePreference.mutate(event.target.checked)} aria-label="Ativar assinatura nas mensagens" /></label>
-      <div className="composer-shell">
-        {recordingStatus !== 'idle'
-          ? <VoiceRecorder status={recordingStatus} seconds={recordingSeconds} levels={voiceLevels} onDiscard={discardActiveRecording} onTogglePause={toggleRecordingPause} onSend={finishVoiceRecording} />
-          : <>
-            {emojiPickerOpen && <dialog open ref={emojiPickerRef} className="composer-emoji-picker" aria-label="Selecionar emoji">
-              <header><strong>Emojis</strong><button type="button" onClick={() => setEmojiPickerOpen(false)} aria-label="Fechar emojis"><X size={16} /></button></header>
-              <Suspense fallback={<div className="composer-emoji-loading"><i />Carregando emojis…</div>}>
-                <EmojiPickerPopover onEmojiSelect={(emoji) => { textRef.current?.insertText(emoji); setAttachmentError(''); }} />
-              </Suspense>
-            </dialog>}
-            <div className="composer-capsule">
-              <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button></div>
-              <div className="composer-input">
-                {quickReplyMenuOpen && <QuickReplyCommandMenu
-                  loading={quickReplies.isLoading}
-                  failed={quickReplies.isError}
-                  options={quickReplyOptions}
-                  selectedIndex={quickReplyIndex}
-                  search={quickReplySearch}
-                  pending={insertQuickReply.isPending}
-                  pendingId={insertQuickReply.variables?.id}
-                  onHover={setQuickReplyIndex}
-                  onSelect={selectQuickReply}
-                />}
-                {automationMenuOpen && <WorkflowCommandMenu
-                  allowed={canStartAutomations}
-                  loading={workflows.isLoading}
-                  failed={workflows.isError}
-                  options={workflowOptions}
-                  selectedIndex={automationIndex}
-                  search={automationSearch}
-                  pending={startWorkflow.isPending}
-                  pendingId={startWorkflow.variables?.id}
-                  onHover={setAutomationIndex}
-                  onSelect={selectWorkflow}
-                />}
-                {editingMessage && <div className="composer-reply composer-edit"><Pencil size={16} /><div><strong>Editando mensagem</strong><span>{messagePreview(editingMessage)}</span></div><button type="button" onClick={cancelEdit} aria-label="Cancelar edição"><X size={15} /></button></div>}
-                {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
-                {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
-                <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleComposerKeyDown} onChange={handleComposerChange} placeholder={composerPlaceholder} onSubmit={handleComposerSubmit} />
-              </div>
-              {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label={currentSendAction.label} title={currentSendAction.label}>{currentSendAction.icon}</Button></div>}
-              {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={startVoiceRecording} disabled={send.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
-            </div>
-          </>}
-      </div>
-    </form>
-    {messageMenu && createPortal(<MessageActionMenu
+  </>;
+  const renderEmojiPicker = () => emojiPickerOpen && <dialog open ref={emojiPickerRef} className="composer-emoji-picker" aria-label="Selecionar emoji">
+    <header><strong>Emojis</strong><button type="button" onClick={() => setEmojiPickerOpen(false)} aria-label="Fechar emojis"><X size={16} /></button></header>
+    <Suspense fallback={<div className="composer-emoji-loading"><i />Carregando emojis…</div>}><EmojiPickerPopover onEmojiSelect={(emoji) => { textRef.current?.insertText(emoji); setAttachmentError(''); }} /></Suspense>
+  </dialog>;
+  const renderComposerInput = () => <div className="composer-input">
+    {quickReplyMenuOpen && <QuickReplyCommandMenu loading={quickReplies.isLoading} failed={quickReplies.isError} options={quickReplyOptions} selectedIndex={quickReplyIndex} search={quickReplySearch} pending={insertQuickReply.isPending} pendingId={insertQuickReply.variables?.id} onHover={setQuickReplyIndex} onSelect={selectQuickReply} />}
+    {automationMenuOpen && <WorkflowCommandMenu allowed={canStartAutomations} loading={workflows.isLoading} failed={workflows.isError} options={workflowOptions} selectedIndex={automationIndex} search={automationSearch} pending={startWorkflow.isPending} pendingId={startWorkflow.variables?.id} onHover={setAutomationIndex} onSelect={selectWorkflow} />}
+    {editingMessage && <div className="composer-reply composer-edit"><Pencil size={16} /><div><strong>Editando mensagem</strong><span>{messagePreview(editingMessage)}</span></div><button type="button" onClick={cancelEdit} aria-label="Cancelar edição"><X size={15} /></button></div>}
+    {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
+    {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
+    <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleComposerKeyDown} onChange={handleComposerChange} placeholder={composerPlaceholder} onSubmit={handleComposerSubmit} />
+  </div>;
+  const renderIdleComposer = () => <>
+    {renderEmojiPicker()}
+    <div className="composer-capsule">
+      <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button></div>
+      {renderComposerInput()}
+      {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label={currentSendAction.label} title={currentSendAction.label}>{currentSendAction.icon}</Button></div>}
+      {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={startVoiceRecording} disabled={send.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
+    </div>
+  </>;
+  const renderComposer = () => <form className={`composer ${canReply ? '' : 'locked'}`} onSubmit={submit}>
+    <label className={`composer-signature${signatureEnabled ? ' active' : ''}${signaturePreference.isPending ? ' saving' : ''}`} title="Assinatura"><Pencil size={16} /><input type="checkbox" checked={signatureEnabled} disabled={signaturePreference.isPending || recordingStatus !== 'idle'} onChange={(event) => signaturePreference.mutate(event.target.checked)} aria-label="Ativar assinatura nas mensagens" /></label>
+    <div className="composer-shell">{recordingStatus !== 'idle' ? <VoiceRecorder status={recordingStatus} seconds={recordingSeconds} levels={voiceLevels} onDiscard={discardActiveRecording} onTogglePause={toggleRecordingPause} onSend={finishVoiceRecording} /> : renderIdleComposer()}</div>
+  </form>;
+  const renderMessageMenu = () => messageMenu && createPortal(<MessageActionMenu
       key={`${messageMenu.message.id}:${messageMenu.mode}`}
       menu={messageMenu}
       canInteract={canReply}
@@ -1742,8 +1814,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       onEdit={() => startEdit(messageMenu.message)}
       onEditHistory={() => { setEditHistoryMessage(messageMenu.message); setMessageMenu(null); }}
       onDelete={() => { setDeletingMessage(messageMenu.message); setMessageMenu(null); }}
-    />, document.body)}
-    {conversationMenu && createPortal(<>
+    />, document.body);
+  const renderConversationActions = () => conversationMenu && createPortal(<>
       <button type="button" className="message-menu-scrim" onClick={() => setConversationMenu(null)} aria-label="Fechar ações da conversa" />
       <div className="conversation-action-menu" role="menu" style={{ top: conversationMenu.top, left: conversationMenu.left }}>
         {conversation.contact.phone
@@ -1753,7 +1825,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         <button type="button" role="menuitem" disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa antes de transferir' : undefined} onClick={() => { setConversationMenu(null); setTransferTarget(''); transfer.reset(); setTransferOpen(true); }}><ArrowRightLeft size={17} /><span>Transferir para atendente</span></button>
         <button type="button" role="menuitem" disabled={exportPdf.isPending} onClick={() => { setConversationMenu(null); setActionError(''); exportPdf.mutate(); }}><Download size={17} /><span>{exportPdf.isPending ? 'Exportando PDF…' : 'Exportar para PDF'}</span></button>
       </div>
-    </>, document.body)}
+    </>, document.body);
+  const renderConversationModals = () => <>
     {opportunityOpen && <ContactOpportunityModal
       contact={conversation.contact}
       onClose={() => setOpportunityOpen(false)}
@@ -1786,7 +1859,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       </div>
       <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferOpen(false); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate(transferTarget)} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
     </Modal>}
-    {instanceChangeOpen && <Modal title="Trocar conexão da conversa" onClose={() => {
+  </>;
+  const renderInstanceChangeModal = () => instanceChangeOpen && <Modal title="Trocar conexão da conversa" onClose={() => {
       if (!changeInstance.isPending) {
         setInstanceChangeOpen(false);
         setInstanceTarget('');
@@ -1822,7 +1896,23 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
           disabled={!instanceTarget || availableInstances.isLoading}
         ><ArrowRightLeft size={16} />Confirmar troca</Button>
       </div>
-    </Modal>}
+    </Modal>;
+  return <section
+    className="conversation-view"
+    aria-label="Conversa selecionada"
+    onDragEnter={handleAttachmentDragEnter}
+    onDragOver={handleAttachmentDragOver}
+    onDragLeave={handleAttachmentDragLeave}
+    onDrop={handleAttachmentDrop}
+  >
+    {draggingAttachment && <div className={`conversation-file-drop${canAcceptDrop ? '' : ' unavailable'}`} aria-hidden="true"><div><span><Upload size={28} /></span><strong>{dropCopy.title}</strong><small>{dropCopy.description}</small></div></div>}
+    {renderHeader()}
+    {renderTimeline()}
+    {renderComposer()}
+    {renderMessageMenu()}
+    {renderConversationActions()}
+    {renderConversationModals()}
+    {renderInstanceChangeModal()}
   </section>;
 }
 
@@ -1945,8 +2035,7 @@ function QuickReplyCommandMenu({ loading, failed, options, selectedIndex, search
       const trailing = pending && pendingId === reply.id ? <i /> : <ChevronDown size={15} />;
       return <button
         type="button"
-        role="option"
-        aria-selected={index === selectedIndex}
+        aria-current={index === selectedIndex ? 'true' : undefined}
         className={index === selectedIndex ? 'selected' : ''}
         key={reply.id}
         onMouseDown={(event) => event.preventDefault()}
@@ -1959,11 +2048,11 @@ function QuickReplyCommandMenu({ loading, failed, options, selectedIndex, search
     const emptyText = search ? 'Nenhuma resposta corresponde à busca.' : 'Nenhuma resposta rápida cadastrada.';
     content = <div className="automation-command-empty"><MessageSquareReply size={17} /><span>{emptyText}</span></div>;
   }
-  return <div className="automation-command-menu quick-reply-command-menu" role="listbox" aria-label="Respostas rápidas disponíveis">
+  return <section className="automation-command-menu quick-reply-command-menu" aria-label="Respostas rápidas disponíveis">
     <div className="automation-command-heading"><span><MessageSquareReply size={17} /></span><div><strong>Inserir resposta rápida</strong><small>O conteúdo ficará disponível para edição</small></div><kbd>Esc</kbd></div>
     <div className="automation-command-options">{content}</div>
     <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> inserir</span></div>
-  </div>;
+  </section>;
 }
 
 function WorkflowCommandMenu({ allowed, loading, failed, options, selectedIndex, search, pending, pendingId, onHover, onSelect }: Readonly<{
@@ -1986,8 +2075,7 @@ function WorkflowCommandMenu({ allowed, loading, failed, options, selectedIndex,
       const trailing = pending && pendingId === workflow.id ? <i /> : <ChevronDown size={15} />;
       return <button
         type="button"
-        role="option"
-        aria-selected={index === selectedIndex}
+        aria-current={index === selectedIndex ? 'true' : undefined}
         className={index === selectedIndex ? 'selected' : ''}
         key={workflow.id}
         onMouseDown={(event) => event.preventDefault()}
@@ -2000,11 +2088,11 @@ function WorkflowCommandMenu({ allowed, loading, failed, options, selectedIndex,
     const emptyText = search ? 'Nenhuma automação corresponde à busca.' : 'Nenhuma automação publicada disponível.';
     content = <div className="automation-command-empty"><Workflow size={17} /><span>{emptyText}</span></div>;
   }
-  return <div className="automation-command-menu" role="listbox" aria-label="Automações disponíveis">
+  return <section className="automation-command-menu" aria-label="Automações disponíveis">
     <div className="automation-command-heading"><span><Workflow size={17} /></span><div><strong>Iniciar automação</strong><small>Continue digitando para filtrar</small></div><kbd>Esc</kbd></div>
     <div className="automation-command-options">{content}</div>
     <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> iniciar</span></div>
-  </div>;
+  </section>;
 }
 
 function MessageEditHistoryModal({ message, onClose }: Readonly<{ message: Message; onClose(): void }>) {
@@ -2090,7 +2178,7 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
     if (!canEdit || inlineUpdate.isPending) return;
     inlineUpdate.reset();
     setInlineField(field);
-    setInlineValue(field === 'phone' ? contact.phone || '' : field === 'email' ? contact.email || '' : company?.id || '');
+    setInlineValue(inlineContactValue(field, contact, company?.id));
   };
   const cancelInlineEdit = () => {
     if (inlineUpdate.isPending) return;
@@ -2167,7 +2255,7 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
         </section>
         <section>
           <h3><BriefcaseBusiness size={15} />Oportunidades</h3>
-          {contact.opportunities?.length ? <div className="contact-opportunity-list">{contact.opportunities.map(({ opportunity }) => <div key={opportunity.id}><div><strong>{opportunity.title}</strong><small>{opportunity.status === 'OPEN' ? 'Em andamento' : opportunity.status === 'WON' ? 'Ganha' : 'Perdida'}</small></div><span><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></div>)}</div> : <p className="drawer-empty-copy">Nenhuma oportunidade vinculada.</p>}
+          {contact.opportunities?.length ? <div className="contact-opportunity-list">{contact.opportunities.map(({ opportunity }) => <div key={opportunity.id}><div><strong>{opportunity.title}</strong><small>{opportunityStatusLabel(opportunity.status)}</small></div><span><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></div>)}</div> : <p className="drawer-empty-copy">Nenhuma oportunidade vinculada.</p>}
         </section>
       </div>
     </aside>
@@ -2279,7 +2367,7 @@ function MessageLinkPreview({ message, url, onReady }: Readonly<{ message: Messa
   </a>;
 }
 
-const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallback, contactName, menuOpen, onMenu, onReactionMenu, onJumpToReply, onReply, onRetry, retrying, canRetry, onStartSharedContact, onMediaReady, audioPlaybackRate, onCycleAudioPlaybackRate }: Readonly<{
+type MessageBubbleProps = Readonly<{
   message: Message;
   replyTo?: Message;
   replyFallback?: string;
@@ -2296,7 +2384,87 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
   onMediaReady(): void;
   audioPlaybackRate: number;
   onCycleAudioPlaybackRate(): void;
+}>;
+
+function messageBubbleText(message: Message, sharedContactMessage: boolean, locationMessage: boolean, deleted: boolean, sticker: boolean, originalText?: string) {
+  if (sharedContactMessage || locationMessage) return '';
+  if (message.text) return message.text;
+  if (originalText) return originalText;
+  if (deleted) return 'Conteúdo original indisponível';
+  if (sticker && !message.media?.length) return 'Figurinha indisponível';
+  if (message.media?.length) return '';
+  return `[${message.type}]`;
+}
+
+function messageBubbleClassName(state: {
+  sticker: boolean;
+  visualMedia: boolean;
+  documentMedia: boolean;
+  sharedContactMessage: boolean;
+  locationMessage: boolean;
+  hasLink: boolean;
+  deleted: boolean;
+  failed: boolean;
+}) {
+  const classes = ['message-bubble'];
+  if (state.sticker) classes.push('sticker');
+  if (state.visualMedia) classes.push('visual-media');
+  if (state.documentMedia) classes.push('document-media');
+  if (state.sharedContactMessage) classes.push('contact-message');
+  if (state.locationMessage) classes.push('location-message');
+  if (state.hasLink) classes.push('link-preview-message');
+  if (state.deleted) classes.push('deleted-message');
+  if (state.failed) classes.push('failed');
+  return classes.join(' ');
+}
+
+function MessageQuickReaction({ visible, message, onReactionMenu }: Readonly<{
+  visible: boolean;
+  message: Message;
+  onReactionMenu(message: Message, clientX: number, clientY: number): void;
 }>) {
+  if (!visible) return null;
+  return <button type="button" className="message-quick-reaction" aria-label="Reagir à mensagem" onClick={(event) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    onReactionMenu(message, rect.left, rect.bottom + 4);
+  }}><SmilePlus size={18} /></button>;
+}
+
+type MessageBubbleContentProps = Pick<MessageBubbleProps,
+  'message' | 'replyTo' | 'replyFallback' | 'contactName' | 'onJumpToReply' | 'onRetry' | 'retrying' | 'canRetry' | 'onStartSharedContact' | 'onMediaReady' | 'audioPlaybackRate' | 'onCycleAudioPlaybackRate'
+> & {
+  originalType: string;
+  sticker: boolean;
+  deleted: boolean;
+  messageText: string;
+  messageLink?: string;
+  sharedContacts: SharedWhatsappContact[];
+  location?: WhatsappLocation;
+  failure?: MessageFailure;
+  reactions: MessageReaction[];
+  edited: boolean;
+  outbound: boolean;
+};
+
+function MessageBubbleContent(props: MessageBubbleContentProps) {
+  const { message, replyTo, replyFallback, contactName, originalType, sticker, deleted, messageText, messageLink, sharedContacts, location, failure, reactions, edited, outbound } = props;
+  return <>
+    {deleted && <div className="message-deleted-notice" role="note" title="Esta mensagem foi apagada"><Trash2 size={13} /><strong>Mensagem apagada</strong></div>}
+    {replyTo && <button type="button" className="message-reply-quote" onClick={() => props.onJumpToReply(replyTo.id)} aria-label={`Ir para a mensagem: ${messagePreview(replyTo)}`}><strong>{replyTo.direction === 'OUTBOUND' ? 'Você' : contactName}</strong><span>{messagePreview(replyTo)}</span></button>}
+    {!replyTo && replyFallback && <div className="message-reply-quote message-reply-static" role="note"><strong>Mensagem respondida</strong><span>{replyFallback}</span></div>}
+    {message.media?.[0] ? <MediaAttachment media={message.media[0]} sticker={sticker} onReady={props.onMediaReady} audioPlaybackRate={props.audioPlaybackRate} onCycleAudioPlaybackRate={props.onCycleAudioPlaybackRate} /> : originalType === 'document' && <span className="message-file"><FileText size={18} />Documento</span>}
+    {isAudioMessage(message) && <AudioTranscription message={message} />}
+    {sharedContacts.map((contact) => <SharedContactCard key={contact.phone} contact={contact} onStart={() => props.onStartSharedContact(contact)} />)}
+    {location && <LocationCard location={location} />}
+    {messageLink && <MessageLinkPreview message={message} url={messageLink} onReady={props.onMediaReady} />}
+    {messageText && <ExpandableText text={messageText} whatsapp />}
+    <small>{edited && <span className="message-edited-label">Editada</span>}{dateTime(message.createdAt).split(' ')[1]} {outbound && <MessageDelivery status={message.status} failure={failure} onRetry={() => props.onRetry(message.id)} retrying={props.retrying} canRetry={props.canRetry} />}</small>
+    {reactions.length > 0 && <div className="message-reactions" aria-label="Reações">{reactions.map((reaction, index) => <span key={`${reaction.userId || reaction.userName || 'reaction'}-${index}`} title={reaction.userName || 'Reação'}>{reaction.emoji}</span>)}</div>}
+  </>;
+}
+
+const MessageBubble = memo(function MessageBubble(props: MessageBubbleProps) {
+  const { message, menuOpen, onMenu, onReactionMenu, onReply, canRetry } = props;
   const outbound = message.direction === 'OUTBOUND';
   const failure = message.status === 'FAILED' ? describeMessageFailure(message.payload) : undefined;
   const reactions = messageReactions(message);
@@ -2311,13 +2479,15 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
   const sticker = originalType === 'sticker';
   const visualMedia = Boolean(message.media?.length) && (originalType === 'image' || originalType === 'video');
   const documentMedia = Boolean(message.media?.length) && originalType === 'document';
-  const messageText = sharedContactMessage || locationMessage ? '' : message.text || originalText || (deleted ? 'Conteúdo original indisponível' : sticker && !message.media?.length ? 'Figurinha indisponível' : message.media?.length ? '' : `[${message.type}]`);
+  const messageText = messageBubbleText(message, sharedContactMessage, locationMessage, deleted, sticker, originalText);
   const messageLink = deleted ? undefined : firstWhatsappLink(messageText);
-  const quickReactionButton = canRetry && !deleted && <button type="button" className="message-quick-reaction" aria-label="Reagir à mensagem" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onReactionMenu(message, rect.left, rect.bottom + 4); }}><SmilePlus size={18} /></button>;
+  const quickReactionVisible = canRetry && !deleted;
+  const bubbleClassName = messageBubbleClassName({ sticker, visualMedia, documentMedia, sharedContactMessage, locationMessage, hasLink: Boolean(messageLink), deleted, failed: message.status === 'FAILED' });
   return <div className={`message-row ${outbound ? 'outbound' : 'inbound'}${menuOpen ? ' menu-open' : ''}`} data-message-id={message.id} data-message-kind={isAudioMessage(message) ? 'audio' : originalType}>
-    {outbound && quickReactionButton}
-    <div
-      className={`message-bubble${sticker ? ' sticker' : ''}${visualMedia ? ' visual-media' : ''}${documentMedia ? ' document-media' : ''}${sharedContactMessage ? ' contact-message' : ''}${locationMessage ? ' location-message' : ''}${messageLink ? ' link-preview-message' : ''}${deleted ? ' deleted-message' : ''}${message.status === 'FAILED' ? ' failed' : ''}`}
+    {outbound && <MessageQuickReaction visible={quickReactionVisible} message={message} onReactionMenu={onReactionMenu} />}
+    <article
+      className={bubbleClassName}
+      aria-label="Mensagem"
       onContextMenu={(event) => { event.preventDefault(); onMenu(message, event.clientX, event.clientY); }}
       onDoubleClick={(event) => {
         if (!canRetry || deleted || (event.target as HTMLElement).closest('button, a, audio, video')) return;
@@ -2326,25 +2496,15 @@ const MessageBubble = memo(function MessageBubble({ message, replyTo, replyFallb
       }}
     >
       <button type="button" className="message-menu-trigger" aria-label="Abrir opções da mensagem" aria-expanded={menuOpen} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(message, rect.right, rect.bottom + 4); }}><ChevronDown size={17} /></button>
-      {deleted && <div className="message-deleted-notice" role="note" title="Esta mensagem foi apagada"><Trash2 size={13} /><strong>Mensagem apagada</strong></div>}
-      {replyTo && <button type="button" className="message-reply-quote" onClick={() => onJumpToReply(replyTo.id)} aria-label={`Ir para a mensagem: ${messagePreview(replyTo)}`}><strong>{replyTo.direction === 'OUTBOUND' ? 'Você' : contactName}</strong><span>{messagePreview(replyTo)}</span></button>}
-      {!replyTo && replyFallback && <div className="message-reply-quote message-reply-static" role="note"><strong>Mensagem respondida</strong><span>{replyFallback}</span></div>}
-      {(message.media?.[0] ? <MediaAttachment media={message.media[0]} sticker={sticker} onReady={onMediaReady} audioPlaybackRate={audioPlaybackRate} onCycleAudioPlaybackRate={onCycleAudioPlaybackRate} /> : originalType === 'document' && <span className="message-file"><FileText size={18} />Documento</span>)}
-      {isAudioMessage(message) && <AudioTranscription message={message} />}
-      {sharedContacts.map((contact) => <SharedContactCard key={contact.phone} contact={contact} onStart={() => onStartSharedContact(contact)} />)}
-      {location && <LocationCard location={location} />}
-      {messageLink && <MessageLinkPreview message={message} url={messageLink} onReady={onMediaReady} />}
-      {messageText && <ExpandableText text={messageText} whatsapp />}
-      <small>{edited && <span className="message-edited-label">Editada</span>}{dateTime(message.createdAt).split(' ')[1]} {outbound && <MessageDelivery status={message.status} failure={failure} onRetry={() => onRetry(message.id)} retrying={retrying} canRetry={canRetry} />}</small>
-      {reactions.length > 0 && <div className="message-reactions" aria-label="Reações">{reactions.map((reaction, index) => <span key={`${reaction.userId || reaction.userName || 'reaction'}-${index}`} title={reaction.userName || 'Reação'}>{reaction.emoji}</span>)}</div>}
-    </div>
-    {!outbound && quickReactionButton}
+      <MessageBubbleContent {...props} originalType={originalType} sticker={sticker} deleted={deleted} messageText={messageText} messageLink={messageLink} sharedContacts={sharedContacts} location={location || undefined} failure={failure} reactions={reactions} edited={edited} outbound={outbound} />
+    </article>
+    {!outbound && <MessageQuickReaction visible={quickReactionVisible} message={message} onReactionMenu={onReactionMenu} />}
   </div>;
 });
 
 const QUICK_REACTIONS = ['👍', '❤️', '😂', '😮', '😢', '🙏'];
 
-function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, onCopy, onDownload, downloading, onReply, onReact, onEdit, onEditHistory, onDelete }: Readonly<{
+type MessageActionMenuProps = Readonly<{
   menu: MessageMenuState;
   canInteract: boolean;
   reacting: boolean;
@@ -2358,9 +2518,52 @@ function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, 
   onEdit(): void;
   onEditHistory(): void;
   onDelete(): void;
-}>) {
-  const [showReactions, setShowReactions] = useState(menu.mode === 'reactions');
+}>;
+
+function messageActionTitle(action: 'react' | 'reply' | 'edit' | 'delete', canInteract: boolean, providerReady: boolean, deleted: boolean, textMessage: boolean) {
+  if (!canInteract) {
+    if (action === 'react') return 'Assuma e abra o atendimento para reagir';
+    if (action === 'reply') return 'Assuma e abra o atendimento para responder';
+    if (action === 'edit') return 'Assuma e abra o atendimento para editar';
+    return 'Assuma e abra o atendimento para apagar';
+  }
+  if (!providerReady) return 'Aguarde a mensagem ser enviada';
+  if (deleted) return 'A mensagem foi apagada';
+  if (action === 'edit' && !textMessage) return 'Somente mensagens de texto podem ser editadas';
+  return undefined;
+}
+
+type MessageMenuCommandsProps = MessageActionMenuProps & {
+  audio: boolean;
+  audioAvailable: boolean;
+  canReference: boolean;
+  canEdit: boolean;
+  canDelete: boolean;
+  hasEditHistory: boolean;
+  reactTitle?: string;
+  replyTitle?: string;
+  editTitle?: string;
+  deleteTitle?: string;
+  toggleReactions(): void;
+};
+
+function MessageMenuCommands(props: MessageMenuCommandsProps) {
+  const { menu, audio, audioAvailable, downloading, reacting, canReference, canEdit, canDelete, hasEditHistory } = props;
   const outbound = menu.message.direction === 'OUTBOUND';
+  return <>
+    {!audio && <button type="button" role="menuitem" onClick={props.onCopy}><Copy size={17} /><span>Copiar mensagem</span></button>}
+    {audio && <button type="button" role="menuitem" disabled={!audioAvailable || downloading} title={!audioAvailable ? 'O arquivo deste áudio não está disponível' : undefined} onClick={props.onDownload}><Download size={17} /><span>{downloading ? 'Baixando áudio…' : 'Baixar áudio'}</span></button>}
+    <button type="button" role="menuitem" disabled={!canReference || reacting} title={props.reactTitle} onClick={props.toggleReactions}><SmilePlus size={17} /><span>Reagir</span></button>
+    <button type="button" role="menuitem" disabled={!canReference} title={props.replyTitle} onClick={props.onReply}><Reply size={17} /><span>Responder</span></button>
+    {hasEditHistory && <button type="button" role="menuitem" onClick={props.onEditHistory}><History size={17} /><span>Ver histórico de edições</span></button>}
+    {outbound && <button type="button" role="menuitem" disabled={!canEdit} title={props.editTitle} onClick={props.onEdit}><Pencil size={17} /><span>Editar mensagem</span></button>}
+    {outbound && <button type="button" role="menuitem" className="danger" disabled={!canDelete} title={props.deleteTitle} onClick={props.onDelete}><Trash2 size={17} /><span>Apagar para todos</span></button>}
+  </>;
+}
+
+function MessageActionMenu(props: MessageActionMenuProps) {
+  const { menu, canInteract, reacting, ownReaction, onClose } = props;
+  const [showReactions, setShowReactions] = useState(menu.mode === 'reactions');
   const providerReady = !menu.message.providerMessageId.startsWith('local:') && !['QUEUED', 'PENDING', 'FAILED', 'SKIPPED'].includes(menu.message.status);
   const deleted = menu.message.type === 'deleted' || menu.message.payload?.deleted === true;
   const audioMedia = messageAudioMedia(menu.message);
@@ -2369,19 +2572,26 @@ function MessageActionMenu({ menu, canInteract, reacting, ownReaction, onClose, 
   const canReference = canInteract && providerReady && !deleted;
   const canEdit = canInteract && providerReady && !deleted && menu.message.type === 'text';
   const canDelete = canInteract && providerReady && !deleted;
+  const textMessage = menu.message.type === 'text';
+  const commandProps: MessageMenuCommandsProps = {
+    ...props,
+    audio,
+    audioAvailable: Boolean(audioMedia),
+    canReference,
+    canEdit,
+    canDelete,
+    hasEditHistory,
+    reactTitle: messageActionTitle('react', canInteract, providerReady, deleted, textMessage),
+    replyTitle: messageActionTitle('reply', canInteract, providerReady, deleted, textMessage),
+    editTitle: messageActionTitle('edit', canInteract, providerReady, deleted, textMessage),
+    deleteTitle: messageActionTitle('delete', canInteract, providerReady, deleted, textMessage),
+    toggleReactions: () => setShowReactions((current) => !current),
+  };
   return <>
     <button type="button" className="message-menu-scrim" onClick={onClose} aria-label="Fechar opções da mensagem" />
     <div className={`message-action-menu${menu.mode === 'reactions' ? ' reaction-only' : ''}`} role="menu" style={{ top: menu.top, left: menu.left }}>
-      {showReactions && <div className="message-reaction-picker" aria-label="Escolher reação">{QUICK_REACTIONS.map((emoji) => <button type="button" key={emoji} className={ownReaction === emoji ? 'selected' : ''} disabled={reacting} onClick={() => onReact(emoji)} aria-label={`Reagir com ${emoji}`}>{emoji}</button>)}</div>}
-      {menu.mode === 'menu' && <>
-        {!audio && <button type="button" role="menuitem" onClick={onCopy}><Copy size={17} /><span>Copiar mensagem</span></button>}
-        {audio && <button type="button" role="menuitem" disabled={!audioMedia || downloading} title={!audioMedia ? 'O arquivo deste áudio não está disponível' : undefined} onClick={onDownload}><Download size={17} /><span>{downloading ? 'Baixando áudio…' : 'Baixar áudio'}</span></button>}
-        <button type="button" role="menuitem" disabled={!canReference || reacting} title={!canInteract ? 'Assuma e abra o atendimento para reagir' : !providerReady ? 'Aguarde a mensagem ser enviada' : deleted ? 'A mensagem foi apagada' : undefined} onClick={() => setShowReactions((current) => !current)}><SmilePlus size={17} /><span>Reagir</span></button>
-        <button type="button" role="menuitem" disabled={!canReference} title={!canInteract ? 'Assuma e abra o atendimento para responder' : !providerReady ? 'Aguarde a mensagem ser enviada' : deleted ? 'A mensagem foi apagada' : undefined} onClick={onReply}><Reply size={17} /><span>Responder</span></button>
-        {hasEditHistory && <button type="button" role="menuitem" onClick={onEditHistory}><History size={17} /><span>Ver histórico de edições</span></button>}
-        {outbound && <button type="button" role="menuitem" disabled={!canEdit} title={!canInteract ? 'Assuma e abra o atendimento para editar' : !providerReady ? 'Aguarde a mensagem ser enviada' : menu.message.type !== 'text' ? 'Somente mensagens de texto podem ser editadas' : undefined} onClick={onEdit}><Pencil size={17} /><span>Editar mensagem</span></button>}
-        {outbound && <button type="button" role="menuitem" className="danger" disabled={!canDelete} title={!canInteract ? 'Assuma e abra o atendimento para apagar' : !providerReady ? 'Aguarde a mensagem ser enviada' : undefined} onClick={onDelete}><Trash2 size={17} /><span>Apagar para todos</span></button>}
-      </>}
+      {showReactions && <div className="message-reaction-picker" aria-label="Escolher reação">{QUICK_REACTIONS.map((emoji) => <button type="button" key={emoji} className={ownReaction === emoji ? 'selected' : ''} disabled={reacting} onClick={() => props.onReact(emoji)} aria-label={`Reagir com ${emoji}`}>{emoji}</button>)}</div>}
+      {menu.mode === 'menu' && <MessageMenuCommands {...commandProps} />}
     </div>
   </>;
 }
@@ -2711,13 +2921,13 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     return () => observer.disconnect();
   }, []);
 
-  const beginPan = (event: React.PointerEvent<HTMLDivElement>) => {
+  const beginPan = (event: React.PointerEvent<HTMLDialogElement>) => {
     const stage = stageRef.current;
-    if (!stage || zoomRef.current <= 1 || event.button !== 0) return;
+    if (!stage || !stage.contains(event.target as globalThis.Node) || zoomRef.current <= 1 || event.button !== 0) return;
     dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, scrollLeft: stage.scrollLeft, scrollTop: stage.scrollTop, moved: false };
     setDragging(true);
   };
-  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
+  const movePan = (event: React.PointerEvent<HTMLDialogElement>) => {
     const drag = dragRef.current;
     const stage = stageRef.current;
     if (!drag || !stage || drag.pointerId !== event.pointerId) return;
@@ -2731,7 +2941,7 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     stage.scrollTop = drag.scrollTop - deltaY;
     event.preventDefault();
   };
-  const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
+  const endPan = (event: React.PointerEvent<HTMLDialogElement>) => {
     const drag = dragRef.current;
     const stage = stageRef.current;
     if (!drag || drag.pointerId !== event.pointerId) return;
@@ -2741,7 +2951,29 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     setDragging(false);
   };
 
-  return createPortal(<dialog open className="image-lightbox" aria-label={`Visualização ampliada de ${alt}`} style={{ margin: 0, padding: 0, border: 0 }}>
+  return createPortal(<dialog
+    open
+    className="image-lightbox"
+    aria-label={`Visualização ampliada de ${alt}`}
+    style={{ margin: 0, padding: 0, border: 0 }}
+    onPointerDown={beginPan}
+    onPointerMove={movePan}
+    onPointerUp={endPan}
+    onPointerCancel={endPan}
+    onClick={(event) => {
+      if (suppressClickRef.current) { suppressClickRef.current = false; return; }
+      if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('image-lightbox-canvas')) onClose();
+    }}
+    onKeyDown={(event) => {
+      if (event.key === 'Escape') onClose();
+    }}
+    onWheel={(event) => {
+      const stage = stageRef.current;
+      if (!stage?.contains(event.target as globalThis.Node)) return;
+      event.preventDefault();
+      changeZoom(zoomRef.current + (event.deltaY < 0 ? 0.25 : -0.25));
+    }}
+  >
     <header className="image-lightbox-toolbar">
       <strong title={alt}>{alt}</strong>
       <div>
@@ -2755,20 +2987,6 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     <div
       ref={stageRef}
       className={`image-lightbox-stage${zoom > 1 ? ' zoomed' : ''}${dragging ? ' dragging' : ''}`}
-      role="application"
-      tabIndex={0}
-      onPointerDown={beginPan}
-      onPointerMove={movePan}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
-      onClick={(event) => {
-        if (suppressClickRef.current) { suppressClickRef.current = false; return; }
-        if (event.target === event.currentTarget || (event.target as HTMLElement).classList.contains('image-lightbox-canvas')) onClose();
-      }}
-      onKeyDown={(event) => {
-        if (event.key === 'Escape') onClose();
-      }}
-      onWheel={(event) => { event.preventDefault(); changeZoom(zoomRef.current + (event.deltaY < 0 ? 0.25 : -0.25)); }}
     >
       <div className="image-lightbox-canvas">
         <button

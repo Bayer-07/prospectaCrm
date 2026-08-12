@@ -22,10 +22,10 @@
     "@prospecta/contracts": "workspace:*",
     "@prospecta/database": "workspace:*",
     "bullmq": "^5.56.0",
-    "form-data": "4.0.1",
+    "form-data": "4.0.6",
     "ioredis": "^5.6.0",
     "mailgun.js": "11.1.0",
-    "nodemailer": "^7.0.13"
+    "nodemailer": "9.0.1"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

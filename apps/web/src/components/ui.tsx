@@ -14,7 +14,8 @@ export function SelectField({ label, children, ...props }: Readonly<React.Select
 }
 
 export function Modal({ title, children, onClose, width = 560 }: Readonly<{ title: string; children: ReactNode; onClose(): void; width?: number }>) {
-  return <div className="modal-backdrop" onMouseDown={(event) => event.target === event.currentTarget && onClose()}>
+  return <div className="modal-backdrop">
+    <button type="button" className="modal-backdrop-dismiss" onMouseDown={onClose} aria-label={`Fechar ${title}`} />
     <dialog open className="modal" style={{ maxWidth: width }} aria-label={title}>
       <header><div><span className="eyebrow">BZS One</span><h2>{title}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></header>
       {children}

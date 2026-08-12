@@ -136,6 +136,80 @@ function campaignSelectionSummary(selectedSearches: number, selectedContacts: nu
   return summary;
 }
 
+function contactsMatchingAnySearch<T extends CampaignContact>(contacts: T[], searches: string[]) {
+  return contacts.filter((contact) => searches.some((search) => contactMatchesSearch(contact, search)));
+}
+
+type CampaignContactPickerProps = Readonly<{
+  search: string;
+  searchPending: boolean;
+  currentSearch: string;
+  currentSearchSelected: boolean;
+  loading: boolean;
+  contacts: CampaignContact[];
+  selectedContacts: CampaignContact[];
+  selectedSearches: string[];
+  selectedIds: Set<string>;
+  excludedIds: Set<string>;
+  excludedCount: number;
+  onSearchChange(value: string): void;
+  onToggleAll(): void;
+  onRemoveSearch(search: string): void;
+  onToggleContact(contact: CampaignContact): void;
+}>;
+
+function CampaignContactPicker({
+  search,
+  searchPending,
+  currentSearch,
+  currentSearchSelected,
+  loading,
+  contacts,
+  selectedContacts,
+  selectedSearches,
+  selectedIds,
+  excludedIds,
+  excludedCount,
+  onSearchChange,
+  onToggleAll,
+  onRemoveSearch,
+  onToggleContact,
+}: CampaignContactPickerProps) {
+  let contactResults: ReactNode = <div className="campaign-picker-state">Nenhum contato encontrado.</div>;
+  if (loading) {
+    contactResults = <div className="campaign-picker-state">Buscando contatos…</div>;
+  } else if (contacts.length) {
+    contactResults = contacts.map((contact) => {
+      const selected = contactIsSelected(contact, selectedIds, selectedSearches, excludedIds);
+      return <button type="button" key={contact.id} className={selected ? 'selected' : ''} onClick={() => onToggleContact(contact)}>
+        <span className="contact-avatar">{initials(contact.name)}</span>
+        <div><strong>{contact.name}</strong><small>{contact.phone || contact.email || 'Sem telefone'}</small></div>
+        <i>{selected ? <CheckCircle2 size={17} /> : <Plus size={17} />}</i>
+      </button>;
+    });
+  }
+
+  return <div className="campaign-contact-picker">
+    <label className="campaign-contact-search"><Search size={16} /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="Buscar contato por nome, telefone ou e-mail…" /></label>
+    <div className="campaign-contact-bulk-actions">
+      <button
+        type="button"
+        className={currentSearchSelected ? 'active' : ''}
+        disabled={searchPending || loading || !contacts.length}
+        onClick={onToggleAll}
+      >
+        <CheckCircle2 size={15} />
+        {currentSearchSelected ? 'Desmarcar resultados desta busca' : 'Selecionar todos os resultados'}
+      </button>
+      <small>{campaignSearchStatus(searchPending, currentSearch)}</small>
+    </div>
+    {selectedSearches.length > 0 && <div className="campaign-selected-searches">{selectedSearches.map((selectedSearch) => <span key={selectedSearch || '__all__'}><b>{selectedSearch ? `Todos com “${selectedSearch}”` : 'Todos os contatos'}</b><button type="button" onClick={() => onRemoveSearch(selectedSearch)} aria-label={`Remover seleção ${selectedSearch || 'de todos os contatos'}`}><X size={13} /></button></span>)}</div>}
+    {selectedContacts.length > 0 && <div className="campaign-selected-contacts">{selectedContacts.map((contact) => <span key={contact.id}><i>{initials(contact.name)}</i><b>{contact.name}</b><button type="button" onClick={() => onToggleContact(contact)} aria-label={`Remover ${contact.name}`}><X size={13} /></button></span>)}</div>}
+    <div className="campaign-contact-results">{contactResults}</div>
+    <small className="campaign-selection-count">{campaignSelectionSummary(selectedSearches.length, selectedContacts.length, excludedCount)}</small>
+  </div>;
+}
+
 function withRenderKeys<T extends { content: string; type?: string }>(items: T[]) {
   const occurrences = new Map<string, number>();
   return items.map((item) => {
@@ -301,7 +375,7 @@ export function CampaignsPage() {
         <button type="button" className={filter === 'SCHEDULED' ? 'active' : ''} aria-pressed={filter === 'SCHEDULED'} onClick={() => setFilter('SCHEDULED')}>Agendadas</button>
         <button type="button" className={filter === 'COMPLETED' ? 'active' : ''} aria-pressed={filter === 'COMPLETED'} onClick={() => setFilter('COMPLETED')}>Concluídas</button>
       </fieldset>
-      <Button onClick={() => setModal(true)} disabled={!connectedInstances.length}><Plus size={15} />Nova campanha</Button>
+      <Button type="button" onClick={() => setModal(true)} disabled={!connectedInstances.length}><Plus size={15} />Nova campanha</Button>
     </div>
     {!instances.isLoading && !connectedInstances.length && <div className="inline-alert"><AlertTriangle size={17} /><div><strong>Conecte um número antes de criar campanhas.</strong><p>Vá até Conexões e conecte uma instância.</p></div></div>}
     {data.length ? <div className="campaign-list">{data.map((campaign) => <CampaignListItem
@@ -316,7 +390,7 @@ export function CampaignsPage() {
       onChangeStatus={(campaignId, action) => status.mutate({ id: campaignId, action })}
       onDownloadInvalid={(selectedCampaign) => invalidWhatsappDownload.mutate(selectedCampaign)}
       onDelete={setDeleting}
-    />)}</div> : <Empty icon={<MessageSquareText />} title={allCampaigns.length ? 'Nenhuma campanha neste filtro' : 'Nenhuma campanha criada'} description="Crie uma campanha com audiência consentida, mensagens em bolhas e cadência controlada." action={<Button onClick={() => setModal(true)} disabled={!connectedInstances.length}>Criar campanha</Button>} />}
+    />)}</div> : <Empty icon={<MessageSquareText />} title={allCampaigns.length ? 'Nenhuma campanha neste filtro' : 'Nenhuma campanha criada'} description="Crie uma campanha com audiência consentida, mensagens em bolhas e cadência controlada." action={<Button type="button" onClick={() => setModal(true)} disabled={!connectedInstances.length}>Criar campanha</Button>} />}
     {modal && <CampaignModal instances={connectedInstances} onClose={() => setModal(false)} onCreated={() => { setModal(false); client.invalidateQueries({ queryKey: ['campaigns'] }); }} />}
     {detailsId && <CampaignDetails campaignId={detailsId} onClose={() => setDetailsId(null)} />}
     {deleting && <DeleteCampaignModal
@@ -343,8 +417,8 @@ function DeleteCampaignModal({ campaign, loading, onClose, onConfirm }: Readonly
       </div>
     </div>
     <div className="modal-actions delete-actions">
-      <Button variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
-      <Button variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir campanha</Button>
+      <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
+      <Button type="button" variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir campanha</Button>
     </div>
   </Modal>;
 }
@@ -529,8 +603,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
     if (currentSearchSelected) {
       const remainingSearches = selectedSearches.filter((search) => search !== currentContactSearch);
       setSelectedSearches(remainingSearches);
-      setExcludedContacts((current) => current.filter((contact) =>
-        remainingSearches.some((search) => contactMatchesSearch(contact, search))));
+      setExcludedContacts((current) => contactsMatchingAnySearch(current, remainingSearches));
       return;
     }
     setSelectedSearches((current) => [...current, currentContactSearch]);
@@ -559,8 +632,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
   const removeSelectedSearch = (search: string) => {
     const remainingSearches = selectedSearches.filter((item) => item !== search);
     setSelectedSearches(remainingSearches);
-    setExcludedContacts((current) => current.filter((contact) =>
-      remainingSearches.some((remaining) => contactMatchesSearch(contact, remaining))));
+    setExcludedContacts((current) => contactsMatchingAnySearch(current, remainingSearches));
   };
   const csvReady = Boolean(csvFile && preview.data?.data.valid);
   const validCsvRows = (preview.data?.data.rows || []).filter((row) => row.hasWhatsapp);
@@ -594,34 +666,23 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
           <button type="button" className={source === 'csv' ? 'active' : ''} onClick={() => setSource('csv')}><FileSpreadsheet size={17} />Importar CSV</button>
         </fieldset>
 
-        {source === 'contacts' ? <div className="campaign-contact-picker">
-          <label className="campaign-contact-search"><Search size={16} /><input value={contactSearch} onChange={(event) => setContactSearch(event.target.value)} placeholder="Buscar contato por nome, telefone ou e-mail…" /></label>
-          <div className="campaign-contact-bulk-actions">
-            <button
-              type="button"
-              className={currentSearchSelected ? 'active' : ''}
-              disabled={contactSearchPending || contacts.isLoading || !contacts.data?.data.length}
-              onClick={toggleAllSearchResults}
-            >
-              <CheckCircle2 size={15} />
-              {currentSearchSelected ? 'Desmarcar resultados desta busca' : 'Selecionar todos os resultados'}
-            </button>
-            <small>{campaignSearchStatus(contactSearchPending, currentContactSearch)}</small>
-          </div>
-          {selectedSearches.length > 0 && <div className="campaign-selected-searches">{selectedSearches.map((search) => <span key={search || '__all__'}><b>{search ? `Todos com “${search}”` : 'Todos os contatos'}</b><button type="button" onClick={() => removeSelectedSearch(search)} aria-label={`Remover seleção ${search || 'de todos os contatos'}`}><X size={13} /></button></span>)}</div>}
-          {selectedContacts.length > 0 && <div className="campaign-selected-contacts">{selectedContacts.map((contact) => <span key={contact.id}><i>{initials(contact.name)}</i><b>{contact.name}</b><button type="button" onClick={() => toggleContact(contact)} aria-label={`Remover ${contact.name}`}><X size={13} /></button></span>)}</div>}
-          <div className="campaign-contact-results">
-            {contacts.isLoading ? <div className="campaign-picker-state">Buscando contatos…</div> : contacts.data?.data.length ? contacts.data.data.map((contact) => {
-              const selected = contactIsSelected(contact, selectedIds, selectedSearches, excludedIds);
-              return <button type="button" key={contact.id} className={selected ? 'selected' : ''} onClick={() => toggleContact(contact)}>
-                <span className="contact-avatar">{initials(contact.name)}</span>
-                <div><strong>{contact.name}</strong><small>{contact.phone || contact.email || 'Sem telefone'}</small></div>
-                <i>{selected ? <CheckCircle2 size={17} /> : <Plus size={17} />}</i>
-              </button>;
-            }) : <div className="campaign-picker-state">Nenhum contato encontrado.</div>}
-          </div>
-          <small className="campaign-selection-count">{campaignSelectionSummary(selectedSearches.length, selectedContacts.length, excludedContacts.length)}</small>
-        </div> : <div className="campaign-csv-area">
+        {source === 'contacts' ? <CampaignContactPicker
+          search={contactSearch}
+          searchPending={contactSearchPending}
+          currentSearch={currentContactSearch}
+          currentSearchSelected={currentSearchSelected}
+          loading={contacts.isLoading}
+          contacts={contacts.data?.data || []}
+          selectedContacts={selectedContacts}
+          selectedSearches={selectedSearches}
+          selectedIds={selectedIds}
+          excludedIds={excludedIds}
+          excludedCount={excludedContacts.length}
+          onSearchChange={setContactSearch}
+          onToggleAll={toggleAllSearchResults}
+          onRemoveSearch={removeSelectedSearch}
+          onToggleContact={toggleContact}
+        /> : <div className="campaign-csv-area">
           <input ref={fileRef} type="file" accept=".csv,text/csv" hidden onChange={(event) => void chooseFile(event.target.files?.[0])} />
           <button type="button" className={`campaign-file-drop ${csvName ? 'has-file' : ''}`} onClick={() => fileRef.current?.click()} onDragOver={(event) => event.preventDefault()} onDrop={dropOnField}>
             <span>{csvName ? <FileSpreadsheet size={24} /> : <Upload size={24} />}</span>
@@ -720,7 +781,7 @@ function CampaignDetailContent({
       <span>Agendada em {dateTime(campaign.scheduledAt)}</span>
       <div className="campaign-detail-actions">
         {['RUNNING', 'SCHEDULED'].includes(campaign.status) && <span className="campaign-detail-live"><i />Atualização automática</span>}
-        <Button variant="secondary" loading={downloadPending} onClick={onDownloadInvalid}>
+        <Button type="button" variant="secondary" loading={downloadPending} onClick={onDownloadInvalid}>
           <Download size={15} />Baixar números inválidos
         </Button>
       </div>

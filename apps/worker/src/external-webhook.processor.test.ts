@@ -7,8 +7,7 @@ describe('webhooks externos via GET', () => {
   });
 
   it('chama o endpoint ativo com GET e metadados da ação', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
-    vi.stubGlobal('fetch', fetchMock);
+    const getMock = vi.fn().mockResolvedValue({ ok: true, status: 200 });
     const update = vi.fn().mockResolvedValue({});
     const db = {
       webhookDelivery: {
@@ -32,12 +31,11 @@ describe('webhooks externos via GET', () => {
     await processExternalWebhook(db as never, {
       data: { deliveryId: 'delivery-1' },
       attemptsMade: 0,
-    } as never);
+    } as never, { get: getMock });
 
-    expect(fetchMock).toHaveBeenCalledOnce();
-    const [target, options] = fetchMock.mock.calls[0] as [URL, RequestInit];
-    expect(options.method).toBe('GET');
-    expect(options.body).toBeUndefined();
+    expect(getMock).toHaveBeenCalledOnce();
+    const [rawTarget, options] = getMock.mock.calls[0] as [string, { headers: Record<string, string> }];
+    const target = new URL(rawTarget);
     expect(target.origin + target.pathname).toBe('https://hooks.example.com/entrada');
     expect(Object.fromEntries(target.searchParams)).toMatchObject({
       origem: 'bzs',
@@ -57,8 +55,7 @@ describe('webhooks externos via GET', () => {
   });
 
   it('não chama webhooks desativados', async () => {
-    const fetchMock = vi.fn();
-    vi.stubGlobal('fetch', fetchMock);
+    const getMock = vi.fn();
     const db = {
       webhookDelivery: {
         findUnique: vi.fn().mockResolvedValue({
@@ -72,8 +69,8 @@ describe('webhooks externos via GET', () => {
     await processExternalWebhook(db as never, {
       data: { deliveryId: 'delivery-1' },
       attemptsMade: 0,
-    } as never);
+    } as never, { get: getMock });
 
-    expect(fetchMock).not.toHaveBeenCalled();
+    expect(getMock).not.toHaveBeenCalled();
   });
 });

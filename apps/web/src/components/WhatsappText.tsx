@@ -13,7 +13,7 @@ export type WhatsappLinkPart = {
 };
 
 const linkPattern = /https?:\/\/[^\s<>]+|www\.[^\s<>]+/gi;
-const trailingLinkPunctuation = /[.,!?;:)}\]"'’”]+$/;
+const trailingLinkPunctuation = new Set(['.', ',', '!', '?', ';', ':', ')', '}', ']', '"', "'", '\u2019', '\u201d']);
 const markers = { bold: '*', italic: '_', strike: '~', code: '```' } as const;
 
 type FormattedTokenType = Exclude<WhatsappToken['type'], 'text'>;
@@ -27,6 +27,12 @@ const formatDefinitions: readonly FormatDefinition[] = [
   { type: 'italic', marker: '_', multiline: false },
   { type: 'strike', marker: '~', multiline: false },
 ];
+
+function splitTrailingLinkPunctuation(raw: string) {
+  let punctuationStart = raw.length;
+  while (punctuationStart > 0 && trailingLinkPunctuation.has(raw[punctuationStart - 1])) punctuationStart -= 1;
+  return { value: raw.slice(0, punctuationStart), trailing: raw.slice(punctuationStart) };
+}
 
 function findFormatForDefinition(text: string, cursor: number, definition: FormatDefinition): FormatMatch | null {
   let index = text.indexOf(definition.marker, cursor);
@@ -77,8 +83,7 @@ export function linkifyWhatsappText(text: string): WhatsappLinkPart[] {
     const index = match.index ?? 0;
     if (index > cursor) parts.push({ type: 'text', value: text.slice(cursor, index) });
     const raw = match[0];
-    const trailing = trailingLinkPunctuation.exec(raw)?.[0] || '';
-    const value = trailing ? raw.slice(0, -trailing.length) : raw;
+    const { value, trailing } = splitTrailingLinkPunctuation(raw);
     if (value) parts.push({ type: 'link', value, href: value.toLocaleLowerCase('pt-BR').startsWith('www.') ? `https://${value}` : value });
     if (trailing) parts.push({ type: 'text', value: trailing });
     cursor = index + raw.length;
@@ -286,6 +291,8 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
     className="whatsapp-composer"
     contentEditable={!disabled}
     suppressContentEditableWarning
+    role="textbox"
+    aria-multiline="true"
     aria-label="Mensagem"
     aria-disabled={disabled}
     data-placeholder={placeholder}

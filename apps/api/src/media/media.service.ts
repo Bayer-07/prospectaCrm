@@ -37,6 +37,12 @@ const ALLOWED_TYPES = new Set([
   'video/mp4', ...DOCUMENT_TYPES,
 ]);
 
+function requiredS3Secret() {
+  const secret = process.env.S3_SECRET_KEY?.trim();
+  if (!secret) throw new Error('S3_SECRET_KEY precisa ser configurada');
+  return secret;
+}
+
 @Injectable()
 export class MediaService implements OnModuleInit {
   private readonly bucket = process.env.S3_BUCKET || 'prospecta-media';
@@ -47,7 +53,7 @@ export class MediaService implements OnModuleInit {
     forcePathStyle: true,
     credentials: {
       accessKeyId: process.env.S3_ACCESS_KEY || 'prospecta',
-      secretAccessKey: process.env.S3_SECRET_KEY || 'prospecta-secret',
+      secretAccessKey: requiredS3Secret(),
     },
   };
   private readonly client = new S3Client({ ...this.clientOptions, endpoint: this.storageEndpoint });

@@ -1,10 +1,18 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../auth/types.js';
 import { MediaService } from './media.service.js';
 
 vi.mock('@aws-sdk/s3-request-presigner', () => ({
   getSignedUrl: vi.fn().mockResolvedValue('http://storage.local/upload'),
 }));
+
+const originalS3Secret = process.env.S3_SECRET_KEY;
+process.env.S3_SECRET_KEY = 'test-only-s3-secret';
+
+afterAll(() => {
+  if (originalS3Secret === undefined) delete process.env.S3_SECRET_KEY;
+  else process.env.S3_SECRET_KEY = originalS3Secret;
+});
 
 const auth: AuthContext = {
   type: 'session',

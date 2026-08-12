@@ -60,6 +60,10 @@ function emailSelectionSummary(selectedSearches: number, selected: number, exclu
   return summary;
 }
 
+function contactsMatchingAnySearch<T extends Contact>(contacts: T[], searches: string[]) {
+  return contacts.filter((contact) => searches.some((search) => contactMatchesSearch(contact, search)));
+}
+
 export function EmailPage() {
   const client = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
@@ -121,9 +125,9 @@ export function EmailPage() {
 
   if (templates.isLoading || provider.isLoading || campaigns.isLoading) return <PageLoading />;
 
-  let toolbarAction = <Button onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}><Plus size={15} />Nova campanha</Button>;
+  let toolbarAction = <Button type="button" onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}><Plus size={15} />Nova campanha</Button>;
   if (view === 'templates') {
-    toolbarAction = <Button onClick={() => setTemplateModal(true)}><Plus size={15} />Novo modelo</Button>;
+    toolbarAction = <Button type="button" onClick={() => setTemplateModal(true)}><Plus size={15} />Novo modelo</Button>;
   }
 
   let viewContent;
@@ -133,10 +137,10 @@ export function EmailPage() {
       <h3>{template.name}</h3>
       <strong>{template.subject}</strong>
       <p>{emailTemplatePreview(template.html)}</p>
-      <footer><small>Atualizado {dateTime(template.updatedAt)}</small><div className="template-card-actions"><Button variant="secondary" onClick={() => setCampaignTemplate(template)}><Send size={14} />Usar</Button><button type="button" className="icon-button danger-icon" title="Excluir modelo" aria-label={`Excluir modelo ${template.name}`} onClick={() => setDeleting({ type: 'template', id: template.id, name: template.name })}><Trash2 size={16} /></button></div></footer>
+      <footer><small>Atualizado {dateTime(template.updatedAt)}</small><div className="template-card-actions"><Button type="button" variant="secondary" onClick={() => setCampaignTemplate(template)}><Send size={14} />Usar</Button><button type="button" className="icon-button danger-icon" title="Excluir modelo" aria-label={`Excluir modelo ${template.name}`} onClick={() => setDeleting({ type: 'template', id: template.id, name: template.name })}><Trash2 size={16} /></button></div></footer>
     </article>)}</div>;
   } else if (view === 'templates') {
-    viewContent = <Empty icon={<FileText />} title="Nenhum modelo de e-mail" description="Crie um modelo com assunto e conteúdo para utilizá-lo em campanhas." action={<Button onClick={() => setTemplateModal(true)}>Criar modelo</Button>} />;
+    viewContent = <Empty icon={<FileText />} title="Nenhum modelo de e-mail" description="Crie um modelo com assunto e conteúdo para utilizá-lo em campanhas." action={<Button type="button" onClick={() => setTemplateModal(true)}>Criar modelo</Button>} />;
   } else if (emailCampaigns.length) {
     viewContent = <div className="campaign-list email-campaign-list">{emailCampaigns.map((campaign) => <article key={campaign.id}>
       <div className="campaign-channel"><Mail size={18} /></div>
@@ -150,7 +154,7 @@ export function EmailPage() {
       </div>
     </article>)}</div>;
   } else {
-    viewContent = <Empty icon={<Mail />} title="Nenhuma campanha de e-mail" description="Crie uma campanha usando um modelo e os contatos que possuem e-mail cadastrado." action={<Button onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}>Criar campanha</Button>} />;
+    viewContent = <Empty icon={<Mail />} title="Nenhuma campanha de e-mail" description="Crie uma campanha usando um modelo e os contatos que possuem e-mail cadastrado." action={<Button type="button" onClick={() => setCampaignTemplate(templateData[0] || null)} disabled={!templateData.length}>Criar campanha</Button>} />;
   }
 
   return <div className="email-page">
@@ -204,8 +208,8 @@ function DeleteEmailItemModal({ target, loading, onClose, onConfirm }: Readonly<
       </div>
     </div>
     <div className="modal-actions delete-actions">
-      <Button variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
-      <Button variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir {campaign ? 'campanha' : 'modelo'}</Button>
+      <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
+      <Button type="button" variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir {campaign ? 'campanha' : 'modelo'}</Button>
     </div>
   </Modal>;
 }
@@ -310,8 +314,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
     if (currentSearchSelected) {
       const remainingSearches = selectedSearches.filter((item) => item !== currentContactSearch);
       setSelectedSearches(remainingSearches);
-      setExcluded((current) => current.filter((contact) =>
-        remainingSearches.some((remaining) => contactMatchesSearch(contact, remaining))));
+      setExcluded((current) => contactsMatchingAnySearch(current, remainingSearches));
       return;
     }
     setSelectedSearches((current) => [...current, currentContactSearch]);
@@ -321,8 +324,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
   const removeSelectedSearch = (searchToRemove: string) => {
     const remainingSearches = selectedSearches.filter((item) => item !== searchToRemove);
     setSelectedSearches(remainingSearches);
-    setExcluded((current) => current.filter((contact) =>
-      remainingSearches.some((remaining) => contactMatchesSearch(contact, remaining))));
+    setExcluded((current) => contactsMatchingAnySearch(current, remainingSearches));
   };
   const toggleContact = (contact: Contact) => {
     const selectedBySearch = selectedSearches.some((item) => contactMatchesSearch(contact, item));

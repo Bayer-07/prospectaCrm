@@ -7,9 +7,11 @@ const storageEndpoint = process.env.S3_ENDPOINT || 'http://localhost:9000';
 // This hostname is embedded in the signed URL and must be both a valid URL
 // for Evolution's DTO validator and reachable from its container.
 const deliveryEndpoint = process.env.S3_DELIVERY_ENDPOINT || storageEndpoint;
+const storageSecret = process.env.S3_SECRET_KEY?.trim();
+if (!storageSecret) throw new Error('S3_SECRET_KEY precisa ser configurada');
 const credentials = {
   accessKeyId: process.env.S3_ACCESS_KEY || 'prospecta',
-  secretAccessKey: process.env.S3_SECRET_KEY || 'prospecta-secret',
+  secretAccessKey: storageSecret,
 };
 
 const storageClient = new S3Client({

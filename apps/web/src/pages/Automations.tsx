@@ -46,6 +46,11 @@ function FlowNode({ data, type, selected }: NodeProps<Node<FlowData>>) {
 
 const nodeTypes = Object.fromEntries(nodeDefinitions.map((item) => [item.type, FlowNode]));
 const automationMessageVariables = ['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo'] as const;
+const flowString = (value: unknown, fallback = '') => (
+  typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
+    ? String(value)
+    : fallback
+);
 
 export function AutomationsPage() {
   const client = useQueryClient(); const [selected, setSelected] = useState<WorkflowRecord | null>(null); const [modal, setModal] = useState(false); const [deleting, setDeleting] = useState<WorkflowRecord | null>(null);
@@ -145,7 +150,7 @@ function WorkflowBuilder({ workflowId, metadata, onBack }: Readonly<{ workflowId
 function AutomationNodeInspector({ node, metadata, onChange, onDelete }: Readonly<{ node: Node<FlowData> | null; metadata: AutomationMetadata; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
   if (!node) return <aside className="node-inspector empty"><Workflow size={24} /><strong>Configure a automação</strong><p>Clique em um bloco para editar sua mensagem ou suas configurações.</p></aside>;
   const definition = nodeDefinitions.find((item) => item.type === node.type) || nodeDefinitions[4];
-  const message = String(node.data.text || '');
+  const message = flowString(node.data.text);
   const contactCustomFields = metadata.customFields.filter((field) => ['contact', 'contato'].includes(field.entityType.toLocaleLowerCase('pt-BR')));
   const updateMessage = (value: string) => onChange({
     text: value,
@@ -153,41 +158,41 @@ function AutomationNodeInspector({ node, metadata, onChange, onDelete }: Readonl
   });
   return <aside className="node-inspector automation-node-inspector">
     <div className="inspector-title"><span className={definition.tone}><definition.icon size={16} /></span><div><strong>{definition.label}</strong><small>{definition.subtitle}</small></div></div>
-    <label className="field"><span>Nome do bloco</span><input value={String(node.data.label || '')} onChange={(event) => onChange({ label: event.target.value })} /></label>
+    <label className="field"><span>Nome do bloco</span><input value={flowString(node.data.label)} onChange={(event) => onChange({ label: event.target.value })} /></label>
     {node.type === 'trigger' && <div className="inspector-note">O fluxo inicia por inscrição manual, pelo comando <strong>@</strong> no chat ou pelos demais gatilhos configurados no sistema.</div>}
     {node.type === 'send_whatsapp' && <>
-      <SelectField label="Número de envio" value={String(node.data.instanceId || '')} onChange={(event) => onChange({ instanceId: event.target.value })}><option value="">Usar o número da conversa</option>{metadata.instances.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}{instance.status !== 'CONNECTED' ? ' · Desconectado' : ''}</option>)}</SelectField>
+      <SelectField label="Número de envio" value={flowString(node.data.instanceId)} onChange={(event) => onChange({ instanceId: event.target.value })}><option value="">Usar o número da conversa</option>{metadata.instances.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}{instance.status !== 'CONNECTED' ? ' · Desconectado' : ''}</option>)}</SelectField>
       <label className="field automation-message-field"><span>Mensagem do WhatsApp</span><textarea rows={8} autoFocus value={message} onChange={(event) => updateMessage(event.target.value)} placeholder="Digite a mensagem que será enviada…" /><small>{message.length} caracteres</small></label>
       <div className="automation-variable-row"><span>Variáveis</span>{automationMessageVariables.map((variable) => <button key={variable} type="button" onClick={() => updateMessage(`${message}${message && !message.endsWith(' ') ? ' ' : ''}{{${variable}}}`)}>{`{{${variable}}}`}</button>)}</div>
       <div className="automation-message-preview"><span>Prévia para o contato</span><div>{message.trim() ? <WhatsappText text={renderTemplateVariables(message, { nome: 'Adriana' })} /> : <em>Digite uma mensagem para visualizar.</em>}</div></div>
       <p className="inspector-note">Quando iniciada pelo comando <strong>@</strong> no chat, esta mensagem será enviada exclusivamente para o contato daquela conversa.</p>
     </>}
     {node.type === 'condition' && <>
-      <SelectField label="Campo do contato" value={String(node.data.field || '')} onChange={(event) => onChange({ field: event.target.value })}><option value="">Selecione</option><option value="name">Nome</option><option value="email">E-mail</option><option value="phone">Telefone</option><option value="jobTitle">Cargo</option><option value="source">Origem</option><option value="consentStatus">Consentimento</option>{contactCustomFields.map((field) => <option key={field.id} value={`customFields.${field.key}`}>{field.label}</option>)}</SelectField>
-      <SelectField label="Regra" value={String(node.data.operator || 'equals')} onChange={(event) => onChange({ operator: event.target.value })}><option value="equals">É igual a</option><option value="not_equals">É diferente de</option><option value="contains">Contém</option><option value="is_empty">Está vazio</option></SelectField>
-      {node.data.operator !== 'is_empty' && <label className="field"><span>Valor esperado</span><input value={String(node.data.value ?? '')} onChange={(event) => onChange({ value: event.target.value })} placeholder="Ex.: GRANTED" /></label>}
+      <SelectField label="Campo do contato" value={flowString(node.data.field)} onChange={(event) => onChange({ field: event.target.value })}><option value="">Selecione</option><option value="name">Nome</option><option value="email">E-mail</option><option value="phone">Telefone</option><option value="jobTitle">Cargo</option><option value="source">Origem</option><option value="consentStatus">Consentimento</option>{contactCustomFields.map((field) => <option key={field.id} value={`customFields.${field.key}`}>{field.label}</option>)}</SelectField>
+      <SelectField label="Regra" value={flowString(node.data.operator, 'equals')} onChange={(event) => onChange({ operator: event.target.value })}><option value="equals">É igual a</option><option value="not_equals">É diferente de</option><option value="contains">Contém</option><option value="is_empty">Está vazio</option></SelectField>
+      {node.data.operator !== 'is_empty' && <label className="field"><span>Valor esperado</span><input value={flowString(node.data.value)} onChange={(event) => onChange({ value: event.target.value })} placeholder="Ex.: GRANTED" /></label>}
       <div className="inspector-note">Conecte as saídas <strong>Sim</strong> e <strong>Não</strong> aos próximos blocos.</div>
     </>}
     {node.type === 'wait' && <label className="field"><span>Tempo de espera em segundos</span><input type="number" min={1} step={1} value={Number(node.data.seconds ?? (Number(node.data.minutes || 1) * 60))} onChange={(event) => onChange({ seconds: Math.max(1, Number(event.target.value)), minutes: undefined })} /><small>O fluxo continua automaticamente depois deste período.</small></label>}
     {node.type === 'update_record' && <>
-      <SelectField label="Campo a atualizar" value={String(node.data.field || '')} onChange={(event) => onChange({ field: event.target.value })}><option value="">Selecione</option><option value="name">Nome</option><option value="email">E-mail</option><option value="jobTitle">Cargo</option><option value="source">Origem</option>{contactCustomFields.map((field) => <option key={field.id} value={field.key}>{field.label}</option>)}</SelectField>
-      <label className="field"><span>Novo valor</span><input value={String(node.data.value ?? '')} onChange={(event) => onChange({ value: event.target.value })} /></label>
+      <SelectField label="Campo a atualizar" value={flowString(node.data.field)} onChange={(event) => onChange({ field: event.target.value })}><option value="">Selecione</option><option value="name">Nome</option><option value="email">E-mail</option><option value="jobTitle">Cargo</option><option value="source">Origem</option>{contactCustomFields.map((field) => <option key={field.id} value={field.key}>{field.label}</option>)}</SelectField>
+      <label className="field"><span>Novo valor</span><input value={flowString(node.data.value)} onChange={(event) => onChange({ value: event.target.value })} /></label>
     </>}
-    {node.type === 'move_stage' && <SelectField label="Etapa de destino" value={String(node.data.stageId || '')} onChange={(event) => onChange({ stageId: event.target.value })}><option value="">Selecione</option>{metadata.pipelines.map((pipeline) => <optgroup key={pipeline.id} label={pipeline.name}>{pipeline.stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}</optgroup>)}</SelectField>}
+    {node.type === 'move_stage' && <SelectField label="Etapa de destino" value={flowString(node.data.stageId)} onChange={(event) => onChange({ stageId: event.target.value })}><option value="">Selecione</option>{metadata.pipelines.map((pipeline) => <optgroup key={pipeline.id} label={pipeline.name}>{pipeline.stages.map((stage) => <option key={stage.id} value={stage.id}>{stage.name}</option>)}</optgroup>)}</SelectField>}
     {node.type === 'assign' && <>
-      <SelectField label="Responsável" value={String(node.data.userId || '')} onChange={(event) => onChange({ userId: event.target.value })}><option value="">Não alterar</option>{metadata.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
-      <SelectField label="Equipe" value={String(node.data.teamId || '')} onChange={(event) => onChange({ teamId: event.target.value })}><option value="">Não alterar</option>{metadata.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>
+      <SelectField label="Responsável" value={flowString(node.data.userId)} onChange={(event) => onChange({ userId: event.target.value })}><option value="">Não alterar</option>{metadata.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
+      <SelectField label="Equipe" value={flowString(node.data.teamId)} onChange={(event) => onChange({ teamId: event.target.value })}><option value="">Não alterar</option>{metadata.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>
     </>}
-    {(node.type === 'add_tag' || node.type === 'remove_tag') && <SelectField label={node.type === 'add_tag' ? 'Tag a adicionar' : 'Tag a remover'} value={String(node.data.tagId || '')} onChange={(event) => onChange({ tagId: event.target.value })}><option value="">Selecione</option>{metadata.tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</SelectField>}
+    {(node.type === 'add_tag' || node.type === 'remove_tag') && <SelectField label={node.type === 'add_tag' ? 'Tag a adicionar' : 'Tag a remover'} value={flowString(node.data.tagId)} onChange={(event) => onChange({ tagId: event.target.value })}><option value="">Selecione</option>{metadata.tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</SelectField>}
     {node.type === 'create_task' && <>
-      <label className="field"><span>Título da tarefa</span><input value={String(node.data.title || '')} onChange={(event) => onChange({ title: event.target.value })} /></label>
+      <label className="field"><span>Título da tarefa</span><input value={flowString(node.data.title)} onChange={(event) => onChange({ title: event.target.value })} /></label>
       <label className="field"><span>Prazo em horas</span><input type="number" min={1} step={1} value={Number(node.data.dueInHours || 24)} onChange={(event) => onChange({ dueInHours: Math.max(1, Number(event.target.value)) })} /></label>
-      <SelectField label="Responsável pela tarefa" value={String(node.data.assigneeId || '')} onChange={(event) => onChange({ assigneeId: event.target.value })}><option value="">Responsável do contato</option>{metadata.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
+      <SelectField label="Responsável pela tarefa" value={flowString(node.data.assigneeId)} onChange={(event) => onChange({ assigneeId: event.target.value })}><option value="">Responsável do contato</option>{metadata.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
     </>}
     {node.type === 'notify' && <>
-      <SelectField label="Notificar" value={String(node.data.userId || '')} onChange={(event) => onChange({ userId: event.target.value })}><option value="">Responsável do contato</option>{metadata.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
-      <label className="field"><span>Título</span><input value={String(node.data.title || '')} onChange={(event) => onChange({ title: event.target.value })} /></label>
-      <label className="field"><span>Mensagem interna</span><textarea rows={4} value={String(node.data.body || '')} onChange={(event) => onChange({ body: event.target.value })} /></label>
+      <SelectField label="Notificar" value={flowString(node.data.userId)} onChange={(event) => onChange({ userId: event.target.value })}><option value="">Responsável do contato</option>{metadata.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
+      <label className="field"><span>Título</span><input value={flowString(node.data.title)} onChange={(event) => onChange({ title: event.target.value })} /></label>
+      <label className="field"><span>Mensagem interna</span><textarea rows={4} value={flowString(node.data.body)} onChange={(event) => onChange({ body: event.target.value })} /></label>
     </>}
     {node.type === 'end' && <div className="inspector-note">A execução deste contato será concluída neste ponto.</div>}
     {node.type !== 'trigger' && <Button variant="ghost" className="delete-node" onClick={onDelete}><Trash2 size={15} />Excluir bloco</Button>}

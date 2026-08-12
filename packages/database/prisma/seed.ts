@@ -3,6 +3,18 @@ import argon2 from 'argon2';
 import { sgaProspectingEmailTemplates } from '../../contracts/src/email-templates.js';
 
 const db = new PrismaClient();
+const SEED_PASSWORD_PLACEHOLDER = 'troque-a-senha-inicial-do-seed';
+
+function seedAdminPassword() {
+  const password = process.env.SEED_ADMIN_PASSWORD?.trim();
+  if (!password || password === SEED_PASSWORD_PLACEHOLDER) {
+    throw new Error('Defina uma SEED_ADMIN_PASSWORD exclusiva antes de executar o seed');
+  }
+  if (password.length < 5) {
+    throw new Error('SEED_ADMIN_PASSWORD precisa ter pelo menos 5 caracteres');
+  }
+  return password;
+}
 
 const permissions = {
   admin: [['*', '*', 'ALL']],
@@ -23,6 +35,7 @@ const permissions = {
 } as const;
 
 async function main() {
+  const adminPassword = seedAdminPassword();
   const organization = await db.organization.upsert({
     where: { slug: 'empresa' },
     update: {},
@@ -53,8 +66,6 @@ async function main() {
     });
   }
 
-  const adminPassword = process.env.SEED_ADMIN_PASSWORD;
-  if (!adminPassword) throw new Error('Defina SEED_ADMIN_PASSWORD antes de executar o seed');
   await db.user.upsert({
     where: { organizationId_email: { organizationId: organization.id, email: 'admin@empresa.local' } },
     update: {},
