@@ -49,6 +49,15 @@ export type MailgunPasswordResetInput = {
   userId: string;
 };
 
+export type MailgunFollowUpAlertInput = {
+  to: string;
+  subject: string;
+  html: string;
+  text: string;
+  followUpId: string;
+  userId: string;
+};
+
 export class MailgunRequestError extends Error {
   constructor(readonly status: number, message: string) {
     super(message);
@@ -156,6 +165,21 @@ export class MailgunClient {
       trackingClicks: false,
       variables: {
         'password-reset-token-id': input.passwordResetTokenId,
+        'user-id': input.userId,
+      },
+    });
+  }
+
+  async sendFollowUpAlert(input: MailgunFollowUpAlertInput) {
+    return this.sendMessage({
+      to: input.to,
+      subject: input.subject,
+      html: input.html,
+      text: input.text,
+      tag: 'bzs-follow-up-alert',
+      trackingClicks: false,
+      variables: {
+        'follow-up-id': input.followUpId,
         'user-id': input.userId,
       },
     });

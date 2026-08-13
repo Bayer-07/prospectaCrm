@@ -459,12 +459,16 @@ describe('responsabilidade ao abrir um atendimento', () => {
     };
     const update = vi.fn().mockResolvedValue(updated);
     const createEvent = vi.fn().mockResolvedValue({ id: 'event-1' });
+    const updateFollowUp = vi.fn().mockResolvedValue({ count: 1 });
+    const updateFollowUpTask = vi.fn().mockResolvedValue({ count: 1 });
     const db = {
       conversation: {
         findFirst: vi.fn().mockResolvedValue(previous),
         update,
       },
       chatbotSession: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationFollowUp: { updateMany: updateFollowUp },
+      task: { updateMany: updateFollowUpTask },
       conversationEvent: { create: createEvent },
       $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
     };
@@ -494,6 +498,11 @@ describe('responsabilidade ao abrir um atendimento', () => {
       }),
     });
     expect(realtime.notifyOrganization).toHaveBeenCalledWith('organization-1', 'inbox.updated', {
+      conversationId: 'conversation-1',
+    });
+    expect(updateFollowUp).toHaveBeenCalledWith(expect.objectContaining({ data: { responsibleId: 'user-1' } }));
+    expect(updateFollowUpTask).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeId: 'user-1', teamId: null } }));
+    expect(realtime.notifyOrganization).toHaveBeenCalledWith('organization-1', 'tasks.updated', {
       conversationId: 'conversation-1',
     });
   });

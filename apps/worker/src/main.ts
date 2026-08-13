@@ -12,6 +12,7 @@ import { OutboundProcessor } from './outbound.processor.js';
 import { TaskDigestProcessor } from './task-digest.processor.js';
 import { UserInviteProcessor } from './user-invite.processor.js';
 import { WorkflowProcessor } from './workflow.processor.js';
+import { FollowUpProcessor } from './follow-up.processor.js';
 
 const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', { maxRetriesPerRequest: null });
 const evolution = new EvolutionClient();
@@ -23,22 +24,35 @@ const chatbotQueue = new Queue('chatbots', queueOptions);
 const inboundQueue = new Queue('inbound-webhooks', queueOptions);
 const taskDigestQueue = new Queue('task-digests', queueOptions);
 const transactionalEmailQueue = new Queue('transactional-emails', queueOptions);
+const followUpQueue = new Queue('follow-ups', queueOptions);
 
-const inbound = new InboundProcessor(prisma, chatbotQueue, evolution, inboundQueue);
-const outbound = new OutboundProcessor(prisma, evolution);
+const inbound = new InboundProcessor(prisma, chatbotQueue, evolution, inboundQueue, transactionalEmailQueue);
+const outbound = new OutboundProcessor(prisma, evolution, followUpQueue, transactionalEmailQueue);
 const campaigns = new CampaignProcessor(prisma, campaignQueue, evolution);
 const workflows = new WorkflowProcessor(prisma, automationQueue, outboundQueue);
 const chatbots = new ChatbotProcessor(prisma, outboundQueue);
 const taskDigests = new TaskDigestProcessor(prisma);
 const userInvites = new UserInviteProcessor(prisma);
 const audioTranscriptions = new AudioTranscriptionProcessor(prisma);
+const followUps = new FollowUpProcessor(prisma, followUpQueue, outboundQueue, automationQueue, transactionalEmailQueue);
 
 const workers = [
   new Worker('inbound-webhooks', async (job) => {
     const event = await inbound.process(job);
-    if (event) await connection.publish('prospecta:realtime', JSON.stringify(event));
+    if (event) {
+      await connection.publish('prospecta:realtime', JSON.stringify(event));
+      if (event.payload && 'tasksUpdated' in event.payload && event.payload.tasksUpdated) {
+        await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'tasks.updated', payload: event.payload }));
+      }
+    }
   }, { connection, concurrency: 10 }),
-  new Worker('outbound-messages', (job) => outbound.process(job), { connection, concurrency: 5, limiter: { max: 20, duration: 1000 } }),
+  new Worker('outbound-messages', async (job) => {
+    const event = await outbound.process(job);
+    if (event?.organizationId) {
+      await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'inbox.updated', payload: { conversationId: event.conversationId } }));
+      if (event.tasksUpdated) await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'tasks.updated', payload: { conversationId: event.conversationId } }));
+    }
+  }, { connection, concurrency: 5, limiter: { max: 20, duration: 1000 } }),
   new Worker('campaigns', (job) => campaigns.process(job), { connection, concurrency: 10 }),
   new Worker('automations', async (job) => {
     const event = await workflows.process(job);
@@ -58,6 +72,13 @@ const workers = [
     connection,
     concurrency: Math.min(Math.max(Number(process.env.TRANSCRIPTION_CONCURRENCY) || 1, 1), 3),
   }),
+  new Worker('follow-ups', async (job) => {
+    const result = await followUps.process(job);
+    if (result && 'organizationId' in result && result.organizationId && 'conversationId' in result) {
+      await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: result.organizationId, event: 'inbox.updated', payload: { conversationId: result.conversationId } }));
+      await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: result.organizationId, event: 'tasks.updated', payload: { conversationId: result.conversationId } }));
+    }
+  }, { connection, concurrency: 3 }),
 ];
 
 for (const worker of workers) {
@@ -95,10 +116,13 @@ if (Number(saoPauloNow.hour) >= 8) {
 
 await runMaintenance(prisma);
 await campaigns.reconcileActiveCampaigns();
+await followUps.reconcile();
 const maintenanceTimer = setInterval(() => void (async () => {
   await runMaintenance(prisma);
   await campaigns.reconcileActiveCampaigns();
 })().catch((error) => console.error('Falha de manutenção:', error)), 60 * 60_000);
+const followUpTimer = setInterval(() => void followUps.reconcile()
+  .catch((error) => console.error('Falha ao reconciliar follow-ups:', error)), 60_000);
 
 let recentSyncRunning = false;
 const syncRecentEvolutionMessages = async () => {
@@ -130,13 +154,14 @@ const recentSyncTimer = setInterval(() => void syncRecentEvolutionMessages(), 5_
 
 const shutdown = async () => {
   clearInterval(maintenanceTimer);
+  clearInterval(followUpTimer);
   clearInterval(recentSyncTimer);
   await Promise.all(workers.map((worker) => worker.close()));
-  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close()]);
+  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close(), followUpQueue.close()]);
   await prisma.$disconnect();
   await connection.quit();
 };
 process.on('SIGTERM', () => void shutdown().then(() => process.exit(0)));
 process.on('SIGINT', () => void shutdown().then(() => process.exit(0)));
 
-console.log('BZS One worker ativo: mensagens, e-mails, campanhas, automações e manutenção.');
+console.log('BZS One worker ativo: mensagens, e-mails, campanhas, automações, follow-ups e manutenção.');

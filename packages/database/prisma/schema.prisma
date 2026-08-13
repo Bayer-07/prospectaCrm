@@ -125,6 +125,28 @@ enum ChatbotSessionStatus {
   FAILED
 }
 
+enum FollowUpMode {
+  MESSAGE_SEQUENCE
+  WORKFLOW
+}
+
+enum FollowUpStatus {
+  SCHEDULED
+  RUNNING
+  COMPLETED
+  CANCELLED
+  INTERRUPTED
+  FAILED
+}
+
+enum FollowUpStepStatus {
+  PENDING
+  QUEUED
+  SENT
+  CANCELLED
+  FAILED
+}
+
 model Organization {
   id                     String                  @id @default(uuid()) @db.Uuid
   name                   String
@@ -158,6 +180,7 @@ model Organization {
   notifications          Notification[]
   emailTemplates         EmailTemplate[]
   quickReplies           QuickReply[]
+  conversationFollowUps  ConversationFollowUp[]
 }
 
 model Team {
@@ -247,6 +270,8 @@ model User {
   createdQuickReplies     QuickReply[]
   auditLogs               AuditLog[]
   notifications           Notification[]
+  followUpsCreated        ConversationFollowUp[] @relation("FollowUpCreator")
+  followUpsResponsible    ConversationFollowUp[] @relation("FollowUpResponsible")
 
   @@unique([organizationId, email])
   @@index([organizationId, teamId])
@@ -529,6 +554,7 @@ model Task {
   company        Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
   contact        Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
   opportunity    Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  followUp       ConversationFollowUp?
 
   @@index([organizationId, assigneeId, status, dueAt])
   @@index([organizationId, teamId, status, dueAt], map: "Task_team_status_due_idx")
@@ -769,6 +795,7 @@ model Conversation {
   events          ConversationEvent[]
   pins            ConversationPin[]
   chatbotSession  ChatbotSession?
+  followUps       ConversationFollowUp[]
 
   @@unique([instanceId, remoteJid])
   @@unique([instanceId, phoneJid])
@@ -831,6 +858,7 @@ model Message {
   instance          WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   conversation      Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   media             MediaAsset[]
+  followUpStep      ConversationFollowUpStep?
 
   @@unique([instanceId, providerMessageId])
   @@index([conversationId, createdAt(sort: Desc), id(sort: Desc)], map: "Message_page_idx")
@@ -1021,6 +1049,7 @@ model WorkflowVersion {
   createdAt   DateTime             @default(now())
   workflow    Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   enrollments WorkflowEnrollment[]
+  followUps   ConversationFollowUp[]
 
   @@unique([workflowId, version])
 }
@@ -1041,10 +1070,70 @@ model WorkflowEnrollment {
   version       WorkflowVersion         @relation(fields: [versionId], references: [id])
   contact       Contact                 @relation(fields: [contactId], references: [id], onDelete: Cascade)
   executions    WorkflowStepExecution[]
+  followUp      ConversationFollowUp?
 
   @@index([status, wakeAt])
   @@index([workflowId, contactId])
   @@index([contactId, status])
+}
+
+model ConversationFollowUp {
+  id                   String              @id @default(uuid()) @db.Uuid
+  organizationId       String              @db.Uuid
+  conversationId       String              @db.Uuid
+  taskId               String              @unique @db.Uuid
+  createdById          String              @db.Uuid
+  responsibleId        String              @db.Uuid
+  workflowVersionId    String?             @db.Uuid
+  workflowEnrollmentId String?             @unique @db.Uuid
+  mode                 FollowUpMode
+  status               FollowUpStatus      @default(SCHEDULED)
+  scheduledAt          DateTime
+  revision             Int                 @default(1)
+  startedAt            DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  cancellationReason   String?
+  failureReason        String?
+  createdAt            DateTime            @default(now())
+  updatedAt            DateTime            @updatedAt
+  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation         Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  task                 Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy            User                @relation("FollowUpCreator", fields: [createdById], references: [id])
+  responsible          User                @relation("FollowUpResponsible", fields: [responsibleId], references: [id])
+  workflowVersion      WorkflowVersion?    @relation(fields: [workflowVersionId], references: [id], onDelete: SetNull)
+  workflowEnrollment   WorkflowEnrollment? @relation(fields: [workflowEnrollmentId], references: [id], onDelete: SetNull)
+  steps                ConversationFollowUpStep[]
+
+  @@index([organizationId, status, scheduledAt], map: "FollowUp_org_status_due_idx")
+  @@index([conversationId, status], map: "FollowUp_conversation_status_idx")
+  @@index([responsibleId, status, scheduledAt], map: "FollowUp_responsible_status_due_idx")
+}
+
+model ConversationFollowUpStep {
+  id           String             @id @default(uuid()) @db.Uuid
+  followUpId   String             @db.Uuid
+  messageId    String?            @unique @db.Uuid
+  position     Int
+  text         String?
+  messageType  String             @default("text")
+  mediaKey     String?
+  mediaName    String?
+  mediaType    String?
+  delaySeconds Int                @default(0)
+  status       FollowUpStepStatus @default(PENDING)
+  scheduledAt  DateTime?
+  sentAt       DateTime?
+  failureReason String?
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  followUp     ConversationFollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  message      Message?           @relation(fields: [messageId], references: [id], onDelete: SetNull)
+
+  @@unique([followUpId, position])
+  @@index([followUpId, status, position], map: "FollowUpStep_followup_status_position_idx")
+  @@index([status, scheduledAt], map: "FollowUpStep_status_due_idx")
 }
 
 model WorkflowStepExecution {

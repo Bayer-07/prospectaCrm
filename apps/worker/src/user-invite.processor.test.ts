@@ -164,3 +164,33 @@ describe('recuperação de senha por e-mail', () => {
     expect(sendPasswordReset).not.toHaveBeenCalled();
   });
 });
+
+describe('alerta de follow-up por e-mail', () => {
+  it('avisa o responsável atual pelo Mailgun quando o contato responde antes do início', async () => {
+    const sendFollowUpAlert = vi.fn().mockResolvedValue({ id: 'follow-up-alert-id' });
+    const audit = vi.fn().mockResolvedValue({});
+    const processor = new UserInviteProcessor({
+      conversationFollowUp: { findUnique: vi.fn().mockResolvedValue({
+        id: 'follow-up-1',
+        organizationId: 'organization-1',
+        conversationId: 'conversation-1',
+        failureReason: null,
+        organization: { name: 'BZS Tecnologia' },
+        responsible: { id: 'user-1', name: 'Gabriel Bayer', email: 'gabriel@example.com', status: 'ACTIVE' },
+        conversation: { contact: { name: 'Maria' } },
+      }) },
+      auditLog: { create: audit },
+    } as never, { sendFollowUpAlert } as never);
+
+    await expect(processor.process({
+      name: 'send-follow-up-alert',
+      data: { followUpId: 'follow-up-1', reason: 'contact_replied_before_start' },
+    } as never)).resolves.toEqual({ sent: true, followUpId: 'follow-up-1', providerMessageId: 'follow-up-alert-id' });
+    expect(sendFollowUpAlert).toHaveBeenCalledWith(expect.objectContaining({
+      to: 'gabriel@example.com',
+      subject: 'Follow-up cancelado por resposta',
+      followUpId: 'follow-up-1',
+    }));
+    expect(audit).toHaveBeenCalledWith({ data: expect.objectContaining({ action: 'follow_up.alert_email_sent' }) });
+  });
+});

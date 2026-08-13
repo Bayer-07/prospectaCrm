@@ -28,6 +28,7 @@ import { useAuth } from '../App';
 import { api, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Field, Modal, PageLoading, SelectField } from '../components/ui';
+import { FollowUpModal } from '../components/FollowUpModal';
 
 type TaskStatus = 'OPEN' | 'COMPLETED' | 'CANCELLED';
 type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -42,6 +43,7 @@ type Task = {
   company?: { id: string; name: string };
   contact?: { id: string; name: string };
   opportunity?: { id: string; title: string };
+  followUp?: { id: string; conversationId: string; mode: string; status: string; scheduledAt: string; failureReason?: string | null };
 };
 type Metadata = { users: Array<{ id: string; name: string; teamId?: string }> };
 type CalendarView = 'month' | 'week';
@@ -194,7 +196,11 @@ export function TasksPage() {
           movingTaskId={movingTaskId}
           onCreate={createAt}
           onOpen={openTask}
-          onComplete={(task) => task.status === 'OPEN' && complete.mutate(task.id)}
+          onComplete={(task) => {
+            if (task.status !== 'OPEN') return;
+            if (task.followUp && !window.confirm('Concluir esta tarefa também cancelará o follow-up automático. Deseja continuar?')) return;
+            complete.mutate(task.id);
+          }}
         />
         : <WeekCalendar
           range={range}
@@ -209,16 +215,24 @@ export function TasksPage() {
       </DragOverlay>, document.body)}
     </DndContext>
 
-    {modal && <TaskModal
-      initialDueAt={modal.dueAt}
-      task={modal.task}
-      users={metadata.data?.data.users || []}
-      onClose={() => setModal(null)}
-      onSaved={() => {
-        setModal(null);
-        void client.invalidateQueries({ queryKey: ['tasks'] });
-      }}
-    />}
+    {modal?.task?.followUp
+      ? <FollowUpModal
+        conversationId={modal.task.followUp.conversationId}
+        contactName={modal.task.contact?.name || modal.task.title.replace(/^Follow-up\s*·\s*/u, '')}
+        followUpId={modal.task.followUp.id}
+        onClose={() => setModal(null)}
+        onSaved={() => void client.invalidateQueries({ queryKey: ['tasks'] })}
+      />
+      : modal && <TaskModal
+        initialDueAt={modal.dueAt}
+        task={modal.task}
+        users={metadata.data?.data.users || []}
+        onClose={() => setModal(null)}
+        onSaved={() => {
+          setModal(null);
+          void client.invalidateQueries({ queryKey: ['tasks'] });
+        }}
+      />}
   </div>;
 }
 
@@ -334,7 +348,7 @@ function MonthTaskEvent({ task, saving, onOpen, onComplete }: Readonly<{
   const moved = useRef(false);
   return <div
     ref={drag.setNodeRef}
-    className={`task-calendar-event priority-${task.priority.toLowerCase()}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
+    className={`task-calendar-event priority-${task.priority.toLowerCase()}${task.followUp ? ' follow-up' : ''}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
     title={`${timeFormatter.format(new Date(task.dueAt))} · ${task.title}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
     style={{ position: 'relative', pointerEvents: 'auto' }}
   >
@@ -363,6 +377,7 @@ function MonthTaskEvent({ task, saving, onOpen, onComplete }: Readonly<{
       style={{ position: 'absolute', inset: 0, zIndex: 1, border: 0, background: 'transparent', cursor: 'grab' }}
     />
     <span className="task-event-time" style={{ pointerEvents: 'none' }}>{timeFormatter.format(new Date(task.dueAt))}</span>
+    {task.followUp && <Clock size={12} aria-hidden="true" />}
     <strong style={{ pointerEvents: 'none' }}>{task.title}</strong>
     <button
       type="button"
@@ -525,7 +540,7 @@ function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: Rea
     ref={drag.setNodeRef}
     {...drag.attributes}
     {...drag.listeners}
-    className={`task-week-event priority-${task.priority.toLowerCase()}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
+    className={`task-week-event priority-${task.priority.toLowerCase()}${task.followUp ? ' follow-up' : ''}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
     style={{
       top: `${(minute / 1440) * 100}%`,
       left: `calc(${left}% + 3px)`,

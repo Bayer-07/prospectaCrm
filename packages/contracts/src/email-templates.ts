@@ -48,6 +48,11 @@ export type PasswordResetEmailInput = {
   expiresInMinutes: number;
 };
 
+export type FollowUpAlertEmailJob = {
+  followUpId: string;
+  reason: 'contact_replied_before_start' | 'execution_failed';
+};
+
 const SGA_URL = 'https://www.bzs.com.br/solucoes/controle-agua-e-gas/17';
 
 export function escapeEmailHtml(value: string) {

@@ -320,6 +320,10 @@ export function Shell() {
       scheduleInvalidation(['conversations']);
       scheduleInvalidation(['conversation']);
     };
+    const refreshTasks = () => {
+      scheduleInvalidation(['tasks']);
+      scheduleInvalidation(['conversation-follow-up']);
+    };
     const refreshAll = () => {
       refreshInbox(undefined, true);
       refreshWhatsapp();
@@ -334,6 +338,7 @@ export function Shell() {
     socket.on('connect_error', () => setRealtimeConnected(false));
     socket.on('inbox.updated', refreshInbox);
     socket.on('whatsapp.updated', refreshWhatsapp);
+    socket.on('tasks.updated', refreshTasks);
     socket.on('notification.created', () => scheduleInvalidation(['notifications']));
     return () => {
       for (const timer of invalidationTimers.values()) window.clearTimeout(timer);

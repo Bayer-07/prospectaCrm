@@ -24,6 +24,7 @@ export type {
   DefaultEmailTemplate,
   PasswordResetEmailInput,
   PasswordResetEmailJob,
+  FollowUpAlertEmailJob,
   UserInviteEmailInput,
   UserInviteEmailJob,
 } from './email-templates.js';
@@ -46,6 +47,15 @@ export type DeliveryStatus = (typeof deliveryStatuses)[number];
 
 export const workflowStatuses = ['draft', 'published', 'paused', 'archived'] as const;
 export type WorkflowStatus = (typeof workflowStatuses)[number];
+
+export const followUpModes = ['message_sequence', 'workflow'] as const;
+export type FollowUpMode = (typeof followUpModes)[number];
+
+export const followUpStatuses = ['scheduled', 'running', 'completed', 'cancelled', 'interrupted', 'failed'] as const;
+export type FollowUpStatus = (typeof followUpStatuses)[number];
+
+export const followUpStepStatuses = ['pending', 'queued', 'sent', 'cancelled', 'failed'] as const;
+export type FollowUpStepStatus = (typeof followUpStepStatuses)[number];
 
 export const opportunityStatuses = ['open', 'won', 'lost'] as const;
 export type OpportunityStatus = (typeof opportunityStatuses)[number];
@@ -181,6 +191,28 @@ export const taskInputSchema = z.object({
   companyId: z.string().uuid().optional(),
   opportunityId: z.string().uuid().optional(),
 });
+
+export const followUpMessageSchema = z.object({
+  text: z.string().max(4096).optional(),
+  mediaKey: z.string().trim().max(500).optional(),
+  delaySeconds: z.coerce.number().int().min(0).max(31_536_000).default(0),
+}).refine((message) => Boolean(message.text?.trim() || message.mediaKey), {
+  message: 'Cada mensagem precisa ter texto ou anexo',
+});
+
+export const followUpInputSchema = z.discriminatedUnion('mode', [
+  z.object({
+    mode: z.literal('message_sequence'),
+    scheduledAt: z.coerce.date(),
+    messages: z.array(followUpMessageSchema).min(1).max(20),
+  }),
+  z.object({
+    mode: z.literal('workflow'),
+    scheduledAt: z.coerce.date(),
+    workflowId: uuidSchema,
+  }),
+]);
+export type FollowUpInput = z.infer<typeof followUpInputSchema>;
 
 export const campaignCadenceSchema = z.object({
   bubbleDelayMinSeconds: z.number().int().min(1).default(3),

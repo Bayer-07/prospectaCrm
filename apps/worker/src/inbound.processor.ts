@@ -1,6 +1,6 @@
 import type { Job, Queue } from 'bullmq';
 import { Prisma, PrismaClient, type MessageStatus } from '@prisma/client';
-import { extractSharedWhatsappContacts, isOptOutMessage, normalizeEvolutionInstanceStatus, normalizePhoneKey } from '@prospecta/contracts';
+import { extractSharedWhatsappContacts, isOptOutMessage, normalizeEvolutionInstanceStatus, normalizePhoneKey, type FollowUpAlertEmailJob } from '@prospecta/contracts';
 import { createDecipheriv, createHash, hkdfSync } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
 import { storeInboundMedia } from './storage.js';
@@ -8,6 +8,7 @@ import { storeInboundMedia } from './storage.js';
 type AnyObject = Record<string, any>;
 type StoredMessageResult = {
   conversationId: string;
+  tasksUpdated?: boolean;
   newMessage?: {
     id: string;
     direction: 'INBOUND' | 'OUTBOUND';
@@ -497,7 +498,13 @@ export class InboundProcessor {
   private readonly targetedLookupCache = new Map<string, { expiresAt: number; request: Promise<AnyObject[]> }>();
   private readonly lastInstanceEventWriteAt = new Map<string, number>();
 
-  constructor(private readonly db: PrismaClient, private readonly chatbotQueue?: Queue, private readonly evolution = new EvolutionClient(), private readonly inboundQueue?: Queue) {}
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly chatbotQueue?: Queue,
+    private readonly evolution = new EvolutionClient(),
+    private readonly inboundQueue?: Queue,
+    private readonly transactionalEmailQueue?: Queue,
+  ) {}
 
   async process(job: Job<{ eventId?: string; messageId?: string }>) {
     if (job.name === 'repair-media-caption' && job.data.messageId) return this.repairMediaCaption(job.data.messageId);
@@ -514,12 +521,12 @@ export class InboundProcessor {
       const eventType = normalizeEvolutionEventType(event.eventType);
       await this.touchInstanceEvent(instance.id);
       this.markEvolutionActivity(instance.id);
-      const { conversationId, newMessage } = await this.dispatchEvent(instance, payload, eventType);
+      const { conversationId, newMessage, tasksUpdated } = await this.dispatchEvent(instance, payload, eventType);
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'processed', processedAt: new Date() } });
       return {
         organizationId: instance.organizationId,
         event: eventType.includes('CONNECTION') ? 'whatsapp.updated' : 'inbox.updated',
-        payload: { instanceId: instance.id, ...(conversationId ? { conversationId } : {}), ...(newMessage ? { newMessage } : {}) },
+        payload: { instanceId: instance.id, ...(conversationId ? { conversationId } : {}), ...(newMessage ? { newMessage } : {}), ...(tasksUpdated ? { tasksUpdated: true } : {}) },
       };
     } catch (error) {
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'failed', error: error instanceof Error ? error.message : String(error) } });
@@ -715,9 +722,12 @@ export class InboundProcessor {
       replyProviderMessageId,
       occurredAt,
     });
-    if (!fromMe) await this.handleInboundEffects(instance, conversation, ensuredContact, storedMessage.id, text);
+    const tasksUpdated = !fromMe
+      ? await this.handleInboundEffects(instance, conversation, ensuredContact, storedMessage.id, text)
+      : false;
     return {
       conversationId: conversation.id,
+      tasksUpdated,
       newMessage: {
         id: storedMessage.id,
         direction: fromMe ? 'OUTBOUND' : 'INBOUND',
@@ -987,7 +997,7 @@ export class InboundProcessor {
     text: string | null,
   ) {
     const optOut = this.isOptOut(text);
-    await this.db.$transaction(async (tx) => {
+    const followUpResult = await this.db.$transaction(async (tx) => {
       if (optOut) {
         await tx.contact.update({ where: { id: contact.id }, data: { consentStatus: 'REVOKED', consentRevokedAt: new Date() } });
         await tx.consentEvent.create({ data: { contactId: contact.id, status: 'REVOKED', source: 'WhatsApp', evidence: text || 'Palavra de descadastro' } });
@@ -995,6 +1005,7 @@ export class InboundProcessor {
       }
       await tx.campaignRecipient.updateMany({ where: { contactId: contact.id, status: { in: ['PENDING', 'QUEUED', 'SENT', 'DELIVERED', 'READ'] } }, data: { status: optOut ? 'OPTED_OUT' : 'REPLIED', repliedAt: new Date(), exclusionReason: optOut ? 'Descadastro recebido' : null } });
       await tx.workflowEnrollment.updateMany({ where: { contactId: contact.id, status: { in: ['ACTIVE', 'WAITING'] } }, data: { status: 'STOPPED', stopReason: optOut ? 'Descadastro recebido' : 'Contato respondeu', completedAt: new Date() } });
+      const followUp = await this.interruptFollowUpByReply(tx, instance, conversation.id, contact.name, messageId);
       if (conversation.assigneeId) await tx.notification.create({ data: {
         organizationId: instance.organizationId,
         userId: conversation.assigneeId,
@@ -1003,7 +1014,20 @@ export class InboundProcessor {
         body: text?.slice(0, 180),
         actionUrl: `/inbox/${conversation.id}`,
       } });
+      return {
+        alertId: followUp?.emailResponsible ? followUp.id : null,
+        changed: Boolean(followUp),
+      };
     });
+    if (followUpResult.alertId && this.transactionalEmailQueue) {
+      const data: FollowUpAlertEmailJob = { followUpId: followUpResult.alertId, reason: 'contact_replied_before_start' };
+      await this.transactionalEmailQueue.add('send-follow-up-alert', data, {
+        jobId: `follow-up-alert-${followUpResult.alertId}-reply`,
+        attempts: 6,
+        backoff: { type: 'exponential', delay: 60_000 },
+        removeOnComplete: 1_000,
+      });
+    }
     if (!optOut && !conversation.assigneeId) {
       await this.chatbotQueue?.add('process-chatbot-message', { messageId }, {
         jobId: `chatbot-inbound-${messageId}`,
@@ -1012,6 +1036,61 @@ export class InboundProcessor {
         removeOnComplete: 1000,
       });
     }
+    return followUpResult.changed;
+  }
+
+  private async interruptFollowUpByReply(
+    tx: Prisma.TransactionClient,
+    instance: InboundInstance,
+    conversationId: string,
+    contactName: string,
+    messageId: string,
+  ) {
+    const active = await tx.conversationFollowUp.findFirst({
+      where: { conversationId, status: { in: ['SCHEDULED', 'RUNNING'] } },
+      select: { id: true, status: true, taskId: true, responsibleId: true },
+    });
+    if (!active) return null;
+    const beforeStart = active.status === 'SCHEDULED';
+    const now = new Date();
+    await tx.conversationFollowUp.update({
+      where: { id: active.id },
+      data: beforeStart
+        ? { status: 'CANCELLED', cancelledAt: now, cancellationReason: 'Contato respondeu antes do início' }
+        : { status: 'INTERRUPTED', completedAt: now, cancellationReason: 'Contato respondeu durante a sequência' },
+    });
+    await tx.conversationFollowUpStep.updateMany({
+      where: { followUpId: active.id, status: { in: ['PENDING', 'QUEUED'] } },
+      data: { status: 'CANCELLED' },
+    });
+    await tx.message.updateMany({
+      where: { followUpStep: { followUpId: active.id }, status: 'QUEUED' },
+      data: { status: 'SKIPPED' },
+    });
+    await tx.task.update({
+      where: { id: active.taskId },
+      data: beforeStart
+        ? { status: 'CANCELLED', completedAt: null }
+        : { status: 'COMPLETED', completedAt: now },
+    });
+    await tx.conversationEvent.create({ data: {
+      organizationId: instance.organizationId,
+      conversationId,
+      type: beforeStart ? 'follow_up_cancelled_by_reply' : 'follow_up_interrupted_by_reply',
+      text: beforeStart
+        ? 'O follow-up automático foi cancelado porque o contato respondeu antes do envio'
+        : 'As mensagens restantes do follow-up foram canceladas porque o contato respondeu',
+      metadata: { followUpId: active.id, messageId },
+    } });
+    await tx.notification.create({ data: {
+      organizationId: instance.organizationId,
+      userId: active.responsibleId,
+      type: beforeStart ? 'follow_up.cancelled_by_reply' : 'follow_up.interrupted_by_reply',
+      title: beforeStart ? `Follow-up cancelado: ${contactName}` : `Follow-up interrompido: ${contactName}`,
+      body: beforeStart ? 'O contato respondeu antes do horário agendado.' : 'O contato respondeu durante a sequência.',
+      actionUrl: `/inbox/${conversationId}`,
+    } });
+    return { id: active.id, emailResponsible: beforeStart };
   }
 
   private async applyReaction(instanceId: string, reaction: { targetProviderMessageId: string; emoji: string }, fromMe: boolean, actorName: string) {

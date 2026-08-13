@@ -8,6 +8,7 @@ import { permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EXTERNAL_WEBHOOK_QUEUE } from '../queue/queue.module.js';
 import { MediaService } from '../media/media.service.js';
+import { FollowUpsService } from '../follow-ups/follow-ups.service.js';
 
 function csvSeparatorCount(line: string, separator: string) {
   let quoted = false;
@@ -84,6 +85,7 @@ export class CrmService {
     private readonly db: PrismaService,
     @Inject(EXTERNAL_WEBHOOK_QUEUE) private readonly externalWebhooks: Queue,
     private readonly media?: MediaService,
+    private readonly followUps?: FollowUpsService,
   ) {}
 
   async dashboard(auth: AuthContext) {
@@ -606,7 +608,13 @@ export class CrmService {
         ...(from || to ? { dueAt: { ...(from ? { gte: from } : {}), ...(to ? { lt: to } : {}) } } : {}),
         ...(normalizedStatus && normalizedStatus !== 'ALL' ? { status: normalizedStatus as never } : {}),
       },
-      include: { assignee: { select: { id: true, name: true } }, company: { select: { id: true, name: true } }, contact: { select: { id: true, name: true } }, opportunity: { select: { id: true, title: true } } },
+      include: {
+        assignee: { select: { id: true, name: true } },
+        company: { select: { id: true, name: true } },
+        contact: { select: { id: true, name: true } },
+        opportunity: { select: { id: true, title: true } },
+        followUp: { select: { id: true, conversationId: true, mode: true, status: true, scheduledAt: true, failureReason: true } },
+      },
       orderBy: [{ dueAt: 'asc' }, { status: 'asc' }], take: 2_000,
     });
   }
@@ -639,8 +647,9 @@ export class CrmService {
   }
 
   async completeTask(auth: AuthContext, id: string) {
-    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth) } });
+    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth) }, include: { followUp: { select: { id: true } } } });
     if (!before) throw new NotFoundException('Tarefa não encontrada');
+    if (before.followUp && this.followUps) return this.followUps.finishFromTask(auth, id, true);
     const task = await this.db.task.update({ where: { id }, data: { status: 'COMPLETED', completedAt: new Date() } });
     await this.audit(auth, 'task.completed', 'Task', id, before, task);
     return task;
@@ -648,8 +657,14 @@ export class CrmService {
 
   async updateTask(auth: AuthContext, id: string, raw: unknown) {
     const input = this.parse(taskInputSchema.partial(), raw);
-    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') } });
+    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') }, include: { followUp: { select: { id: true } } } });
     if (!before) throw new NotFoundException('Tarefa não encontrada');
+    if (before.followUp && this.followUps) {
+      if (!input.dueAt || Object.keys(input).some((key) => key !== 'dueAt')) {
+        throw new BadRequestException('Edite os detalhes pelo painel do follow-up automático');
+      }
+      return this.followUps.rescheduleFromTask(auth, id, input.dueAt);
+    }
     const { priority, ...fields } = input;
     const task = await this.db.task.update({ where: { id }, data: { ...fields, ...(priority ? { priority: priority.toUpperCase() as never } : {}) } as Prisma.TaskUncheckedUpdateInput });
     await this.audit(auth, 'task.updated', 'Task', id, before, task);
@@ -657,8 +672,9 @@ export class CrmService {
   }
 
   async cancelTask(auth: AuthContext, id: string) {
-    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') } });
+    const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') }, include: { followUp: { select: { id: true } } } });
     if (!before) throw new NotFoundException('Tarefa não encontrada');
+    if (before.followUp && this.followUps) return this.followUps.finishFromTask(auth, id, false);
     const task = await this.db.task.update({ where: { id }, data: { status: 'CANCELLED' } });
     await this.audit(auth, 'task.cancelled', 'Task', id, before, task);
     return task;

@@ -371,6 +371,12 @@ export class EvolutionService {
       },
       assignee: { select: { id: true, name: true } },
       instance: { select: { id: true, name: true, phone: true, status: true } },
+      followUps: {
+        where: { status: { in: ['SCHEDULED', 'RUNNING'] } },
+        select: { id: true, status: true, scheduledAt: true, mode: true },
+        orderBy: { createdAt: 'desc' as const },
+        take: 1,
+      },
       messages: {
         where: { type: { not: 'reaction' } },
         select: { id: true, text: true, type: true, createdAt: true },
@@ -580,6 +586,12 @@ export class EvolutionService {
           },
         },
         assignee: { select: { id: true, name: true } }, instance: true,
+        followUps: {
+          where: { status: { in: ['SCHEDULED', 'RUNNING'] } },
+          select: { id: true, status: true, scheduledAt: true, mode: true },
+          orderBy: { createdAt: 'desc' },
+          take: 1,
+        },
       },
     });
     if (!conversation) throw new NotFoundException('Conversa não encontrada');
@@ -927,12 +939,23 @@ export class EvolutionService {
         data: { status: 'STOPPED' as const, stopReason: 'Atendimento assumido por um usuário', completedAt: new Date() },
       })] : []),
       ...(event ? [this.conversationEvent(auth, id, event.type, event.text, { assigneeId })] : []),
+      ...(assigneeId && assignee ? [
+        this.db.conversationFollowUp.updateMany({
+          where: { conversationId: id, status: { in: ['SCHEDULED', 'RUNNING'] } },
+          data: { responsibleId: assigneeId },
+        }),
+        this.db.task.updateMany({
+          where: { followUp: { conversationId: id, status: { in: ['SCHEDULED', 'RUNNING'] } } },
+          data: { assigneeId, teamId: assignee.teamId },
+        }),
+      ] : []),
     ]);
     if (assigneeId) await this.db.notification.create({ data: {
       organizationId: auth.organizationId, userId: assigneeId, type: 'conversation.assigned',
       title: `Conversa atribuída: ${conversation.remoteJid}`, actionUrl: `/inbox/${id}`,
     } });
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId: id });
+    if (assigneeId) this.realtime.notifyOrganization(auth.organizationId, 'tasks.updated', { conversationId: id });
     return updated;
   }
 
@@ -946,7 +969,7 @@ export class EvolutionService {
       organizationId: auth.organizationId,
       status: 'ACTIVE',
       ...(auth.roleKey !== 'admin' && auth.teamId ? { teamId: auth.teamId } : {}),
-    }, select: { id: true, name: true } });
+    }, select: { id: true, name: true, teamId: true } });
     if (!assignee) throw new BadRequestException('Responsável inválido');
     return assignee;
   }
@@ -1103,8 +1126,19 @@ export class EvolutionService {
         previousAssigneeId: conversation.assigneeId,
         assigneeId: nextAssigneeId,
       })] : []),
+      ...(tookOwnership && nextAssigneeId ? [
+        this.db.conversationFollowUp.updateMany({
+          where: { conversationId: id, status: { in: ['SCHEDULED', 'RUNNING'] } },
+          data: { responsibleId: nextAssigneeId },
+        }),
+        this.db.task.updateMany({
+          where: { followUp: { conversationId: id, status: { in: ['SCHEDULED', 'RUNNING'] } } },
+          data: { assigneeId: nextAssigneeId, teamId: auth.teamId || null },
+        }),
+      ] : []),
     ]);
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId: id });
+    if (tookOwnership) this.realtime.notifyOrganization(auth.organizationId, 'tasks.updated', { conversationId: id });
     return updated;
   }
 

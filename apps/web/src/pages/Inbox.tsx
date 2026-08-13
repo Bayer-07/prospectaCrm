@@ -10,6 +10,7 @@ import { describeMessageFailure, type MessageFailure } from '../lib/message-erro
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { ContactModal } from '../components/ContactModal';
+import { FollowUpModal } from '../components/FollowUpModal';
 import { firstWhatsappLink, WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../components/WhatsappText';
 import { useAuth } from '../App';
 import { useRealtimeConnected } from '../lib/realtime';
@@ -90,6 +91,18 @@ function awaitsRecoveredCaption(message: Message) {
   if (message.payload?.captionCompanionProviderMessageId || message.payload?.recoveredCaption) return false;
   const age = Date.now() - new Date(message.createdAt).getTime();
   return age >= 0 && age < 2 * 60_000;
+}
+
+function canWriteResource(user: ReturnType<typeof useAuth>['user'], resource: string) {
+  return Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
+    (permission.resource === '*' || permission.resource === resource)
+    && (permission.action === '*' || permission.action === 'write')));
+}
+
+function followUpDisabledReason(conversation: Conversation, allowed: boolean) {
+  if (!allowed) return 'Você não possui permissão para agendar follow-ups';
+  if (!conversation.assignee) return 'Assuma a conversa antes de agendar um follow-up';
+  return undefined;
 }
 
 function conversationListUrl(filter: InboxFilter, view: string, filters: string) {
@@ -276,6 +289,7 @@ export function InboxPage() {
   const [startingConversation, setStartingConversation] = useState(false);
   const [showAll, setShowAll] = useState(false);
   const [ticketMenu, setTicketMenu] = useState<TicketContextMenuState | null>(null);
+  const [followUpConversation, setFollowUpConversation] = useState<Conversation | null>(null);
   const [filterPanelOpen, setFilterPanelOpen] = useState(false);
   const [draftListFilters, setDraftListFilters] = useState<ConversationListFilters>({ ...EMPTY_CONVERSATION_FILTERS });
   const [appliedListFilters, setAppliedListFilters] = useState<ConversationListFilters>({ ...EMPTY_CONVERSATION_FILTERS });
@@ -583,6 +597,7 @@ export function InboxPage() {
       menu={ticketMenu}
       onClose={() => setTicketMenu(null)}
       onUpdated={invalidate}
+      onFollowUp={setFollowUpConversation}
       onFinalized={(conversationId) => {
         if (conversationId === selectedId) {
           closingWithoutFilterChangeRef.current = conversationId;
@@ -591,6 +606,13 @@ export function InboxPage() {
         invalidate();
       }}
     />
+    {followUpConversation && <FollowUpModal
+      conversationId={followUpConversation.id}
+      contactName={followUpConversation.contact.name}
+      followUpId={followUpConversation.followUps?.[0]?.id}
+      onClose={() => setFollowUpConversation(null)}
+      onSaved={invalidate}
+    />}
     {startingConversation && <NewConversationModal onClose={() => setStartingConversation(false)} onStarted={(id) => {
       setStartingConversation(false);
       setFilter('open');
@@ -601,11 +623,12 @@ export function InboxPage() {
   </div>;
 }
 
-function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: Readonly<{
+function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowUp }: Readonly<{
   menu: TicketContextMenuState | null;
   onClose(): void;
   onUpdated(): void;
   onFinalized(conversationId: string): void;
+  onFollowUp(conversation: Conversation): void;
 }>) {
   const { user } = useAuth();
   const [opportunityContact, setOpportunityContact] = useState<Contact | null>(null);
@@ -613,6 +636,7 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: Readonl
   const [transferTarget, setTransferTarget] = useState('');
   const canCreateOpportunity = Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
     (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
+  const canScheduleFollowUp = canWriteResource(user, 'conversations') && canWriteResource(user, 'tasks');
   const assignees = useQuery({
     queryKey: ['conversation-assignees'],
     queryFn: () => api<Envelope<ConversationAssignee[]>>('/conversations/assignees'),
@@ -692,6 +716,7 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized }: Readonl
       <button type="button" className="message-menu-scrim" onClick={onClose} aria-label="Fechar ações do ticket" />
       <div className="conversation-action-menu ticket-context-menu" role="menu" style={{ top: menu.top, left: menu.left }}>
         {menu.conversation.status === 'OPEN' && <button type="button" role="menuitem" disabled={pin.isPending} onClick={() => { const item = menu.conversation; onClose(); pin.mutate(item); }}>{menu.conversation.isPinned ? <PinOff size={17} /> : <Pin size={17} />}<span>{menu.conversation.isPinned ? 'Desafixar' : 'Fixar'}</span></button>}
+        <button type="button" role="menuitem" disabled={!menu.conversation.assignee || !canScheduleFollowUp} title={followUpDisabledReason(menu.conversation, canScheduleFollowUp)} onClick={() => { const item = menu.conversation; onClose(); onFollowUp(item); }}><Clock size={17} /><span>{menu.conversation.followUps?.length ? 'Ver/editar follow-up' : 'Agendar follow-up automático'}</span></button>
         <button type="button" role="menuitem" className="danger" disabled={menu.conversation.status === 'CLOSED' || finalize.isPending} title={menu.conversation.status === 'CLOSED' ? 'Este atendimento já está finalizado' : undefined} onClick={() => { const item = menu.conversation; onClose(); finalize.mutate(item); }}><Archive size={17} /><span>Finalizar</span></button>
         {menu.conversation.contact.phone
           ? <a role="menuitem" href={`tel:${menu.conversation.contact.phone}`} onClick={onClose}><Phone size={17} /><span>Ligar</span></a>
@@ -936,6 +961,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [instanceChangeOpen, setInstanceChangeOpen] = useState(false);
   const [instanceTarget, setInstanceTarget] = useState('');
   const [opportunityOpen, setOpportunityOpen] = useState(false);
+  const [followUpOpen, setFollowUpOpen] = useState(false);
   const [sharedContactToStart, setSharedContactToStart] = useState<SharedWhatsappContact | null>(null);
   const [actionNotice, setActionNotice] = useState('');
   const [actionError, setActionError] = useState('');
@@ -986,6 +1012,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     (permission.resource === '*' || permission.resource === 'workflows') && (permission.action === '*' || permission.action === 'write')));
   const canCreateOpportunity = Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
     (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
+  const canScheduleFollowUp = canWriteResource(user, 'conversations') && canWriteResource(user, 'tasks');
   const workflows = useQuery({
     queryKey: ['workflow-shortcuts'],
     queryFn: () => api<Envelope<WorkflowShortcut[]>>('/workflows'),
@@ -1822,6 +1849,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
           ? <a role="menuitem" href={`tel:${conversation.contact.phone}`} onClick={() => setConversationMenu(null)}><Phone size={17} /><span>Ligar para {formatPhone(conversation.contact.phone)}</span></a>
           : <button type="button" role="menuitem" disabled title="O contato não possui telefone cadastrado"><Phone size={17} /><span>Ligar</span></button>}
         <button type="button" role="menuitem" disabled={!canCreateOpportunity} title={!canCreateOpportunity ? 'Você não possui permissão para criar oportunidades' : undefined} onClick={() => { setConversationMenu(null); setOpportunityOpen(true); }}><BriefcaseBusiness size={17} /><span>Criar oportunidade</span></button>
+        <button type="button" role="menuitem" disabled={!conversation.assignee || !canScheduleFollowUp} title={followUpDisabledReason(conversation, canScheduleFollowUp)} onClick={() => { setConversationMenu(null); setFollowUpOpen(true); }}><Clock size={17} /><span>{conversation.followUps?.length ? 'Ver/editar follow-up' : 'Agendar follow-up automático'}</span></button>
         <button type="button" role="menuitem" disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa antes de transferir' : undefined} onClick={() => { setConversationMenu(null); setTransferTarget(''); transfer.reset(); setTransferOpen(true); }}><ArrowRightLeft size={17} /><span>Transferir para atendente</span></button>
         <button type="button" role="menuitem" disabled={exportPdf.isPending} onClick={() => { setConversationMenu(null); setActionError(''); exportPdf.mutate(); }}><Download size={17} /><span>{exportPdf.isPending ? 'Exportando PDF…' : 'Exportar para PDF'}</span></button>
       </div>
@@ -1847,6 +1875,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       }}
     />}
     {contactOpen && <ContactDrawer conversation={conversation} onClose={() => setContactOpen(false)} onUpdated={onSend} />}
+    {followUpOpen && <FollowUpModal conversationId={conversation.id} contactName={conversation.contact.name} followUpId={conversation.followUps?.[0]?.id} onClose={() => setFollowUpOpen(false)} onSaved={onSend} />}
     {editHistoryMessage && <MessageEditHistoryModal message={editHistoryMessage} onClose={() => setEditHistoryMessage(null)} />}
     {deletingMessage && <Modal title="Apagar mensagem?" onClose={() => { if (!remove.isPending) setDeletingMessage(null); }} width={470}>
       <div className="delete-message-confirmation"><div className="delete-message-icon"><Trash2 size={22} /></div><div><strong>Apagar para todos</strong><p>A mensagem será removida desta conversa e também do WhatsApp do contato.</p><blockquote>{messagePreview(deletingMessage)}</blockquote></div></div>

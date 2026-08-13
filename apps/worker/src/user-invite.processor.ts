@@ -2,7 +2,10 @@ import type { Job } from 'bullmq';
 import type { PrismaClient } from '@prisma/client';
 import {
   renderPasswordResetEmail,
+  renderBzsEmailLayout,
   renderUserInviteEmail,
+  escapeEmailHtml,
+  type FollowUpAlertEmailJob,
   type PasswordResetEmailJob,
   type UserInviteEmailJob,
 } from '@prospecta/contracts';
@@ -14,7 +17,10 @@ export class UserInviteProcessor {
     private readonly mailgun = new MailgunClient(),
   ) {}
 
-  async process(job: Job<UserInviteEmailJob | PasswordResetEmailJob>) {
+  async process(job: Job<UserInviteEmailJob | PasswordResetEmailJob | FollowUpAlertEmailJob>) {
+    if (job.name === 'send-follow-up-alert') {
+      return this.processFollowUpAlert(job as Job<FollowUpAlertEmailJob>);
+    }
     if (job.name === 'send-password-reset') {
       return this.processPasswordReset(job as Job<PasswordResetEmailJob>);
     }
@@ -185,4 +191,64 @@ export class UserInviteProcessor {
       throw error;
     }
   }
+
+  private async processFollowUpAlert(job: Job<FollowUpAlertEmailJob>) {
+    const followUp = await this.db.conversationFollowUp.findUnique({
+      where: { id: job.data.followUpId },
+      include: {
+        organization: { select: { name: true } },
+        responsible: { select: { id: true, name: true, email: true, status: true } },
+        conversation: { include: { contact: { select: { name: true } } } },
+      },
+    });
+    if (!followUp) return { skipped: true, reason: 'follow-up não encontrado' };
+    if (followUp.responsible.status !== 'ACTIVE' || !followUp.responsible.email) {
+      return { skipped: true, reason: 'responsável sem e-mail ativo' };
+    }
+    const replied = job.data.reason === 'contact_replied_before_start';
+    const title = replied ? 'Follow-up cancelado por resposta' : 'Follow-up precisa da sua atenção';
+    const explanation = replied
+      ? `${followUp.conversation.contact.name} respondeu antes do horário agendado. O envio automático foi cancelado.`
+      : `O follow-up de ${followUp.conversation.contact.name} não pôde ser executado: ${followUp.failureReason || 'falha não informada'}.`;
+    const appUrl = withoutTrailingSlashes(String(process.env.APP_URL || 'http://localhost:5173'));
+    const text = [
+      `Olá, ${followUp.responsible.name}.`,
+      '',
+      explanation,
+      '',
+      `Abrir conversa: ${appUrl}/inbox/${followUp.conversationId}`,
+    ].join('\n');
+    const html = renderBzsEmailLayout({
+      preheader: explanation,
+      eyebrow: 'FOLLOW-UP AUTOMÁTICO',
+      brandLabel: 'BZS ONE',
+      title,
+      bodyHtml: `<p style="margin:0">Olá, <strong>${escapeEmailHtml(followUp.responsible.name)}</strong>.</p><p style="margin:16px 0 0">${escapeEmailHtml(explanation)}</p>`,
+      callToAction: { label: 'Abrir conversa', href: `${appUrl}/inbox/${followUp.conversationId}` },
+      footerText: `Aviso automático de ${followUp.organization.name}.`,
+    });
+    const result = await this.mailgun.sendFollowUpAlert({
+      to: followUp.responsible.email,
+      subject: title,
+      html,
+      text,
+      followUpId: followUp.id,
+      userId: followUp.responsible.id,
+    });
+    await this.db.auditLog.create({ data: {
+      organizationId: followUp.organizationId,
+      userId: followUp.responsible.id,
+      action: 'follow_up.alert_email_sent',
+      entityType: 'ConversationFollowUp',
+      entityId: followUp.id,
+      after: { reason: job.data.reason, recipient: followUp.responsible.email, providerMessageId: result.id },
+    } });
+    return { sent: true, followUpId: followUp.id, providerMessageId: result.id };
+  }
+}
+
+function withoutTrailingSlashes(value: string) {
+  let end = value.length;
+  while (end > 0 && value[end - 1] === '/') end -= 1;
+  return value.slice(0, end);
 }
