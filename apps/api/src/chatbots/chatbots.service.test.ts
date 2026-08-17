@@ -46,6 +46,36 @@ describe('validação do mapa do chatbot', () => {
     }, true)).not.toThrow();
   });
 
+  it('aceita uma espera em segundos e permite ciclos assíncronos por ela', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'message', type: 'message', data: { text: 'Ainda estou por aqui' } },
+        { id: 'wait', type: 'wait', data: { seconds: 30 } },
+        { id: 'condition', type: 'condition', data: { value: 'continuar' } },
+        { id: 'end', type: 'end' },
+      ],
+      edges: [
+        { source: 'start', target: 'wait' },
+        { source: 'wait', target: 'message' },
+        { source: 'message', target: 'condition' },
+        { source: 'condition', sourceHandle: 'true', target: 'wait' },
+        { source: 'condition', sourceHandle: 'false', target: 'end' },
+      ],
+    }, true)).not.toThrow();
+  });
+
+  it('bloqueia uma espera com duração inválida', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'wait', type: 'wait', data: { seconds: 0 } },
+        { id: 'end', type: 'end' },
+      ],
+      edges: [{ source: 'start', target: 'wait' }, { source: 'wait', target: 'end' }],
+    }, true)).toThrow(/tempo de espera válido/);
+  });
+
   it('bloqueia ciclos que enviariam mensagens sem aguardar o contato', () => {
     expect(() => service.validateShape({
       nodes: [
@@ -92,7 +122,7 @@ describe('exclusão de chatbot', () => {
     await expect(chatbotService.remove(auth, 'chatbot-1')).resolves.toEqual({ id: 'chatbot-1', status: 'ARCHIVED' });
     expect(updateSessions).toHaveBeenCalledWith({
       where: { chatbotId: 'chatbot-1', status: { in: ['ACTIVE', 'WAITING'] } },
-      data: { status: 'STOPPED', stopReason: 'Chatbot excluído', completedAt: expect.any(Date) },
+      data: { status: 'STOPPED', wakeAt: null, stopReason: 'Chatbot excluído', completedAt: expect.any(Date) },
     });
     expect(updateChatbot).toHaveBeenCalledWith({ where: { id: 'chatbot-1' }, data: { status: 'ARCHIVED' } });
     expect(audit).toHaveBeenCalledWith({ data: expect.objectContaining({

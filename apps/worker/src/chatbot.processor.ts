@@ -8,17 +8,55 @@ type Edge = { source: string; target: string; sourceHandle?: string | null };
 type Graph = { nodes: Node[]; edges: Edge[] };
 type SessionContext = ChatbotRuleContext & { previousMessage?: string };
 type NodeExecution = { nextNodeId: string | null; shouldStop: boolean };
+type ChatbotInboundJob = { messageId: string };
+type ChatbotDelayJob = { sessionId: string; nodeId: string; inboundMessageId: string; wakeAt: string };
+type ChatbotJob = ChatbotInboundJob | ChatbotDelayJob;
+
+const MAX_WAIT_SECONDS = 31_536_000;
 
 export class ChatbotProcessor {
   private readonly providers: Map<string, ChatbotResponseProvider>;
 
-  constructor(private readonly db: PrismaClient, private readonly outboundQueue: Queue, providers: ChatbotResponseProvider[] = [new RulesResponseProvider()]) {
+  constructor(
+    private readonly db: PrismaClient,
+    private readonly chatbotQueue: Queue,
+    private readonly outboundQueue: Queue,
+    providers: ChatbotResponseProvider[] = [new RulesResponseProvider()],
+  ) {
     this.providers = new Map(providers.map((provider) => [provider.key, provider]));
   }
 
-  async process(job: Job<{ messageId: string }>) {
+  async process(job: Job<ChatbotJob>) {
+    if ('sessionId' in job.data) return this.resumeDelay(job.data);
+    return this.processInbound(job.data.messageId);
+  }
+
+  async reconcileDelays(reference = new Date()) {
+    const horizon = new Date(reference.getTime() + 24 * 60 * 60_000);
+    const sessions = await this.db.chatbotSession.findMany({
+      where: {
+        status: 'WAITING',
+        wakeAt: { not: null, lte: horizon },
+        currentNodeId: { not: null },
+        lastInboundMessageId: { not: null },
+        chatbot: { status: 'PUBLISHED' },
+      },
+      select: { id: true, currentNodeId: true, lastInboundMessageId: true, wakeAt: true },
+      orderBy: { wakeAt: 'asc' },
+      take: 1_000,
+    });
+    await Promise.all(sessions.map((session) => this.enqueueDelay({
+      sessionId: session.id,
+      nodeId: session.currentNodeId!,
+      inboundMessageId: session.lastInboundMessageId!,
+      wakeAt: session.wakeAt!,
+    })));
+    return { scheduled: sessions.length };
+  }
+
+  private async processInbound(messageId: string) {
     const inbound = await this.db.message.findUnique({
-      where: { id: job.data.messageId },
+      where: { id: messageId },
       select: {
         id: true,
         direction: true,
@@ -104,6 +142,71 @@ export class ChatbotProcessor {
     }
   }
 
+  private async resumeDelay(data: ChatbotDelayJob) {
+    const session = await this.db.chatbotSession.findUnique({
+      where: { id: data.sessionId },
+      include: {
+        chatbot: { select: { status: true, responseProvider: true } },
+        version: { select: { graph: true } },
+        conversation: { select: { id: true, organizationId: true, contactId: true, assigneeId: true, status: true } },
+      },
+    });
+    const expectedWakeAt = new Date(data.wakeAt);
+    if (!session
+      || session.status !== 'WAITING'
+      || session.currentNodeId !== data.nodeId
+      || !session.wakeAt
+      || session.wakeAt.getTime() !== expectedWakeAt.getTime()) return;
+    if (session.chatbot.status !== 'PUBLISHED'
+      || session.conversation.assigneeId
+      || session.conversation.status === 'CLOSED') {
+      await this.db.chatbotSession.update({
+        where: { id: session.id },
+        data: { status: 'STOPPED', wakeAt: null, stopReason: 'Chatbot interrompido durante a espera', completedAt: new Date() },
+      });
+      return;
+    }
+    if (session.wakeAt.getTime() > Date.now()) {
+      return;
+    }
+
+    const graph = session.version.graph as unknown as Graph;
+    const nextNodeId = this.next(graph, data.nodeId)?.target || null;
+    if (!nextNodeId) {
+      await this.complete(session.id, session.conversation.id, 'Fluxo finalizado após a espera');
+      return;
+    }
+    const claimed = await this.db.chatbotSession.updateMany({
+      where: { id: session.id, status: 'WAITING', currentNodeId: data.nodeId, wakeAt: expectedWakeAt },
+      data: { status: 'ACTIVE', currentNodeId: nextNodeId, wakeAt: null },
+    });
+    if (!claimed.count) return;
+    await this.db.chatbotStepExecution.updateMany({
+      where: { sessionId: session.id, nodeId: data.nodeId, inboundMessageId: data.inboundMessageId, status: 'waiting' },
+      data: { status: 'completed', completedAt: new Date(), output: { wakeAt: data.wakeAt, nextNodeId } },
+    });
+    const provider = this.providers.get(session.chatbot.responseProvider);
+    if (!provider) return this.fail(session.id, 'Provedor de respostas do chatbot não encontrado');
+    try {
+      await this.run(
+        graph,
+        { id: session.id, conversationId: session.conversation.id, currentNodeId: nextNodeId },
+        session.conversation.contactId,
+        data.inboundMessageId,
+        session.context as unknown as SessionContext,
+        provider,
+      );
+    } catch (error) {
+      await this.fail(session.id, error instanceof Error ? error.message : String(error));
+      throw error;
+    }
+    return {
+      organizationId: session.conversation.organizationId,
+      event: 'inbox.updated' as const,
+      payload: { conversationId: session.conversation.id },
+    };
+  }
+
   private async prepareSession(input: {
     existing: any;
     chatbotId: string;
@@ -118,6 +221,7 @@ export class ChatbotProcessor {
     const session = input.existing;
     if (session?.lastInboundMessageId === input.inboundMessageId) return null;
     if (session?.status && ['HANDED_OFF', 'STOPPED'].includes(session.status)) return null;
+    if (session?.status === 'WAITING' && session.wakeAt) return null;
     const startsNew = session?.chatbotId !== input.chatbotId
       || session?.versionId !== input.versionId
       || ['COMPLETED', 'FAILED'].includes(session?.status);
@@ -138,7 +242,7 @@ export class ChatbotProcessor {
     return this.db.chatbotSession.upsert({
       where: { conversationId: input.conversationId },
       create: { chatbotId: input.chatbotId, versionId: input.versionId, conversationId: input.conversationId, currentNodeId: input.trigger.id, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue },
-      update: { chatbotId: input.chatbotId, versionId: input.versionId, status: 'ACTIVE', currentNodeId: input.trigger.id, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue, stopReason: null, startedAt: new Date(), completedAt: null },
+      update: { chatbotId: input.chatbotId, versionId: input.versionId, status: 'ACTIVE', currentNodeId: input.trigger.id, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue, wakeAt: null, stopReason: null, startedAt: new Date(), completedAt: null },
     });
   }
 
@@ -166,7 +270,7 @@ export class ChatbotProcessor {
     }
     return this.db.chatbotSession.update({
       where: { id: session.id },
-      data: { status: 'ACTIVE', currentNodeId: nextNodeId, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue },
+      data: { status: 'ACTIVE', currentNodeId: nextNodeId, lastInboundMessageId: input.inboundMessageId, context: input.context as unknown as Prisma.InputJsonValue, wakeAt: null },
     });
   }
 
@@ -198,8 +302,10 @@ export class ChatbotProcessor {
         return this.moveSessionToNextNode(graph, session.id, node.id);
       case 'question':
         await this.sendReply(session.id, session.conversationId, node, inboundMessageId, provider.interpolate(textValue(node.data?.text), context));
-        await this.db.chatbotSession.update({ where: { id: session.id }, data: { status: 'WAITING', currentNodeId: node.id } });
+        await this.db.chatbotSession.update({ where: { id: session.id }, data: { status: 'WAITING', currentNodeId: node.id, wakeAt: null } });
         return { nextNodeId: node.id, shouldStop: true };
+      case 'wait':
+        return this.scheduleWait(graph, session, node, inboundMessageId);
       case 'condition': {
         const handle = provider.matches(node.data || {}, context) ? 'true' : 'false';
         await this.record(session.id, node.id, inboundMessageId, context, { handle });
@@ -237,6 +343,65 @@ export class ChatbotProcessor {
       await this.db.chatbotSession.update({ where: { id: sessionId }, data: { currentNodeId: nextNodeId } });
     }
     return { nextNodeId, shouldStop: false };
+  }
+
+  private async scheduleWait(
+    graph: Graph,
+    session: { id: string; conversationId: string },
+    node: Node,
+    inboundMessageId: string,
+  ): Promise<NodeExecution> {
+    const nextNodeId = this.next(graph, node.id)?.target || null;
+    if (!nextNodeId) return { nextNodeId: null, shouldStop: false };
+    const seconds = chatbotWaitSeconds(node.data);
+    const wakeAt = new Date(Date.now() + seconds * 1_000);
+    const unique = { sessionId_nodeId_inboundMessageId: { sessionId: session.id, nodeId: node.id, inboundMessageId } };
+    await this.db.$transaction([
+      this.db.chatbotSession.update({
+        where: { id: session.id },
+        data: { status: 'WAITING', currentNodeId: node.id, wakeAt },
+      }),
+      this.db.chatbotStepExecution.upsert({
+        where: unique,
+        create: {
+          sessionId: session.id,
+          nodeId: node.id,
+          inboundMessageId,
+          status: 'waiting',
+          input: { seconds },
+          output: { wakeAt: wakeAt.toISOString(), nextNodeId },
+        },
+        update: {
+          status: 'waiting',
+          input: { seconds },
+          output: { wakeAt: wakeAt.toISOString(), nextNodeId },
+          error: null,
+          completedAt: null,
+        },
+      }),
+    ]);
+    try {
+      await this.enqueueDelay({ sessionId: session.id, nodeId: node.id, inboundMessageId, wakeAt });
+    } catch (error) {
+      console.error(`[chatbot:${session.id}] A espera será recuperada pelo reconciliador.`, error);
+    }
+    return { nextNodeId: node.id, shouldStop: true };
+  }
+
+  private enqueueDelay(input: { sessionId: string; nodeId: string; inboundMessageId: string; wakeAt: Date }) {
+    return this.chatbotQueue.add('resume-chatbot-delay', {
+      sessionId: input.sessionId,
+      nodeId: input.nodeId,
+      inboundMessageId: input.inboundMessageId,
+      wakeAt: input.wakeAt.toISOString(),
+    }, {
+      jobId: `chatbot-delay-${input.sessionId}-${input.nodeId}-${input.inboundMessageId}-${input.wakeAt.getTime()}`,
+      delay: Math.max(0, input.wakeAt.getTime() - Date.now()),
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: 1_000,
+      removeOnFail: 5_000,
+    });
   }
 
   private async sendReply(sessionId: string, conversationId: string, node: Node, inboundMessageId: string, text: string) {
@@ -279,7 +444,7 @@ export class ChatbotProcessor {
     const conversation = await this.db.conversation.findUnique({ where: { id: conversationId }, include: { contact: true } });
     if (!conversation) return;
     await this.db.$transaction([
-      this.db.chatbotSession.update({ where: { id: sessionId }, data: { status: 'HANDED_OFF', stopReason: 'Transferido para atendimento humano', completedAt: new Date() } }),
+      this.db.chatbotSession.update({ where: { id: sessionId }, data: { status: 'HANDED_OFF', wakeAt: null, stopReason: 'Transferido para atendimento humano', completedAt: new Date() } }),
       this.db.conversation.update({ where: { id: conversationId }, data: { status: 'WAITING', assigneeId: null, closedAt: null } }),
       this.db.conversationEvent.create({ data: {
         organizationId: conversation.organizationId,
@@ -308,7 +473,7 @@ export class ChatbotProcessor {
       ? await this.db.conversation.findUnique({ where: { id: conversationId }, select: { organizationId: true, status: true } })
       : null;
     await this.db.$transaction([
-      this.db.chatbotSession.update({ where: { id: sessionId }, data: { status: 'COMPLETED', stopReason: reason, completedAt: new Date() } }),
+      this.db.chatbotSession.update({ where: { id: sessionId }, data: { status: 'COMPLETED', wakeAt: null, stopReason: reason, completedAt: new Date() } }),
       this.db.conversation.update({ where: { id: conversationId }, data: closeConversation ? { status: 'CLOSED', closedAt: new Date() } : { status: 'WAITING', closedAt: null } }),
       ...(closeConversation && conversation?.status !== 'CLOSED' ? [this.db.conversationEvent.create({ data: {
         organizationId: conversation!.organizationId,
@@ -320,7 +485,7 @@ export class ChatbotProcessor {
   }
 
   private fail(sessionId: string, reason: string) {
-    return this.db.chatbotSession.update({ where: { id: sessionId }, data: { status: 'FAILED', stopReason: reason, completedAt: new Date() } });
+    return this.db.chatbotSession.update({ where: { id: sessionId }, data: { status: 'FAILED', wakeAt: null, stopReason: reason, completedAt: new Date() } });
   }
 
   private next(graph: Graph, source: string, sourceHandle?: string) {
@@ -330,4 +495,10 @@ export class ChatbotProcessor {
 
 function textValue(value: unknown) {
   return typeof value === 'string' ? value : '';
+}
+
+export function chatbotWaitSeconds(data?: Record<string, unknown>) {
+  const seconds = Number(data?.seconds);
+  if (!Number.isFinite(seconds)) return 1;
+  return Math.min(MAX_WAIT_SECONDS, Math.max(1, Math.trunc(seconds)));
 }

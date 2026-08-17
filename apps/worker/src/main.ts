@@ -30,7 +30,7 @@ const inbound = new InboundProcessor(prisma, chatbotQueue, evolution, inboundQue
 const outbound = new OutboundProcessor(prisma, evolution, followUpQueue, transactionalEmailQueue);
 const campaigns = new CampaignProcessor(prisma, campaignQueue, evolution);
 const workflows = new WorkflowProcessor(prisma, automationQueue, outboundQueue);
-const chatbots = new ChatbotProcessor(prisma, outboundQueue);
+const chatbots = new ChatbotProcessor(prisma, chatbotQueue, outboundQueue);
 const taskDigests = new TaskDigestProcessor(prisma);
 const userInvites = new UserInviteProcessor(prisma);
 const audioTranscriptions = new AudioTranscriptionProcessor(prisma);
@@ -117,12 +117,15 @@ if (Number(saoPauloNow.hour) >= 8) {
 await runMaintenance(prisma);
 await campaigns.reconcileActiveCampaigns();
 await followUps.reconcile();
+await chatbots.reconcileDelays();
 const maintenanceTimer = setInterval(() => void (async () => {
   await runMaintenance(prisma);
   await campaigns.reconcileActiveCampaigns();
 })().catch((error) => console.error('Falha de manutenção:', error)), 60 * 60_000);
 const followUpTimer = setInterval(() => void followUps.reconcile()
   .catch((error) => console.error('Falha ao reconciliar follow-ups:', error)), 60_000);
+const chatbotDelayTimer = setInterval(() => void chatbots.reconcileDelays()
+  .catch((error) => console.error('Falha ao reconciliar esperas de chatbots:', error)), 60_000);
 
 let recentSyncRunning = false;
 const syncRecentEvolutionMessages = async () => {
@@ -155,6 +158,7 @@ const recentSyncTimer = setInterval(() => void syncRecentEvolutionMessages(), 5_
 const shutdown = async () => {
   clearInterval(maintenanceTimer);
   clearInterval(followUpTimer);
+  clearInterval(chatbotDelayTimer);
   clearInterval(recentSyncTimer);
   await Promise.all(workers.map((worker) => worker.close()));
   await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close(), followUpQueue.close()]);

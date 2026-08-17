@@ -936,7 +936,7 @@ export class EvolutionService {
       } }),
       ...(assigneeId ? [this.db.chatbotSession.updateMany({
         where: { conversationId: id, status: { in: ['ACTIVE', 'WAITING', 'HANDED_OFF'] } },
-        data: { status: 'STOPPED' as const, stopReason: 'Atendimento assumido por um usuário', completedAt: new Date() },
+        data: { status: 'STOPPED' as const, wakeAt: null, stopReason: 'Atendimento assumido por um usuário', completedAt: new Date() },
       })] : []),
       ...(event ? [this.conversationEvent(auth, id, event.type, event.text, { assigneeId })] : []),
       ...(assigneeId && assignee ? [
@@ -1120,7 +1120,7 @@ export class EvolutionService {
       }),
       ...(nextStatus === 'CLOSED' ? [this.db.chatbotSession.updateMany({
         where: { conversationId: id, status: { in: ['ACTIVE', 'WAITING', 'HANDED_OFF', 'STOPPED'] } },
-        data: { status: 'COMPLETED' as const, stopReason: 'Atendimento encerrado por um usuário', completedAt: new Date() },
+        data: { status: 'COMPLETED' as const, wakeAt: null, stopReason: 'Atendimento encerrado por um usuário', completedAt: new Date() },
       })] : []),
       ...(event ? [this.conversationEvent(auth, id, event.type, event.text, {
         previousAssigneeId: conversation.assigneeId,

@@ -26,6 +26,12 @@ function validateNodeText(node: ChatbotNode) {
   if (['message', 'question'].includes(node.type) && !primitiveText(node.data?.text).trim()) {
     throw new BadRequestException(`Preencha o texto do bloco ${nodeLabel(node)}`);
   }
+  if (node.type === 'wait') {
+    const seconds = Number(node.data?.seconds);
+    if (!Number.isInteger(seconds) || seconds < 1 || seconds > 31_536_000) {
+      throw new BadRequestException(`Informe um tempo de espera válido no bloco ${nodeLabel(node)}`);
+    }
+  }
 }
 
 function validateOutgoingConnections(node: ChatbotNode, outgoing: ChatbotEdge[]) {
@@ -73,16 +79,16 @@ function assertAllNodesReachable(triggerId: string, ids: Set<string>, adjacency:
   if (reachable.size !== ids.size) throw new BadRequestException('Todos os blocos precisam estar conectados à entrada');
 }
 
-function assertCyclesWaitForQuestion(graph: ChatbotGraph, ids: Set<string>, adjacency: Map<string, string[]>) {
-  const questionIds = new Set(graph.nodes.filter((node) => node.type === 'question').map((node) => node.id));
+function assertCyclesHavePauseBoundary(graph: ChatbotGraph, ids: Set<string>, adjacency: Map<string, string[]>) {
+  const pauseIds = new Set(graph.nodes.filter((node) => ['question', 'wait'].includes(node.type)).map((node) => node.id));
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const visit = (id: string) => {
-    if (questionIds.has(id) || visited.has(id)) return;
-    if (visiting.has(id)) throw new BadRequestException('Todo ciclo precisa passar por um bloco de pergunta');
+    if (pauseIds.has(id) || visited.has(id)) return;
+    if (visiting.has(id)) throw new BadRequestException('Todo ciclo precisa passar por um bloco de pergunta ou espera');
     visiting.add(id);
     adjacency.get(id)!.forEach((target) => {
-      if (!questionIds.has(target)) visit(target);
+      if (!pauseIds.has(target)) visit(target);
     });
     visiting.delete(id);
     visited.add(id);
@@ -190,7 +196,7 @@ export class ChatbotsService {
     if (status !== 'PUBLISHED') {
       await this.db.chatbotSession.updateMany({
         where: { chatbotId: id, status: { in: ['ACTIVE', 'WAITING'] } },
-        data: { status: 'STOPPED', stopReason: status === 'ARCHIVED' ? 'Chatbot arquivado' : 'Chatbot pausado', completedAt: new Date() },
+        data: { status: 'STOPPED', wakeAt: null, stopReason: status === 'ARCHIVED' ? 'Chatbot arquivado' : 'Chatbot pausado', completedAt: new Date() },
       });
     }
     return this.db.chatbot.update({ where: { id }, data: { status } });
@@ -202,7 +208,7 @@ export class ChatbotsService {
     await this.db.$transaction([
       this.db.chatbotSession.updateMany({
         where: { chatbotId: id, status: { in: ['ACTIVE', 'WAITING'] } },
-        data: { status: 'STOPPED', stopReason: 'Chatbot excluído', completedAt },
+        data: { status: 'STOPPED', wakeAt: null, stopReason: 'Chatbot excluído', completedAt },
       }),
       this.db.chatbot.update({ where: { id }, data: { status: 'ARCHIVED' } }),
       this.db.auditLog.create({
@@ -249,7 +255,7 @@ export class ChatbotsService {
     validateNodeConnections(graph);
     const adjacency = graphAdjacency(graph, ids);
     assertAllNodesReachable(triggers[0].id, ids, adjacency);
-    assertCyclesWaitForQuestion(graph, ids, adjacency);
+    assertCyclesHavePauseBoundary(graph, ids, adjacency);
   }
 
   private defaultGraph(): ChatbotGraph {

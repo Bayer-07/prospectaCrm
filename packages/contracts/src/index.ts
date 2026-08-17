@@ -240,7 +240,7 @@ export const workflowNodeTypes = [
 ] as const;
 
 export const chatbotNodeTypes = [
-  'trigger', 'message', 'question', 'condition', 'add_tag', 'handoff', 'close', 'end',
+  'trigger', 'message', 'question', 'wait', 'condition', 'add_tag', 'handoff', 'close', 'end',
 ] as const;
 export type ChatbotNodeType = (typeof chatbotNodeTypes)[number];
 

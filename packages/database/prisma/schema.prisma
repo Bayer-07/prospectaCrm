@@ -1198,6 +1198,7 @@ model ChatbotSession {
   currentNodeId        String?
   lastInboundMessageId String?                @db.Uuid
   context              Json                   @default("{}")
+  wakeAt               DateTime?
   stopReason           String?
   startedAt            DateTime               @default(now())
   updatedAt            DateTime               @updatedAt
@@ -1208,6 +1209,7 @@ model ChatbotSession {
   executions           ChatbotStepExecution[]
 
   @@index([chatbotId, status])
+  @@index([status, wakeAt], map: "ChatbotSession_status_wake_idx")
   @@index([status, updatedAt])
 }
 
