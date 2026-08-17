@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, CalendarDays, Clock3, FileText, Image, MessageSquareText, Plus, Trash2, Workflow, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarDays, Check, Clock3, FileText, Image, MessageSquareText, Plus, Trash2, Workflow, X } from 'lucide-react';
 import { api, ApiError, apiErrorMessage, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Modal, PageLoading } from './ui';
@@ -212,7 +212,11 @@ export function FollowUpModal({ conversationId, contactName, followUpId, onClose
 
 function FollowUpProgress({ stage }: Readonly<{ stage: number }>) {
   const items = [['1', 'Data'], ['2', 'Horário'], ['3', 'Ação']];
-  return <ol className="follow-up-progress">{items.map(([number, label], index) => <li key={number} className={stage >= index + 1 ? 'active' : ''}><b>{number}</b><span>{label}</span></li>)}</ol>;
+  return <ol className="follow-up-progress">{items.map(([number, label], index) => {
+    const step = index + 1;
+    const state = stage === step ? 'current' : stage > step ? 'done' : '';
+    return <li key={number} className={state} aria-current={stage === step ? 'step' : undefined}><b>{stage > step ? <Check size={14} /> : number}</b><span>{label}</span></li>;
+  })}</ol>;
 }
 
 function FollowUpStatusBanner({ followUp }: Readonly<{ followUp: ConversationFollowUp }>) {
@@ -258,11 +262,55 @@ function ActionStage(props: ActionStageProps) {
     [next[index], next[target]] = [next[target], next[index]];
     props.onMessagesChange(next);
   };
-  return <section className="follow-up-stage follow-up-action-stage"><header><div><MessageSquareText size={20} /><div><strong>O que deve acontecer?</strong><span>Escolha mensagens editáveis ou uma automação publicada.</span></div></div></header><div className="follow-up-mode-picker"><button type="button" className={props.mode === 'message_sequence' ? 'selected' : ''} disabled={!props.editable} onClick={() => props.onModeChange('message_sequence')}><MessageSquareText size={20} /><strong>Enviar mensagens</strong><span>Texto, imagem ou documento em sequência.</span></button><button type="button" className={props.mode === 'workflow' ? 'selected' : ''} disabled={!props.editable || !props.canUseWorkflows} title={!props.canUseWorkflows ? 'Você não possui permissão para iniciar automações' : undefined} onClick={() => props.onModeChange('workflow')}><Workflow size={20} /><strong>Iniciar automação</strong><span>Executa a versão publicada selecionada.</span></button></div>
+  return <section className="follow-up-stage follow-up-action-stage"><header><div><MessageSquareText size={20} /><div><strong>O que deve acontecer?</strong><span>Escolha mensagens editáveis ou uma automação publicada.</span></div></div></header><div className="follow-up-mode-picker"><button type="button" className={props.mode === 'message_sequence' ? 'selected' : ''} aria-pressed={props.mode === 'message_sequence'} disabled={!props.editable} onClick={() => props.onModeChange('message_sequence')}><MessageSquareText size={20} /><strong>Enviar mensagens</strong><span>Texto, imagem ou documento em sequência.</span></button><button type="button" className={props.mode === 'workflow' ? 'selected' : ''} aria-pressed={props.mode === 'workflow'} disabled={!props.editable || !props.canUseWorkflows} title={!props.canUseWorkflows ? 'Você não possui permissão para iniciar automações' : undefined} onClick={() => props.onModeChange('workflow')}><Workflow size={20} /><strong>Iniciar automação</strong><span>Executa a versão publicada selecionada.</span></button></div>
     {props.mode === 'workflow'
       ? <label className="field"><span>Automação publicada</span><select value={props.workflowId} disabled={!props.editable} onChange={(event) => props.onWorkflowChange(event.target.value)} required><option value="">Selecione uma automação</option>{props.workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name} · versão {workflow.publishedVersion}</option>)}</select>{!props.workflows.length && <small>Nenhuma automação publicada está disponível.</small>}</label>
-      : <div className="follow-up-message-list">{props.messages.map((message, index) => <article key={message.key} className="follow-up-message-card"><header><div><b>{index + 1}</b><strong>Mensagem {index + 1}</strong></div><div><button type="button" disabled={!props.editable || index === 0} onClick={() => moveMessage(index, -1)} aria-label="Mover mensagem para cima"><ArrowUp size={15} /></button><button type="button" disabled={!props.editable || index === props.messages.length - 1} onClick={() => moveMessage(index, 1)} aria-label="Mover mensagem para baixo"><ArrowDown size={15} /></button><button type="button" disabled={!props.editable || props.messages.length === 1} onClick={() => removeMessage(index)} aria-label="Remover mensagem"><Trash2 size={15} /></button></div></header><label><span>Texto da mensagem</span><textarea value={message.text} disabled={!props.editable} rows={3} maxLength={4096} placeholder="Use *negrito*, _itálico_ e variáveis como {{saudacao}} ou {{nome}}" onChange={(event) => updateMessage(index, { text: event.target.value })} /></label><div className="follow-up-message-options">{index > 0 && <label><span>Aguardar após a anterior</span><div><input type="number" min={0} value={message.delayValue} disabled={!props.editable} onChange={(event) => updateMessage(index, { delayValue: Math.max(0, Number(event.target.value)) })} /><select value={message.delayUnit} disabled={!props.editable} onChange={(event) => updateMessage(index, { delayUnit: event.target.value as DelayUnit })}><option value="seconds">segundos</option><option value="minutes">minutos</option><option value="hours">horas</option></select></div></label>}<label className="follow-up-file"><span>Anexo opcional</span><input type="file" accept="image/jpeg,image/png,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain" disabled={!props.editable} onChange={(event) => updateMessage(index, { file: event.target.files?.[0], mediaKey: undefined, mediaName: event.target.files?.[0]?.name })} /><div>{message.file?.type.startsWith('image/') || message.mediaType?.startsWith('image/') ? <Image size={16} /> : <FileText size={16} />}<span>{message.file?.name || message.mediaName || 'Adicionar imagem ou documento'}</span>{(message.file || message.mediaKey) && props.editable && <button type="button" onClick={() => updateMessage(index, { file: undefined, mediaKey: undefined, mediaName: undefined, mediaType: undefined })} aria-label="Remover anexo"><X size={14} /></button>}</div></label></div></article>)}{props.editable && props.messages.length < 20 && <button type="button" className="follow-up-add-message" onClick={() => props.onMessagesChange([...props.messages, emptyMessage()])}><Plus size={17} />Adicionar outra mensagem</button>}</div>}
+      : <div className="follow-up-message-list">{props.messages.map((message, index) => <FollowUpMessageCard
+        key={message.key}
+        message={message}
+        index={index}
+        count={props.messages.length}
+        editable={props.editable}
+        onChange={(patch) => updateMessage(index, patch)}
+        onMove={(direction) => moveMessage(index, direction)}
+        onRemove={() => removeMessage(index)}
+      />)}{props.editable && props.messages.length < 20 && <button type="button" className="follow-up-add-message" onClick={() => props.onMessagesChange([...props.messages, emptyMessage()])}><Plus size={17} />Adicionar outra mensagem</button>}</div>}
   </section>;
+}
+
+type FollowUpMessageCardProps = Readonly<{
+  message: DraftMessage;
+  index: number;
+  count: number;
+  editable: boolean;
+  onChange(patch: Partial<DraftMessage>): void;
+  onMove(direction: -1 | 1): void;
+  onRemove(): void;
+}>;
+
+function FollowUpMessageCard({ message, index, count, editable, onChange, onMove, onRemove }: FollowUpMessageCardProps) {
+  const attachmentName = message.file?.name || message.mediaName;
+  const isImage = message.file?.type.startsWith('image/') || message.mediaType?.startsWith('image/');
+  const fileInputId = `follow-up-file-${message.key}`;
+  return <article className="follow-up-message-card">
+    <header>
+      <div><b>{index + 1}</b><strong>Mensagem {index + 1}</strong>{index === 0 && <small>Primeiro envio</small>}</div>
+      <div className="follow-up-message-actions">
+        <button type="button" disabled={!editable || index === 0} onClick={() => onMove(-1)} aria-label="Mover mensagem para cima"><ArrowUp size={16} /></button>
+        <button type="button" disabled={!editable || index === count - 1} onClick={() => onMove(1)} aria-label="Mover mensagem para baixo"><ArrowDown size={16} /></button>
+        <button type="button" className="danger" disabled={!editable || count === 1} onClick={onRemove} aria-label="Remover mensagem"><Trash2 size={16} /></button>
+      </div>
+    </header>
+    <label className="follow-up-message-field">
+      <span>Texto da mensagem <small>{message.text.length}/4096</small></span>
+      <textarea value={message.text} disabled={!editable} rows={3} maxLength={4096} placeholder="Escreva a mensagem. Você pode usar {{saudacao}}, {{nome}} e a formatação do WhatsApp." onChange={(event) => onChange({ text: event.target.value })} />
+      <small className="follow-up-field-hint">Aceita variáveis e formatação com *negrito*, _itálico_, ~tachado~ e `código`.</small>
+    </label>
+    <div className={`follow-up-message-options${index === 0 ? ' single' : ''}`}>
+      {index > 0 && <label><span>Enviar depois de</span><div className="follow-up-delay-control"><Clock3 size={17} aria-hidden="true" /><input type="number" min={0} value={message.delayValue} aria-label="Tempo de espera" disabled={!editable} onChange={(event) => onChange({ delayValue: Math.max(0, Number(event.target.value)) })} /><select value={message.delayUnit} aria-label="Unidade do tempo de espera" disabled={!editable} onChange={(event) => onChange({ delayUnit: event.target.value as DelayUnit })}><option value="seconds">segundos</option><option value="minutes">minutos</option><option value="hours">horas</option></select></div></label>}
+      <div className="follow-up-file"><span>Anexo</span><input id={fileInputId} type="file" accept="image/jpeg,image/png,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain" disabled={!editable} onChange={(event) => onChange({ file: event.target.files?.[0], mediaKey: undefined, mediaName: event.target.files?.[0]?.name })} /><div className={attachmentName ? 'has-file' : ''}><label htmlFor={fileInputId}>{isImage ? <Image size={18} /> : <FileText size={18} />}<span><strong>{attachmentName || 'Adicionar imagem ou documento'}</strong><small>{attachmentName ? 'Anexo pronto para o envio' : 'Imagem, PDF, documento ou planilha'}</small></span></label>{attachmentName && editable && <button type="button" onClick={() => onChange({ file: undefined, mediaKey: undefined, mediaName: undefined, mediaType: undefined })} aria-label="Remover anexo"><X size={15} /></button>}</div></div>
+    </div>
+  </article>;
 }
 
 async function uploadDraftMessage(message: DraftMessage) {
