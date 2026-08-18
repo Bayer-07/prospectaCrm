@@ -14,7 +14,25 @@ fail() { printf 'Erro: %s\n' "$1" >&2; exit 1; }
 command -v docker >/dev/null 2>&1 || fail 'Docker não encontrado.'
 docker compose version >/dev/null 2>&1 || fail 'Docker Compose v2 não encontrado.'
 [[ -f .env ]] || fail 'Crie o arquivo .env antes de configurar a IA.'
-configured_model="$(sed -n 's/^OLLAMA_MODEL=//p' .env | tail -n 1 | tr -d '\r' | sed -e 's/^['\"'\"']//' -e 's/['\"'\"']$//')"
+read_env_value() {
+  local key="$1"
+  awk -v key="$key" '
+    index($0, key "=") == 1 { value = substr($0, length(key) + 2) }
+    END {
+      sub(/\r$/, "", value)
+      sub(/^[[:space:]]+/, "", value)
+      sub(/[[:space:]]+$/, "", value)
+      first = substr(value, 1, 1)
+      last = substr(value, length(value), 1)
+      if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) {
+        value = substr(value, 2, length(value) - 2)
+      }
+      print value
+    }
+  ' .env
+}
+
+configured_model="$(read_env_value OLLAMA_MODEL)"
 MODEL="${OLLAMA_MODEL:-${configured_model:-qwen3:4b-instruct}}"
 
 gpu_ready=0
