@@ -271,7 +271,7 @@ docker compose --profile ai exec -T ollama ollama list
 docker compose --profile ai exec -T ollama ollama ps
 ```
 
-O script verifica `nvidia-smi` e o NVIDIA Container Toolkit. Quando ambos estiverem disponíveis, cria `docker-compose.ai-gpu.yml`; caso contrário, usa CPU automaticamente. Para utilizar o override gerado em atualizações, execute `COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --with-ai`.
+O script verifica `nvidia-smi`, a VRAM disponível e o NVIDIA Container Toolkit. O override `docker-compose.ai-gpu.yml` só é criado quando a GPU possui pelo menos `OLLAMA_MIN_GPU_VRAM_MB` (4 GB por padrão). GPUs menores usam CPU automaticamente e qualquer override padrão incompatível deixado por uma execução anterior é removido. A GTX 750 Ti de 2 GB deve permanecer em CPU: o offload parcial do `qwen3:4b-instruct` é substancialmente mais lento nesse hardware. Para utilizar um override compatível em atualizações, execute `COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --with-ai`.
 
 ### Atualizações futuras
 
@@ -307,6 +307,8 @@ OLLAMA_INTERACTIVE_TIMEOUT_MS=90000
 OLLAMA_SUMMARY_TIMEOUT_MS=180000
 OLLAMA_MEMORY_LIMIT=4g
 OLLAMA_BIND_PORT=11434
+OLLAMA_MIN_GPU_VRAM_MB=4096
+OLLAMA_SMOKE_TIMEOUT_SECONDS=150
 ```
 
 No Docker de produção, o Compose sobrescreve `OLLAMA_API_URL` para `http://ollama:11434`. A porta `11434` no host fica vinculada exclusivamente a `127.0.0.1`, permitindo o desenvolvimento local sem expor o modelo à rede. Consulte a [documentação oficial do Ollama sobre Docker](https://hub.docker.com/r/ollama/ollama) e as [configurações de concorrência e descarregamento](https://docs.ollama.com/faq).
