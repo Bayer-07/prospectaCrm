@@ -12,6 +12,7 @@ type GenerateOptions = {
   schema: Record<string, unknown>;
   timeoutMs: number;
   keepAlive?: string;
+  maxTokens?: number;
   validate?: (value: unknown) => unknown;
 };
 
@@ -50,6 +51,7 @@ export class OllamaClient {
           options: {
             num_ctx: Math.max(2_048, Number(process.env.OLLAMA_CONTEXT_LENGTH) || 4_096),
             temperature: 0.2,
+            ...(options.maxTokens ? { num_predict: Math.min(4_096, Math.max(32, Math.floor(options.maxTokens))) } : {}),
           },
         }),
       });

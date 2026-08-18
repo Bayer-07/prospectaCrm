@@ -25,6 +25,7 @@ describe('cliente do Ollama', () => {
       prompt: 'Usuário',
       schema: { type: 'object' },
       timeoutMs: 1_000,
+      maxTokens: 160,
       validate: (value) => value,
     });
 
@@ -35,7 +36,10 @@ describe('cliente do Ollama', () => {
     });
     const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(fetchMock).toHaveBeenCalledWith('https://ollama.test/api/chat', expect.objectContaining({ method: 'POST' }));
-    expect(request).toMatchObject({ model: 'qwen3:4b-instruct', stream: false, think: false, keep_alive: '2m', format: { type: 'object' } });
+    expect(request).toMatchObject({
+      model: 'qwen3:4b-instruct', stream: false, think: false, keep_alive: '2m', format: { type: 'object' },
+      options: { num_ctx: 4_096, temperature: 0.2, num_predict: 160 },
+    });
   });
 
   it('rejeita a saída quando o validador estrutural não a aceita', async () => {
