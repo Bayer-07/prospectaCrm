@@ -1,5 +1,5 @@
 import { BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, ServiceUnavailableException } from '@nestjs/common';
-import type { AiGenerationType, AiSummaryScope, Prisma } from '@prisma/client';
+import { Prisma, type AiGenerationType, type AiSummaryScope, type ConversationAiGeneration } from '@prisma/client';
 import type { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AuthContext } from '../auth/types.js';
@@ -104,7 +104,7 @@ export class AiService {
         input: { message: message?.trim() || 'Responda em português: o serviço de IA local está funcionando.' },
       },
     });
-    await this.enqueue(generation.id, 'CONFIG_TEST');
+    await this.enqueue(generation.id, 'CONFIG_TEST', generation.updatedAt);
     return generation;
   }
 
@@ -138,7 +138,7 @@ export class AiService {
     ]);
     if (!last) throw new BadRequestException('A conversa ainda não possui mensagens para analisar');
     const key = hashKey([input.type, conversationId, scope, first?.id, last.id, conversation.assigneeId]);
-    const generation = await this.db.conversationAiGeneration.upsert({
+    let generation = await this.db.conversationAiGeneration.upsert({
       where: { deduplicationKey: key },
       create: {
         organizationId: auth.organizationId,
@@ -153,7 +153,10 @@ export class AiService {
       },
       update: {},
     });
-    if (['PENDING', 'WAITING_INPUT'].includes(generation.status)) await this.enqueue(generation.id, generation.type);
+    generation = await this.retryFailedGeneration(generation, auth.userId);
+    if (['PENDING', 'WAITING_INPUT'].includes(generation.status)) {
+      await this.enqueue(generation.id, generation.type, generation.updatedAt);
+    }
     return generation;
   }
 
@@ -270,10 +273,30 @@ export class AiService {
     return null;
   }
 
-  private async enqueue(generationId: string, type: AiGenerationType) {
+  private async retryFailedGeneration(generation: ConversationAiGeneration, requestedById?: string) {
+    if (generation.status !== 'FAILED') return generation;
+    await this.db.conversationAiGeneration.updateMany({
+      where: { id: generation.id, status: 'FAILED' },
+      data: {
+        status: 'PENDING',
+        requestedById,
+        result: Prisma.DbNull,
+        error: null,
+        progress: 0,
+        model: null,
+        promptEvalCount: null,
+        evalCount: null,
+        totalDurationMs: null,
+        completedAt: null,
+      },
+    });
+    return this.db.conversationAiGeneration.findUniqueOrThrow({ where: { id: generation.id } });
+  }
+
+  private async enqueue(generationId: string, type: AiGenerationType, updatedAt: Date) {
     const priority = generationPriority(type);
     await this.queue.add('generate', { generationId }, {
-      jobId: `ai-${generationId}`,
+      jobId: `ai-${generationId}-${updatedAt.getTime()}`,
       priority,
       attempts: 1,
       removeOnComplete: 1_000,
