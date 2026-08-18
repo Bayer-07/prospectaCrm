@@ -8,8 +8,6 @@ cd "$ROOT_DIR"
 OVERRIDE_FILE="${AI_GPU_OVERRIDE_FILE:-docker-compose.ai-gpu.yml}"
 DEFAULT_OVERRIDE_FILE="docker-compose.ai-gpu.yml"
 compose_files=(-f docker-compose.yml)
-MIN_GPU_VRAM_MB="${OLLAMA_MIN_GPU_VRAM_MB:-4096}"
-SMOKE_TIMEOUT_SECONDS="${OLLAMA_SMOKE_TIMEOUT_SECONDS:-150}"
 
 log() { printf '\n\033[1;36m==> %s\033[0m\n' "$1"; }
 fail() { printf 'Erro: %s\n' "$1" >&2; exit 1; }
@@ -38,9 +36,13 @@ read_env_value() {
 }
 
 configured_model="$(read_env_value OLLAMA_MODEL)"
-MODEL="${OLLAMA_MODEL:-${configured_model:-qwen3:4b-instruct}}"
+MODEL="${OLLAMA_MODEL:-${configured_model:-gemma3:1b}}"
 configured_bind_port="$(read_env_value OLLAMA_BIND_PORT)"
 BIND_PORT="${OLLAMA_BIND_PORT:-${configured_bind_port:-11434}}"
+configured_min_gpu_vram_mb="$(read_env_value OLLAMA_MIN_GPU_VRAM_MB)"
+MIN_GPU_VRAM_MB="${OLLAMA_MIN_GPU_VRAM_MB:-${configured_min_gpu_vram_mb:-2048}}"
+configured_smoke_timeout_seconds="$(read_env_value OLLAMA_SMOKE_TIMEOUT_SECONDS)"
+SMOKE_TIMEOUT_SECONDS="${OLLAMA_SMOKE_TIMEOUT_SECONDS:-${configured_smoke_timeout_seconds:-150}}"
 
 [[ "$MIN_GPU_VRAM_MB" =~ ^[0-9]+$ ]] || fail 'OLLAMA_MIN_GPU_VRAM_MB deve ser um número inteiro.'
 [[ "$SMOKE_TIMEOUT_SECONDS" =~ ^[0-9]+$ ]] || fail 'OLLAMA_SMOKE_TIMEOUT_SECONDS deve ser um número inteiro.'

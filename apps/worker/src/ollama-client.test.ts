@@ -10,9 +10,9 @@ describe('cliente do Ollama', () => {
   it('solicita JSON estruturado sem streaming e preserva as métricas', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
     vi.stubEnv('OLLAMA_API_URL', 'https://ollama.test');
-    vi.stubEnv('OLLAMA_MODEL', 'qwen3:4b-instruct');
+    vi.stubEnv('OLLAMA_MODEL', 'gemma3:1b');
     const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
-      model: 'qwen3:4b-instruct',
+      model: 'gemma3:1b',
       message: { content: '{"reply":"Olá!"}' },
       prompt_eval_count: 12,
       eval_count: 4,
@@ -31,13 +31,13 @@ describe('cliente do Ollama', () => {
 
     expect(result).toEqual({
       data: { reply: 'Olá!' },
-      model: 'qwen3:4b-instruct',
+      model: 'gemma3:1b',
       metrics: { promptEvalCount: 12, evalCount: 4, totalDurationMs: 3 },
     });
     const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(fetchMock).toHaveBeenCalledWith('https://ollama.test/api/chat', expect.objectContaining({ method: 'POST' }));
     expect(request).toMatchObject({
-      model: 'qwen3:4b-instruct', stream: false, think: false, keep_alive: '2m', format: { type: 'object' },
+      model: 'gemma3:1b', stream: false, think: false, keep_alive: '2m', format: { type: 'object' },
       options: { num_ctx: 4_096, temperature: 0.2, num_predict: 160 },
     });
   });

@@ -138,7 +138,7 @@ read_env_value() {
 }
 
 configured_ollama_model="$(read_env_value OLLAMA_MODEL)"
-ollama_model="${OLLAMA_MODEL:-${configured_ollama_model:-qwen3:4b-instruct}}"
+ollama_model="${OLLAMA_MODEL:-${configured_ollama_model:-gemma3:1b}}"
 
 compose_files=(-f docker-compose.yml)
 compose_profiles=()

@@ -245,7 +245,7 @@ Na primeira transcrição, o worker verifica se o modelo existe, baixa-o automat
 
 ## IA local com Ollama
 
-O BZS One usa o modelo `qwen3:4b-instruct` para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. O Ollama atende a aplicação somente pela rede interna do Docker, possui saída controlada para baixar modelos, processa uma geração por vez e descarrega o modelo depois do período configurado em `OLLAMA_KEEP_ALIVE`.
+O BZS One usa o modelo leve `gemma3:1b` para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. O Ollama atende a aplicação somente pela rede interna do Docker, possui saída controlada para baixar modelos, processa uma geração por vez e descarrega o modelo depois do período configurado em `OLLAMA_KEEP_ALIVE`.
 
 O recurso nasce desligado. Mesmo sem o container Ollama, o CRM, WhatsApp, campanhas e demais workers continuam funcionando normalmente. Depois da instalação, um administrador deve abrir **Integrações → Inteligência artificial**, revisar as instruções gerais e habilitar a organização.
 
@@ -259,7 +259,7 @@ nano .env
 
 # No editor, configure os segredos existentes e altere:
 # AI_ASSISTANT_ENABLED=true
-# OLLAMA_MODEL=qwen3:4b-instruct
+# OLLAMA_MODEL=gemma3:1b
 # OLLAMA_MEMORY_LIMIT=4g
 
 chmod +x rebuild.sh scripts/setup-local-ai.sh
@@ -271,9 +271,18 @@ docker compose --profile ai exec -T ollama ollama list
 docker compose --profile ai exec -T ollama ollama ps
 ```
 
-O script verifica `nvidia-smi`, a VRAM disponível e o NVIDIA Container Toolkit. O override `docker-compose.ai-gpu.yml` só é criado quando a GPU possui pelo menos `OLLAMA_MIN_GPU_VRAM_MB` (4 GB por padrão). GPUs menores usam CPU automaticamente e qualquer override padrão incompatível deixado por uma execução anterior é removido. A GTX 750 Ti de 2 GB deve permanecer em CPU: o offload parcial do `qwen3:4b-instruct` é substancialmente mais lento nesse hardware. Para utilizar um override compatível em atualizações, execute `COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --with-ai`.
+O script verifica `nvidia-smi`, a VRAM disponível e o NVIDIA Container Toolkit. O override `docker-compose.ai-gpu.yml` é criado quando a GPU possui pelo menos `OLLAMA_MIN_GPU_VRAM_MB` (2 GB por padrão). O `gemma3:1b` ocupa aproximadamente 815 MB e pode ser carregado integralmente na GTX 750 Ti de 2 GB com o contexto de 4.096 tokens; se a GPU ou o runtime NVIDIA não estiverem disponíveis, o script usa CPU automaticamente. Para utilizar o override gerado em atualizações, execute `COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --with-ai`.
 
 ### Atualizações futuras
+
+Ao migrar uma instalação que ainda usa o Qwen, atualize o modelo no `.env` e execute novamente o instalador. Os comandos abaixo removem eventuais valores antigos antes de adicionar a configuração atual:
+
+```bash
+sed -i '/^OLLAMA_MODEL=/d;/^OLLAMA_MIN_GPU_VRAM_MB=/d' .env
+printf '\nOLLAMA_MODEL=gemma3:1b\nOLLAMA_MIN_GPU_VRAM_MB=2048\n' >> .env
+./scripts/setup-local-ai.sh
+COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --no-pull --with-ai
+```
 
 Com CPU:
 
@@ -291,14 +300,14 @@ COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --no-pull --with-ai
 docker compose -f docker-compose.yml -f docker-compose.ai-gpu.yml --profile ai exec -T ollama ollama ps
 ```
 
-O volume `ollama_models` não é recriado pelo rebuild, portanto o modelo de aproximadamente 2,5 GB não é baixado novamente. Não use `docker compose down -v`, pois isso apagaria também os modelos, bancos e mídias. A imagem está fixada em `ollama/ollama:0.32.5`; atualize-a somente depois de executar o smoke test do script.
+O volume `ollama_models` não é recriado pelo rebuild, portanto o modelo de aproximadamente 815 MB não é baixado novamente. Não use `docker compose down -v`, pois isso apagaria também os modelos, bancos e mídias. A imagem está fixada em `ollama/ollama:0.32.5`; atualize-a somente depois de executar o smoke test do script.
 
 Variáveis:
 
 ```dotenv
 AI_ASSISTANT_ENABLED=true
 OLLAMA_API_URL=http://localhost:11434
-OLLAMA_MODEL=qwen3:4b-instruct
+OLLAMA_MODEL=gemma3:1b
 OLLAMA_CONTEXT_LENGTH=4096
 OLLAMA_NUM_PARALLEL=1
 OLLAMA_MAX_LOADED_MODELS=1
@@ -307,7 +316,7 @@ OLLAMA_INTERACTIVE_TIMEOUT_MS=180000
 OLLAMA_SUMMARY_TIMEOUT_MS=180000
 OLLAMA_MEMORY_LIMIT=4g
 OLLAMA_BIND_PORT=11434
-OLLAMA_MIN_GPU_VRAM_MB=4096
+OLLAMA_MIN_GPU_VRAM_MB=2048
 OLLAMA_SMOKE_TIMEOUT_SECONDS=150
 ```
 

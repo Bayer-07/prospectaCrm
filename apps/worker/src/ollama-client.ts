@@ -25,7 +25,7 @@ type OllamaResponse = {
 };
 
 export class OllamaClient {
-  readonly model = process.env.OLLAMA_MODEL || 'qwen3:4b-instruct';
+  readonly model = process.env.OLLAMA_MODEL || 'gemma3:1b';
 
   async generate<T>(options: GenerateOptions): Promise<OllamaResult<T>> {
     if (process.env.AI_ASSISTANT_ENABLED !== 'true') throw new Error('O assistente de IA está desativado');

@@ -56,7 +56,7 @@ export class AiService {
       enabled: settings?.enabled ?? false,
       globalInstructions: settings?.globalInstructions ?? '',
       fallbackMessage: settings?.fallbackMessage ?? DEFAULT_FALLBACK,
-      model: process.env.OLLAMA_MODEL || 'qwen3:4b-instruct',
+      model: process.env.OLLAMA_MODEL || 'gemma3:1b',
       runtime,
     };
   }

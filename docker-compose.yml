@@ -51,7 +51,7 @@ services:
       EVOLUTION_API_URL: http://evolution:8080
       S3_ENDPOINT: http://minio:9000
       OLLAMA_API_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b-instruct}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:1b}
     expose: ["3000"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -105,7 +105,7 @@ services:
       TRANSCRIPTION_API_KEY: ""
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}
       OLLAMA_API_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-qwen3:4b-instruct}
+      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:1b}
     depends_on:
       api: { condition: service_healthy }
       evolution: { condition: service_started }
