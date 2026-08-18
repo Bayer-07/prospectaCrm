@@ -58,6 +58,15 @@ describe('processamento estruturado da IA', () => {
 
   it('descarta a resposta automática se um atendente assumir durante a geração', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    const sessionStartedAt = new Date('2026-08-18T14:00:01.000Z');
+    const firstInbound = {
+      id: 'message-initial', direction: 'INBOUND', type: 'text', text: 'Olá', transcriptionText: null,
+      createdAt: new Date('2026-08-18T14:00:00.000Z'), media: [],
+    };
+    const currentInbound = {
+      id: 'message-1', direction: 'INBOUND', type: 'text', text: 'Quero ajuda', transcriptionText: null,
+      createdAt: new Date('2026-08-18T14:01:00.000Z'), media: [],
+    };
     const generation = {
       id: 'generation-2', organizationId: 'org-1', conversationId: 'conversation-1', chatbotSessionId: 'session-1',
       type: 'CHATBOT_REPLY', status: 'PENDING', input: { nodeId: 'ai-1', turnCount: 1, maxInteractions: 6, minimumConfidence: 65 },
@@ -72,11 +81,14 @@ describe('processamento estruturado da IA', () => {
       },
       conversation: {
         findUnique: vi.fn()
-          .mockResolvedValueOnce({ assigneeId: null, contact: { id: 'contact-1', name: 'Maria', email: null, jobTitle: null, companies: [] }, chatbotSession: { id: 'session-1', context: {} } })
+          .mockResolvedValueOnce({ assigneeId: null, contact: { id: 'contact-1', name: 'Maria', email: null, jobTitle: null, companies: [] }, chatbotSession: { id: 'session-1', context: {}, startedAt: sessionStartedAt } })
           .mockResolvedValueOnce({ assigneeId: 'human-1' }),
       },
       organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, globalInstructions: '', fallbackMessage: 'Transferindo.' }) },
-      message: { findMany: vi.fn().mockResolvedValue([{ id: 'message-1', direction: 'INBOUND', type: 'text', text: 'Quero ajuda', transcriptionText: null, createdAt: new Date(), media: [] }]) },
+      message: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'message-initial' }),
+        findMany: vi.fn().mockResolvedValueOnce([currentInbound]).mockResolvedValueOnce([firstInbound]),
+      },
     };
     const outboundQueue = { add: vi.fn() };
     const ollama = { model: 'test', generate: vi.fn().mockResolvedValue({ data: { reply: 'Claro!', action: 'continue', confidence: 0.9, proposal: {} }, model: 'test', metrics: {} }) };
@@ -86,6 +98,16 @@ describe('processamento estruturado da IA', () => {
 
     expect(update).toHaveBeenCalledWith({ where: { id: 'generation-2' }, data: expect.objectContaining({ status: 'CANCELLED' }) });
     expect(outboundQueue.add).not.toHaveBeenCalled();
+    expect(db.message.findMany).toHaveBeenNthCalledWith(1, expect.objectContaining({
+      where: { conversationId: 'conversation-1', createdAt: { gte: sessionStartedAt } },
+      take: 12,
+    }));
+    expect(ollama.generate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('Cliente: Olá'),
+    }));
+    expect(ollama.generate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('Cliente: Quero ajuda'),
+    }));
   });
 
   it('reconcilia jobs perdidos e recupera uma geração abandonada pelo worker', async () => {

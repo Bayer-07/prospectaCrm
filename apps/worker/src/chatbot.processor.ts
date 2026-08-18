@@ -407,6 +407,15 @@ export class ChatbotProcessor {
     const context = (storedSession?.context || {}) as Record<string, unknown>;
     const turnCount = (Number(context.aiTurns) || 0) + 1;
     const deduplicationKey = `chatbot:${session.id}:${node.id}:${inboundMessageId}`;
+    await this.db.conversationAiGeneration.updateMany({
+      where: {
+        conversationId: session.conversationId,
+        type: 'CHATBOT_REPLY',
+        status: { in: ['PENDING', 'WAITING_INPUT', 'RUNNING'] },
+        deduplicationKey: { not: deduplicationKey },
+      },
+      data: { status: 'CANCELLED', error: 'Substituída por uma mensagem mais recente do cliente', completedAt: new Date() },
+    });
     const generation = await this.db.conversationAiGeneration.upsert({
       where: { deduplicationKey },
       create: {

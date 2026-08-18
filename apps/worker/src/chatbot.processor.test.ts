@@ -13,6 +13,18 @@ const graph = {
   ],
 };
 
+const aiGraph = {
+  nodes: [
+    { id: 'trigger', type: 'trigger', data: {} },
+    { id: 'ai', type: 'ai_conversation', data: { objective: 'Entender a necessidade' } },
+    { id: 'handoff', type: 'handoff', data: {} },
+  ],
+  edges: [
+    { source: 'trigger', target: 'ai' },
+    { source: 'ai', target: 'handoff' },
+  ],
+};
+
 function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
   return {
     id: 'inbound-1',
@@ -39,6 +51,43 @@ function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
 }
 
 describe('espera do chatbot', () => {
+  it('cancela uma geração anterior quando chega uma mensagem mais recente ao bloco de IA', async () => {
+    const updateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(inboundMessage()) },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'OLLAMA' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: aiGraph }) },
+      chatbotSession: {
+        upsert: vi.fn().mockResolvedValue({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'trigger' }),
+        update: vi.fn().mockResolvedValue({}),
+        findUnique: vi.fn().mockResolvedValue({ context: {} }),
+      },
+      chatbotStepExecution: { upsert: vi.fn().mockResolvedValue({}) },
+      conversation: { findUnique: vi.fn().mockResolvedValue({ organizationId: 'organization-1', assigneeId: null }) },
+      conversationAiGeneration: {
+        updateMany,
+        upsert: vi.fn().mockResolvedValue({ id: 'generation-new' }),
+      },
+      $transaction: vi.fn().mockResolvedValue([]),
+    };
+    const aiQueue = { add: vi.fn().mockResolvedValue({}) };
+    const processor = new ChatbotProcessor(db as never, { add: vi.fn() } as never, { add: vi.fn() } as never, aiQueue as never);
+
+    await processor.process({ data: { messageId: 'inbound-1' } } as never);
+
+    expect(updateMany).toHaveBeenCalledWith({
+      where: {
+        conversationId: 'conversation-1', type: 'CHATBOT_REPLY',
+        status: { in: ['PENDING', 'WAITING_INPUT', 'RUNNING'] },
+        deduplicationKey: { not: 'chatbot:session-1:ai:inbound-1' },
+      },
+      data: expect.objectContaining({ status: 'CANCELLED', completedAt: expect.any(Date) }),
+    });
+    expect(aiQueue.add).toHaveBeenCalledWith(
+      'generate', { generationId: 'generation-new' }, expect.objectContaining({ jobId: 'ai-generation-new', priority: 1 }),
+    );
+  });
+
   it('persiste a pausa e agenda a retomada sem bloquear o worker', async () => {
     const db = {
       message: { findUnique: vi.fn().mockResolvedValue(inboundMessage()) },
