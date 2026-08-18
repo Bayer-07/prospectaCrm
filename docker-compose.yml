@@ -160,7 +160,7 @@ services:
       timeout: 10s
       retries: 10
       start_period: 30s
-    networks: [app]
+    networks: [app, egress]
 
   postgres:
     image: postgres:17-alpine

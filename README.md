@@ -245,7 +245,7 @@ Na primeira transcrição, o worker verifica se o modelo existe, baixa-o automat
 
 ## IA local com Ollama
 
-O BZS One usa o modelo `qwen3:4b-instruct` para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. O Ollama fica somente na rede interna do Docker, processa uma geração por vez e descarrega o modelo depois do período configurado em `OLLAMA_KEEP_ALIVE`.
+O BZS One usa o modelo `qwen3:4b-instruct` para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. O Ollama atende a aplicação somente pela rede interna do Docker, possui saída controlada para baixar modelos, processa uma geração por vez e descarrega o modelo depois do período configurado em `OLLAMA_KEEP_ALIVE`.
 
 O recurso nasce desligado. Mesmo sem o container Ollama, o CRM, WhatsApp, campanhas e demais workers continuam funcionando normalmente. Depois da instalação, um administrador deve abrir **Integrações → Inteligência artificial**, revisar as instruções gerais e habilitar a organização.
 
