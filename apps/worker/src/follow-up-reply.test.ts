@@ -11,6 +11,7 @@ function setup(status: 'SCHEDULED' | 'RUNNING') {
     conversationEvent: { create: vi.fn().mockResolvedValue({}) },
     notification: { create: vi.fn().mockResolvedValue({}) },
     campaignRecipient: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     workflowEnrollment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     contact: { update: vi.fn() },
     consentEvent: { create: vi.fn() },

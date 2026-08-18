@@ -240,12 +240,24 @@ export const workflowNodeTypes = [
 ] as const;
 
 export const chatbotNodeTypes = [
-  'trigger', 'message', 'question', 'wait', 'condition', 'add_tag', 'handoff', 'close', 'end',
+  'trigger', 'message', 'question', 'wait', 'ai_conversation', 'condition', 'add_tag', 'handoff', 'close', 'end',
 ] as const;
 export type ChatbotNodeType = (typeof chatbotNodeTypes)[number];
 
-export const chatbotResponseProviders = ['RULES'] as const;
+export const chatbotResponseProviders = ['RULES', 'OLLAMA'] as const;
 export type ChatbotResponseProvider = (typeof chatbotResponseProviders)[number];
+
+export const aiGenerationTypes = ['SUMMARY', 'REPLY_SUGGESTION', 'CHATBOT_REPLY', 'CONFIG_TEST'] as const;
+export type AiGenerationType = (typeof aiGenerationTypes)[number];
+
+export const aiGenerationStatuses = ['PENDING', 'WAITING_INPUT', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'STALE'] as const;
+export type AiGenerationStatus = (typeof aiGenerationStatuses)[number];
+
+export const aiSummaryScopes = ['CURRENT_ATTENDANCE', 'FULL_CONVERSATION'] as const;
+export type AiSummaryScope = (typeof aiSummaryScopes)[number];
+
+export const aiProposalStatuses = ['PENDING', 'PARTIALLY_APPLIED', 'APPLIED', 'DISMISSED'] as const;
+export type AiProposalStatus = (typeof aiProposalStatuses)[number];
 
 export type ApiEnvelope<T> = { data: T; meta?: Record<string, unknown> };
 export type CursorPage<T> = ApiEnvelope<T[]> & { meta: { nextCursor: string | null; count: number } };

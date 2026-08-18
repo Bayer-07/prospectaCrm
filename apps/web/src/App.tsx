@@ -88,7 +88,7 @@ function Protected() {
   return user ? <Outlet /> : <Navigate to="/login" state={{ from: location.pathname }} replace />;
 }
 
-const routeTitles: Record<string, string> = { '/': 'Visão geral', '/pipeline': 'Pipeline', '/empresas': 'Empresas', '/contatos': 'Contatos', '/tarefas': 'Tarefas', '/inbox': 'Inbox', '/respostas-rapidas': 'Respostas rápidas', '/chatbots': 'Chatbots', '/campanhas': 'Campanhas', '/automacoes': 'Automações', '/relatorios': 'Relatórios', '/email': 'E-mail', '/conexoes': 'Conexões', '/configuracoes': 'Configurações', '/integracoes': 'Integrações', '/integracoes/api': 'API', '/integracoes/mcp': 'Servidor MCP', '/integracoes/webhooks': 'Webhooks', '/integracoes/swagger': 'Swagger' };
+const routeTitles: Record<string, string> = { '/': 'Visão geral', '/pipeline': 'Pipeline', '/empresas': 'Empresas', '/contatos': 'Contatos', '/tarefas': 'Tarefas', '/inbox': 'Inbox', '/respostas-rapidas': 'Respostas rápidas', '/chatbots': 'Chatbots', '/campanhas': 'Campanhas', '/automacoes': 'Automações', '/relatorios': 'Relatórios', '/email': 'E-mail', '/conexoes': 'Conexões', '/configuracoes': 'Configurações', '/integracoes': 'Integrações', '/integracoes/api': 'API', '/integracoes/mcp': 'Servidor MCP', '/integracoes/webhooks': 'Webhooks', '/integracoes/swagger': 'Swagger', '/integracoes/ai': 'Inteligência artificial' };
 
 function RouteTitle() {
   const location = useLocation();

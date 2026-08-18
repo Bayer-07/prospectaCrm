@@ -32,10 +32,14 @@ export async function runMaintenance(db: PrismaClient) {
     } }));
   }
   const organizations = await db.organization.findMany({ select: { id: true, messageRetentionMonths: true } });
+  const suggestionCutoff = new Date(now.getTime() - 7 * 24 * 60 * 60_000);
+  const diagnosticCutoff = new Date(now.getTime() - 30 * 24 * 60 * 60_000);
   await db.$transaction([
     ...updates,
     db.session.deleteMany({ where: { expiresAt: { lt: now } } }),
     db.idempotencyRecord.deleteMany({ where: { expiresAt: { lt: now } } }),
+    db.conversationAiGeneration.deleteMany({ where: { type: 'REPLY_SUGGESTION', createdAt: { lt: suggestionCutoff } } }),
+    db.conversationAiGeneration.deleteMany({ where: { OR: [{ type: 'CONFIG_TEST' }, { type: 'CHATBOT_REPLY', proposal: null }], createdAt: { lt: diagnosticCutoff } } }),
   ]);
   for (const organization of organizations) {
     await purgeExpiredMessages(db, organization, now);

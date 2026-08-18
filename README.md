@@ -243,6 +243,74 @@ SPEACHES_IMAGE=ghcr.io/speaches-ai/speaches:latest-cpu
 
 Na primeira transcrição, o worker verifica se o modelo existe, baixa-o automaticamente e o mantém no volume `transcription_models`; isso pode levar alguns minutos, mas acontece somente uma vez. A porta `8000` fica vinculada ao `localhost` e não é exposta para outros computadores da rede. Se necessário, ajuste `TRANSCRIPTION_CPU_THREADS` à quantidade de núcleos que deseja reservar para as transcrições.
 
+## IA local com Ollama
+
+O BZS One usa o modelo `qwen3:4b-instruct` para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. O Ollama fica somente na rede interna do Docker, processa uma geração por vez e descarrega o modelo depois do período configurado em `OLLAMA_KEEP_ALIVE`.
+
+O recurso nasce desligado. Mesmo sem o container Ollama, o CRM, WhatsApp, campanhas e demais workers continuam funcionando normalmente. Depois da instalação, um administrador deve abrir **Integrações → Inteligência artificial**, revisar as instruções gerais e habilitar a organização.
+
+### Instalação inicial no Ubuntu
+
+Execute na raiz do repositório:
+
+```bash
+cp .env.example .env
+nano .env
+
+# No editor, configure os segredos existentes e altere:
+# AI_ASSISTANT_ENABLED=true
+# OLLAMA_MODEL=qwen3:4b-instruct
+# OLLAMA_MEMORY_LIMIT=4g
+
+chmod +x rebuild.sh scripts/setup-local-ai.sh
+./scripts/setup-local-ai.sh
+./rebuild.sh --no-pull --with-ai
+
+docker compose --profile ai ps ollama worker api
+docker compose --profile ai exec -T ollama ollama list
+docker compose --profile ai exec -T ollama ollama ps
+```
+
+O script verifica `nvidia-smi` e o NVIDIA Container Toolkit. Quando ambos estiverem disponíveis, cria `docker-compose.ai-gpu.yml`; caso contrário, usa CPU automaticamente. Para utilizar o override gerado em atualizações, execute `COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --with-ai`.
+
+### Atualizações futuras
+
+Com CPU:
+
+```bash
+git pull --ff-only
+./rebuild.sh --no-pull --with-ai
+docker compose --profile ai exec -T ollama ollama ps
+```
+
+Com o override de GPU gerado na instalação:
+
+```bash
+git pull --ff-only
+COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --no-pull --with-ai
+docker compose -f docker-compose.yml -f docker-compose.ai-gpu.yml --profile ai exec -T ollama ollama ps
+```
+
+O volume `ollama_models` não é recriado pelo rebuild, portanto o modelo de aproximadamente 2,5 GB não é baixado novamente. Não use `docker compose down -v`, pois isso apagaria também os modelos, bancos e mídias. A imagem está fixada em `ollama/ollama:0.32.5`; atualize-a somente depois de executar o smoke test do script.
+
+Variáveis:
+
+```dotenv
+AI_ASSISTANT_ENABLED=true
+OLLAMA_API_URL=http://localhost:11434
+OLLAMA_MODEL=qwen3:4b-instruct
+OLLAMA_CONTEXT_LENGTH=4096
+OLLAMA_NUM_PARALLEL=1
+OLLAMA_MAX_LOADED_MODELS=1
+OLLAMA_KEEP_ALIVE=2m
+OLLAMA_INTERACTIVE_TIMEOUT_MS=90000
+OLLAMA_SUMMARY_TIMEOUT_MS=180000
+OLLAMA_MEMORY_LIMIT=4g
+OLLAMA_BIND_PORT=11434
+```
+
+No Docker de produção, o Compose sobrescreve `OLLAMA_API_URL` para `http://ollama:11434`. A porta `11434` no host fica vinculada exclusivamente a `127.0.0.1`, permitindo o desenvolvimento local sem expor o modelo à rede. Consulte a [documentação oficial do Ollama sobre Docker](https://hub.docker.com/r/ollama/ollama) e as [configurações de concorrência e descarregamento](https://docs.ollama.com/faq).
+
 ## CSV de campanhas
 
 Na criação de uma campanha, o CSV deve ter as colunas `telefone` e `mensagem`. Para enviar várias mensagens ao mesmo contato, adicione `mensagem_2`, `mensagem_3` e assim por diante. As colunas `nome` e `email` são opcionais.

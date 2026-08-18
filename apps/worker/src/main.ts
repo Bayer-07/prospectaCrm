@@ -13,6 +13,7 @@ import { TaskDigestProcessor } from './task-digest.processor.js';
 import { UserInviteProcessor } from './user-invite.processor.js';
 import { WorkflowProcessor } from './workflow.processor.js';
 import { FollowUpProcessor } from './follow-up.processor.js';
+import { AiGenerationProcessor } from './ai.processor.js';
 
 const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', { maxRetriesPerRequest: null });
 const evolution = new EvolutionClient();
@@ -25,16 +26,19 @@ const inboundQueue = new Queue('inbound-webhooks', queueOptions);
 const taskDigestQueue = new Queue('task-digests', queueOptions);
 const transactionalEmailQueue = new Queue('transactional-emails', queueOptions);
 const followUpQueue = new Queue('follow-ups', queueOptions);
+const aiGenerationQueue = new Queue('ai-generations', queueOptions);
+const transcriptionQueue = new Queue('audio-transcriptions', queueOptions);
 
 const inbound = new InboundProcessor(prisma, chatbotQueue, evolution, inboundQueue, transactionalEmailQueue);
 const outbound = new OutboundProcessor(prisma, evolution, followUpQueue, transactionalEmailQueue);
 const campaigns = new CampaignProcessor(prisma, campaignQueue, evolution);
 const workflows = new WorkflowProcessor(prisma, automationQueue, outboundQueue);
-const chatbots = new ChatbotProcessor(prisma, chatbotQueue, outboundQueue);
+const chatbots = new ChatbotProcessor(prisma, chatbotQueue, outboundQueue, aiGenerationQueue);
 const taskDigests = new TaskDigestProcessor(prisma);
 const userInvites = new UserInviteProcessor(prisma);
 const audioTranscriptions = new AudioTranscriptionProcessor(prisma);
 const followUps = new FollowUpProcessor(prisma, followUpQueue, outboundQueue, automationQueue, transactionalEmailQueue);
+const aiGenerations = new AiGenerationProcessor(prisma, aiGenerationQueue, outboundQueue, chatbotQueue, transcriptionQueue);
 
 const workers = [
   new Worker('inbound-webhooks', async (job) => {
@@ -79,6 +83,20 @@ const workers = [
       await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: result.organizationId, event: 'tasks.updated', payload: { conversationId: result.conversationId } }));
     }
   }, { connection, concurrency: 3 }),
+  new Worker('ai-generations', async (job) => {
+    const result = await aiGenerations.process(job);
+    if (result && 'organizationId' in result && result.organizationId) {
+      await connection.publish('prospecta:realtime', JSON.stringify({
+        organizationId: result.organizationId,
+        event: 'conversation.ai.updated',
+        payload: {
+          conversationId: 'conversationId' in result ? result.conversationId : null,
+          generationId: job.data.generationId,
+          status: 'status' in result ? result.status : undefined,
+        },
+      }));
+    }
+  }, { connection, concurrency: 1 }),
 ];
 
 for (const worker of workers) {
@@ -118,6 +136,7 @@ await runMaintenance(prisma);
 await campaigns.reconcileActiveCampaigns();
 await followUps.reconcile();
 await chatbots.reconcileDelays();
+await aiGenerations.reconcilePending();
 const maintenanceTimer = setInterval(() => void (async () => {
   await runMaintenance(prisma);
   await campaigns.reconcileActiveCampaigns();
@@ -126,6 +145,8 @@ const followUpTimer = setInterval(() => void followUps.reconcile()
   .catch((error) => console.error('Falha ao reconciliar follow-ups:', error)), 60_000);
 const chatbotDelayTimer = setInterval(() => void chatbots.reconcileDelays()
   .catch((error) => console.error('Falha ao reconciliar esperas de chatbots:', error)), 60_000);
+const aiReconcileTimer = setInterval(() => void aiGenerations.reconcilePending()
+  .catch((error) => console.error('Falha ao reconciliar gerações de IA:', error)), 30_000);
 
 let recentSyncRunning = false;
 const syncRecentEvolutionMessages = async () => {
@@ -159,9 +180,10 @@ const shutdown = async () => {
   clearInterval(maintenanceTimer);
   clearInterval(followUpTimer);
   clearInterval(chatbotDelayTimer);
+  clearInterval(aiReconcileTimer);
   clearInterval(recentSyncTimer);
   await Promise.all(workers.map((worker) => worker.close()));
-  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close(), followUpQueue.close()]);
+  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close(), followUpQueue.close(), aiGenerationQueue.close(), transcriptionQueue.close()]);
   await prisma.$disconnect();
   await connection.quit();
 };

@@ -12,3 +12,4 @@ data
 apps/web/playwright-report
 apps/web/test-results
 packages/database/prisma/dev.db
+docker-compose.ai-gpu.yml

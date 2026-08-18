@@ -29,7 +29,7 @@ export const normalizeRuleText = (value: unknown) => scalarText(value)
   .toLocaleLowerCase('pt-BR');
 
 export class RulesResponseProvider implements ChatbotResponseProvider {
-  readonly key = 'RULES';
+  readonly key: string = 'RULES';
 
   matches(data: Record<string, unknown>, context: ChatbotRuleContext) {
     const actual = normalizeRuleText(context.lastMessage);
@@ -52,4 +52,8 @@ export class RulesResponseProvider implements ChatbotResponseProvider {
       mensagem: context.lastMessage,
     });
   }
+}
+
+export class OllamaResponseProvider extends RulesResponseProvider {
+  override readonly key = 'OLLAMA';
 }

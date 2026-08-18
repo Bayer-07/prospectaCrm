@@ -32,6 +32,24 @@ function validateNodeText(node: ChatbotNode) {
       throw new BadRequestException(`Informe um tempo de espera válido no bloco ${nodeLabel(node)}`);
     }
   }
+  if (node.type === 'ai_conversation') {
+    const objective = primitiveText(node.data?.objective).trim();
+    const instructions = primitiveText(node.data?.instructions).trim();
+    const transferCriteria = primitiveText(node.data?.transferCriteria).trim();
+    const fallbackMessage = primitiveText(node.data?.fallbackMessage).trim();
+    const maxInteractions = Number(node.data?.maxInteractions);
+    const minimumConfidence = Number(node.data?.minimumConfidence);
+    if (!objective) throw new BadRequestException(`Preencha o objetivo do bloco ${nodeLabel(node)}`);
+    if (objective.length > 2_000 || instructions.length > 5_000 || transferCriteria.length > 3_000 || fallbackMessage.length > 1_000) {
+      throw new BadRequestException(`As instruções do bloco ${nodeLabel(node)} ultrapassam o limite permitido`);
+    }
+    if (!Number.isInteger(maxInteractions) || maxInteractions < 1 || maxInteractions > 20) {
+      throw new BadRequestException(`O limite de interações do bloco ${nodeLabel(node)} deve ficar entre 1 e 20`);
+    }
+    if (!Number.isFinite(minimumConfidence) || minimumConfidence < 0 || minimumConfidence > 100) {
+      throw new BadRequestException(`A confiança do bloco ${nodeLabel(node)} deve ficar entre 0% e 100%`);
+    }
+  }
 }
 
 function validateOutgoingConnections(node: ChatbotNode, outgoing: ChatbotEdge[]) {
@@ -80,7 +98,7 @@ function assertAllNodesReachable(triggerId: string, ids: Set<string>, adjacency:
 }
 
 function assertCyclesHavePauseBoundary(graph: ChatbotGraph, ids: Set<string>, adjacency: Map<string, string[]>) {
-  const pauseIds = new Set(graph.nodes.filter((node) => ['question', 'wait'].includes(node.type)).map((node) => node.id));
+  const pauseIds = new Set(graph.nodes.filter((node) => ['question', 'wait', 'ai_conversation'].includes(node.type)).map((node) => node.id));
   const visiting = new Set<string>();
   const visited = new Set<string>();
   const visit = (id: string) => {
@@ -123,7 +141,7 @@ export class ChatbotsService {
       }),
       this.db.tag.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, color: true }, orderBy: { name: 'asc' } }),
     ]);
-    return { instances, tags, responseProviders: [{ key: 'RULES', name: 'Regras', available: true }, { key: 'AI', name: 'Inteligência artificial', available: false }] };
+    return { instances, tags, responseProviders: [{ key: 'RULES', name: 'Regras', available: true }, { key: 'OLLAMA', name: 'IA local — Ollama', available: process.env.AI_ASSISTANT_ENABLED === 'true' }] };
   }
 
   async get(auth: AuthContext, id: string) {
@@ -139,12 +157,15 @@ export class ChatbotsService {
     return chatbot;
   }
 
-  async create(auth: AuthContext, input: { name: string; description?: string; instanceId: string; graph?: ChatbotGraph }) {
+  async create(auth: AuthContext, input: { name: string; description?: string; instanceId: string; responseProvider?: 'RULES' | 'OLLAMA'; graph?: ChatbotGraph }) {
     if (!auth.userId) throw new BadRequestException('Chatbot exige usuário');
     const name = input.name?.trim();
     if (!name || name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido para o chatbot');
     await this.assertInstance(auth, input.instanceId);
     const graph = input.graph || this.defaultGraph();
+    const responseProvider = input.responseProvider || 'RULES';
+    if (!['RULES', 'OLLAMA'].includes(responseProvider)) throw new BadRequestException('Motor de resposta inválido');
+    if (responseProvider === 'OLLAMA' && process.env.AI_ASSISTANT_ENABLED !== 'true') throw new BadRequestException('A IA local está desativada neste ambiente');
     this.validateShape(graph, false);
     return this.db.chatbot.create({
       data: {
@@ -153,7 +174,7 @@ export class ChatbotsService {
         createdById: auth.userId,
         name,
         description: input.description?.trim() || null,
-        responseProvider: 'RULES',
+        responseProvider,
         versions: { create: { version: 1, graph: graph as Prisma.InputJsonValue } },
       },
       include: { versions: true, instance: { select: { id: true, name: true, phone: true, status: true } } },
@@ -177,7 +198,12 @@ export class ChatbotsService {
     const latest = chatbot.versions[0];
     if (!latest) throw new BadRequestException('Versão do chatbot não encontrada');
     if (latest.publishedAt) throw new BadRequestException('Salve uma nova versão antes de publicar novamente');
-    this.validateShape(latest.graph as unknown as ChatbotGraph, true);
+    const graph = latest.graph as unknown as ChatbotGraph;
+    this.validateShape(graph, true);
+    if (graph.nodes.some((node) => node.type === 'ai_conversation') && chatbot.responseProvider !== 'OLLAMA') {
+      throw new BadRequestException('Blocos de atendimento por IA exigem o motor IA local — Ollama');
+    }
+    if (chatbot.responseProvider === 'OLLAMA' && process.env.AI_ASSISTANT_ENABLED !== 'true') throw new BadRequestException('Ative a IA local antes de publicar este chatbot');
     await this.db.$transaction([
       this.db.chatbot.updateMany({ where: { instanceId: chatbot.instanceId, status: 'PUBLISHED', id: { not: id } }, data: { status: 'PAUSED' } }),
       this.db.chatbotVersion.update({ where: { id: latest.id }, data: { publishedAt: new Date() } }),
@@ -233,6 +259,7 @@ export class ChatbotsService {
         instanceId: true,
         status: true,
         publishedVersion: true,
+        responseProvider: true,
         versions: { orderBy: { version: 'desc' }, take: 1, select: { id: true, version: true, graph: true, publishedAt: true } },
       },
     });
@@ -253,6 +280,12 @@ export class ChatbotsService {
     if (triggers.length !== 1) throw new BadRequestException('O chatbot precisa ter exatamente uma entrada de mensagem');
     if (!graph.nodes.some((node) => ['handoff', 'close', 'end'].includes(node.type))) throw new BadRequestException('Adicione ao menos um bloco de transferência, encerramento ou fim');
     validateNodeConnections(graph);
+    for (const aiNode of graph.nodes.filter((node) => node.type === 'ai_conversation')) {
+      const targetId = graph.edges.find((edge) => edge.source === aiNode.id)?.target;
+      if (graph.nodes.find((node) => node.id === targetId)?.type !== 'handoff') {
+        throw new BadRequestException(`O bloco ${nodeLabel(aiNode)} deve seguir diretamente para Transferir`);
+      }
+    }
     const adjacency = graphAdjacency(graph, ids);
     assertAllNodesReachable(triggers[0].id, ids, adjacency);
     assertCyclesHavePauseBoundary(graph, ids, adjacency);

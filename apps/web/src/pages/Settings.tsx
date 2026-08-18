@@ -1,7 +1,7 @@
-import { FormEvent, useState } from 'react';
+import { FormEvent, useEffect, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, Check, Copy, ExternalLink, KeyRound, LockKeyhole, Mail, MoreHorizontal, Network, Pencil, Plus, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2, Unplug, UserPlus, Users } from 'lucide-react';
+import { AlertTriangle, BrainCircuit, Check, Copy, ExternalLink, KeyRound, LockKeyhole, Mail, MoreHorizontal, Network, Pencil, Play, Plus, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2, Unplug, UserPlus, Users } from 'lucide-react';
 import { api, dateTime, type Envelope } from '../lib/api';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { useAuth } from '../App';
@@ -51,7 +51,7 @@ export function ConnectionsPage() {
   return <section className="settings-content connections-settings-page"><WhatsappSettings /></section>;
 }
 
-const integrationSections = ['api', 'mcp', 'webhooks', 'swagger'] as const;
+const integrationSections = ['api', 'mcp', 'webhooks', 'swagger', 'ai'] as const;
 type IntegrationSection = (typeof integrationSections)[number];
 
 export function IntegrationsPage() {
@@ -63,7 +63,83 @@ export function IntegrationsPage() {
     {section === 'mcp' && <McpSettings />}
     {section === 'webhooks' && <WebhookSettings />}
     {section === 'swagger' && <SwaggerDocsSettings />}
+    {section === 'ai' && <AiSettings />}
   </section>;
+}
+
+type AiSettingsData = {
+  enabled: boolean;
+  globalInstructions: string;
+  fallbackMessage: string;
+  model: string;
+  runtime: { available: boolean; reason?: string; loadedModels: Array<{ name?: string; size?: number }> };
+};
+type AiConfigTest = { id: string; status: string; result?: { reply?: string }; error?: string };
+
+function AiSettings() {
+  const client = useQueryClient();
+  const settings = useQuery({ queryKey: ['ai-settings'], queryFn: () => api<Envelope<AiSettingsData>>('/settings/ai') });
+  const [testGenerationId, setTestGenerationId] = useState<string | null>(null);
+  const [form, setForm] = useState<Pick<AiSettingsData, 'enabled' | 'globalInstructions' | 'fallbackMessage'> | null>(null);
+  const current = form || (settings.data ? {
+    enabled: settings.data.data.enabled,
+    globalInstructions: settings.data.data.globalInstructions,
+    fallbackMessage: settings.data.data.fallbackMessage,
+  } : null);
+  const save = useMutation({
+    mutationFn: () => api('/settings/ai', { method: 'PATCH', body: JSON.stringify(current) }),
+    onSuccess: () => {
+      toast.success('Configurações da IA atualizadas.');
+      setForm(null);
+      void client.invalidateQueries({ queryKey: ['ai-settings'] });
+      void client.invalidateQueries({ queryKey: ['chatbot-metadata'] });
+    },
+  });
+  const test = useMutation({
+    mutationFn: () => api<Envelope<{ id: string }>>('/settings/ai/test', { method: 'POST', body: JSON.stringify({ message: 'Confirme em uma frase que a IA local do BZS One está pronta.' }) }),
+    onSuccess: (result) => {
+      setTestGenerationId(result.data.id);
+      toast.success('Teste iniciado em segundo plano.');
+    },
+  });
+  const testResult = useQuery({
+    queryKey: ['ai-config-test', testGenerationId],
+    queryFn: () => api<Envelope<AiConfigTest>>(`/settings/ai/tests/${testGenerationId}`),
+    enabled: Boolean(testGenerationId),
+    refetchInterval: (query) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(query.state.data?.data.status || '') ? false : 1_500,
+  });
+  useEffect(() => {
+    if (testResult.data?.data.status === 'COMPLETED') toast.success(testResult.data.data.result?.reply || 'A IA local respondeu corretamente.');
+    if (testResult.data?.data.status === 'FAILED') toast.error(testResult.data.data.error || 'O teste da IA falhou.');
+  }, [testResult.data]);
+  if (settings.isLoading || !current) return <PageLoading />;
+  if (settings.error) return null;
+  const runtime = settings.data!.data.runtime;
+  const currentTest = testResult.data?.data;
+  let testMessage = 'O modelo está processando o teste…';
+  if (currentTest?.status === 'COMPLETED') testMessage = currentTest.result?.reply || 'A IA local respondeu corretamente.';
+  if (currentTest?.status === 'FAILED') testMessage = currentTest.error || 'O teste da IA falhou.';
+  const update = (values: Partial<typeof current>) => setForm({ ...current, ...values });
+  return <div className="ai-settings-page">
+    <div className="settings-heading">
+      <div><h2>Inteligência artificial</h2><p>Assistente local executado no servidor da BZS, sem enviar conversas para provedores externos.</p></div>
+      <div className={`ai-runtime-pill ${runtime.available ? 'online' : 'offline'}`}><span />{runtime.available ? 'Ollama disponível' : 'Ollama indisponível'}</div>
+    </div>
+    <div className="ai-settings-grid">
+      <article className="ai-status-card">
+        <div className="ai-status-icon"><BrainCircuit size={22} /></div>
+        <div><span>Modelo configurado</span><strong>{settings.data!.data.model}</strong><small>{runtime.loadedModels[0]?.name ? `Carregado: ${runtime.loadedModels[0].name}` : 'O modelo será carregado sob demanda.'}</small></div>
+      </article>
+      <label className="ai-enable-card">
+        <div><strong>Habilitar recursos de IA</strong><span>Libera resumos, sugestões e chatbots Ollama para esta organização.</span></div>
+        <input type="checkbox" checked={current.enabled} onChange={(event) => update({ enabled: event.target.checked })} />
+      </label>
+    </div>
+    <label className="field ai-textarea-field"><span>Instruções gerais da BZS</span><textarea rows={8} maxLength={10_000} value={current.globalInstructions} onChange={(event) => update({ globalInstructions: event.target.value })} placeholder="Tom de voz, produtos, limites comerciais e informações que a IA deve respeitar." /><small>{current.globalInstructions.length.toLocaleString('pt-BR')} / 10.000 caracteres</small></label>
+    <label className="field ai-textarea-field"><span>Mensagem de indisponibilidade</span><textarea rows={3} maxLength={1_000} value={current.fallbackMessage} onChange={(event) => update({ fallbackMessage: event.target.value })} /><small>Enviada antes da transferência quando o pré-atendimento não puder continuar.</small></label>
+    {testGenerationId && currentTest && <div className={`ai-test-result ${currentTest.status.toLowerCase()}`}><BrainCircuit size={16} /><span>{testMessage}</span></div>}
+    <div className="ai-settings-actions"><Button variant="secondary" onClick={() => test.mutate()} loading={test.isPending || Boolean(testGenerationId && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(testResult.data?.data.status || ''))} disabled={!settings.data!.data.enabled || !runtime.available || Boolean(form)} title={form ? 'Salve as alterações antes de testar' : undefined}><Play size={16} />Testar geração</Button><Button onClick={() => save.mutate()} loading={save.isPending}>Salvar configurações</Button></div>
+  </div>;
 }
 
 function UsersSettings() {

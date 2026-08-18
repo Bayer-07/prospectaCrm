@@ -4,6 +4,28 @@ import { ChatbotsService } from './chatbots.service.js';
 const service = new ChatbotsService({} as never);
 
 describe('validação do mapa do chatbot', () => {
+  it('aceita o pré-atendimento por IA quando a saída transfere para um humano', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'ai', type: 'ai_conversation', data: { objective: 'Qualificar o contato', maxInteractions: 6, minimumConfidence: 65 } },
+        { id: 'handoff', type: 'handoff' },
+      ],
+      edges: [{ source: 'start', target: 'ai' }, { source: 'ai', target: 'handoff' }],
+    }, true)).not.toThrow();
+  });
+
+  it('bloqueia um bloco de IA que não conduz diretamente à transferência', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'ai', type: 'ai_conversation', data: { objective: 'Qualificar', maxInteractions: 6, minimumConfidence: 65 } },
+        { id: 'end', type: 'end' },
+      ],
+      edges: [{ source: 'start', target: 'ai' }, { source: 'ai', target: 'end' }],
+    }, true)).toThrow(/diretamente para Transferir/);
+  });
+
   it('aceita um fluxo completo com pergunta e condição', () => {
     expect(() => service.validateShape({
       nodes: [

@@ -467,6 +467,7 @@ describe('responsabilidade ao abrir um atendimento', () => {
         update,
       },
       chatbotSession: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
       conversationFollowUp: { updateMany: updateFollowUp },
       task: { updateMany: updateFollowUpTask },
       conversationEvent: { create: createEvent },
@@ -758,6 +759,7 @@ describe('assinatura do operador', () => {
     const outboundQueue = { add: vi.fn().mockResolvedValue(undefined) };
     const db = {
       conversation: { findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', instanceId: 'instance-1', status: 'OPEN', assigneeId: 'user-1' }) },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       message: { create },
     };
     const realtime = { notifyOrganization: vi.fn() };
@@ -776,6 +778,7 @@ describe('assinatura do operador', () => {
     const outboundQueue = { add: vi.fn().mockResolvedValue(undefined) };
     const db = {
       conversation: { findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', instanceId: 'instance-1', status: 'OPEN', assigneeId: 'user-1' }) },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       mediaAsset: {
         findUnique: vi.fn().mockResolvedValue({ id: 'media-1', key: 'organization-1/imagem.png' }),
         update: vi.fn().mockResolvedValue(undefined),
@@ -806,6 +809,7 @@ describe('assinatura do operador', () => {
     const outboundQueue = { add: vi.fn().mockResolvedValue(undefined) };
     const db = {
       conversation: { findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', instanceId: 'instance-1', status: 'OPEN', assigneeId: 'user-1' }) },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       mediaAsset: {
         findUnique: vi.fn().mockResolvedValue({ id: 'media-1', key: 'organization-1/imagem.png' }),
         update: vi.fn().mockResolvedValue(undefined),
@@ -852,6 +856,7 @@ describe('variáveis em mensagens manuais', () => {
           companies: [{ company: { name: 'BZS Tecnologia' } }],
         }),
       },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
       message: {
         findFirst: vi.fn().mockResolvedValue({ text: 'Preciso de uma proposta' }),
         create,

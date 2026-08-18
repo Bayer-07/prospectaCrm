@@ -3,9 +3,10 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
+import { aiSuggestionDisposition } from '../lib/ai-suggestion';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
@@ -48,6 +49,30 @@ type MessageLinkPreviewData = {
   imageUrl?: string;
   siteName?: string;
 };
+type AiGeneration = {
+  id: string;
+  type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'CHATBOT_REPLY' | 'CONFIG_TEST';
+  status: 'PENDING' | 'WAITING_INPUT' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE';
+  scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION' | null;
+  result?: { reply?: string; overview?: string; need?: string; commitments?: string[]; nextSteps?: string[]; pending?: string[] } | null;
+  error?: string | null;
+  progress: number;
+  model?: string | null;
+  completedAt?: string | null;
+  sourceLastMessageId?: string | null;
+};
+type AiProposal = {
+  id: string;
+  status: 'PENDING' | 'PARTIALLY_APPLIED' | 'APPLIED' | 'DISMISSED';
+  changes: { name?: string; email?: string; jobTitle?: string; companyName?: string; qualificationNote?: string };
+  appliedFields: string[];
+};
+const AI_TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED', 'STALE'];
+
+function completedSuggestion(generation: AiGeneration, requestedGenerationId?: string) {
+  if (generation.status !== 'COMPLETED' || generation.type !== 'REPLY_SUGGESTION' || requestedGenerationId !== generation.id) return '';
+  return generation.result?.reply?.trim() || '';
+}
 
 const EMPTY_CONVERSATION_FILTERS: ConversationListFilters = {
   lastInteractionFrom: '',
@@ -962,6 +987,10 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [instanceTarget, setInstanceTarget] = useState('');
   const [opportunityOpen, setOpportunityOpen] = useState(false);
   const [followUpOpen, setFollowUpOpen] = useState(false);
+  const [aiMenuOpen, setAiMenuOpen] = useState(false);
+  const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
+  const [activeAiGenerationId, setActiveAiGenerationId] = useState<string | null>(null);
+  const [readyAiSuggestion, setReadyAiSuggestion] = useState('');
   const [sharedContactToStart, setSharedContactToStart] = useState<SharedWhatsappContact | null>(null);
   const [actionNotice, setActionNotice] = useState('');
   const [actionError, setActionError] = useState('');
@@ -981,6 +1010,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const bodyRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<WhatsappComposerHandle>(null);
+  const composerRevisionRef = useRef(0);
+  const aiSuggestionRequestRef = useRef<{ generationId: string; revision: number } | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const emojiPickerRef = useRef<HTMLDialogElement>(null);
   const highlightTimerRef = useRef<number | null>(null);
@@ -1025,6 +1056,65 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     enabled: quickReplyMenuOpen,
     staleTime: 60_000,
   });
+  const activeAiGeneration = useQuery({
+    queryKey: ['ai-generation', conversation.id, activeAiGenerationId],
+    queryFn: () => api<Envelope<AiGeneration>>(`/conversations/${conversation.id}/ai/generations/${activeAiGenerationId}`),
+    enabled: Boolean(activeAiGenerationId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.data.status;
+      if (!status || ['COMPLETED', 'FAILED', 'CANCELLED', 'STALE'].includes(status)) return false;
+      return 2_000;
+    },
+  });
+  const latestAiSummary = useQuery({
+    queryKey: ['ai-summary', conversation.id],
+    queryFn: () => api<Envelope<AiGeneration | null>>(`/conversations/${conversation.id}/ai/summaries/latest`),
+    enabled: aiSummaryOpen,
+  });
+  const createAiGeneration = useMutation({
+    mutationFn: (input: { type: 'SUMMARY' | 'REPLY_SUGGESTION'; scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION' }) => api<Envelope<AiGeneration>>(`/conversations/${conversation.id}/ai/generations`, { method: 'POST', body: JSON.stringify(input) }),
+    onSuccess: (response, input) => {
+      const generation = response.data;
+      setActiveAiGenerationId(generation.id);
+      setAiMenuOpen(false);
+      if (input.type === 'REPLY_SUGGESTION') {
+        aiSuggestionRequestRef.current = { generationId: generation.id, revision: composerRevisionRef.current };
+        setReadyAiSuggestion('');
+      } else {
+        setAiSummaryOpen(true);
+      }
+    },
+  });
+  useEffect(() => {
+    const generation = activeAiGeneration.data?.data;
+    if (!generation || !activeAiGenerationId) return;
+    const request = aiSuggestionRequestRef.current;
+    const reply = completedSuggestion(generation, request?.generationId);
+    if (reply && request) {
+        if (aiSuggestionDisposition({
+          composerText: text,
+          hasAttachment: Boolean(file),
+          requestedRevision: request.revision,
+          currentRevision: composerRevisionRef.current,
+        }) === 'insert') {
+          setText(reply);
+          window.setTimeout(() => textRef.current?.moveCaretToEnd(), 0);
+        } else {
+          setReadyAiSuggestion(reply);
+        }
+        aiSuggestionRequestRef.current = null;
+    }
+    if (generation.status === 'COMPLETED' && generation.type === 'SUMMARY') {
+      void latestAiSummary.refetch();
+    }
+    const failedSuggestion = generation.status !== 'COMPLETED' && AI_TERMINAL_STATUSES.includes(generation.status)
+      && aiSuggestionRequestRef.current?.generationId === generation.id;
+    if (failedSuggestion) {
+      aiSuggestionRequestRef.current = null;
+      if (generation.status === 'FAILED') toast.error(generation.error || 'A IA não conseguiu gerar a resposta.');
+    }
+    if (AI_TERMINAL_STATUSES.includes(generation.status)) setActiveAiGenerationId(null);
+  }, [activeAiGeneration.data, activeAiGenerationId, file, latestAiSummary, text]);
   const automationSearch = composerCommandSearch(text, '@');
   const workflowOptions = useMemo(() => (workflows.data?.data || []).filter((workflow) => {
     if (workflow.status !== 'PUBLISHED' || !workflow.publishedVersion) return false;
@@ -1770,6 +1860,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const handleComposerChange = (value: string) => {
     const command = detectComposerCommand(value, { canReply, editing: Boolean(editingMessage), hasFile: Boolean(file) });
     setText(value);
+    composerRevisionRef.current += 1;
     setQuickReplyMenuOpen(command === 'quick-reply');
     setAutomationMenuOpen(command === 'automation');
     setAttachmentError('');
@@ -1811,12 +1902,13 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     {editingMessage && <div className="composer-reply composer-edit"><Pencil size={16} /><div><strong>Editando mensagem</strong><span>{messagePreview(editingMessage)}</span></div><button type="button" onClick={cancelEdit} aria-label="Cancelar edição"><X size={15} /></button></div>}
     {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
     {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
+    {readyAiSuggestion && <div className="composer-ai-suggestion"><Sparkles size={16} /><div><strong>Sugestão pronta</strong><span>{readyAiSuggestion}</span></div><button type="button" onClick={() => { setText(readyAiSuggestion); setReadyAiSuggestion(''); window.setTimeout(() => textRef.current?.moveCaretToEnd(), 0); }}>Inserir</button><button type="button" onClick={() => setReadyAiSuggestion('')} aria-label="Descartar sugestão"><X size={14} /></button></div>}
     <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleComposerKeyDown} onChange={handleComposerChange} placeholder={composerPlaceholder} onSubmit={handleComposerSubmit} />
   </div>;
   const renderIdleComposer = () => <>
     {renderEmojiPicker()}
     <div className="composer-capsule">
-      <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button></div>
+      <div className="composer-tools"><input ref={fileRef} hidden type="file" accept="image/*,audio/*,video/*,application/pdf,text/plain,text/csv,.doc,.docx,.xls,.xlsx,.ppt,.pptx,.zip,.rar" onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAiMenuOpen(false); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button><div className="composer-ai-wrap"><button type="button" disabled={!canReply || Boolean(editingMessage)} className={aiMenuOpen ? 'active' : ''} onClick={() => { setAiMenuOpen((current) => !current); setEmojiPickerOpen(false); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); }} title="Assistente de IA" aria-label="Assistente de IA" aria-haspopup="menu" aria-expanded={aiMenuOpen}><Sparkles size={19} /></button>{aiMenuOpen && <div className="composer-ai-menu" role="menu"><header><Sparkles size={16} /><div><strong>Assistente local</strong><span>Ollama · dados no servidor</span></div></header><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'REPLY_SUGGESTION' })}>Sugerir resposta</button><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'SUMMARY', scope: 'CURRENT_ATTENDANCE' })}>Resumir atendimento atual</button><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'SUMMARY', scope: 'FULL_CONVERSATION' })}>Resumir conversa completa</button><button type="button" role="menuitem" onClick={() => { setAiMenuOpen(false); setAiSummaryOpen(true); }}>Ver último resumo</button></div>}</div></div>
       {renderComposerInput()}
       {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label={currentSendAction.label} title={currentSendAction.label}>{currentSendAction.icon}</Button></div>}
       {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={startVoiceRecording} disabled={send.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}
@@ -1875,6 +1967,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       }}
     />}
     {contactOpen && <ContactDrawer conversation={conversation} onClose={() => setContactOpen(false)} onUpdated={onSend} />}
+    {aiSummaryOpen && <AiSummaryDrawer generation={activeAiGeneration.data?.data.type === 'SUMMARY' ? activeAiGeneration.data.data : latestAiSummary.data?.data || null} loading={activeAiGeneration.isLoading || latestAiSummary.isLoading || createAiGeneration.isPending} onClose={() => setAiSummaryOpen(false)} />}
     {followUpOpen && <FollowUpModal conversationId={conversation.id} contactName={conversation.contact.name} followUpId={conversation.followUps?.[0]?.id} onClose={() => setFollowUpOpen(false)} onSaved={onSend} />}
     {editHistoryMessage && <MessageEditHistoryModal message={editHistoryMessage} onClose={() => setEditHistoryMessage(null)} />}
     {deletingMessage && <Modal title="Apagar mensagem?" onClose={() => { if (!remove.isPending) setDeletingMessage(null); }} width={470}>
@@ -2165,12 +2258,41 @@ function MessageEditHistoryModal({ message, onClose }: Readonly<{ message: Messa
   </Modal>;
 }
 
+function AiSummaryDrawer({ generation, loading, onClose }: Readonly<{ generation: AiGeneration | null; loading: boolean; onClose(): void }>) {
+  const result = generation?.result;
+  const isRunning = generation && ['PENDING', 'WAITING_INPUT', 'RUNNING'].includes(generation.status);
+  const list = (title: string, items?: string[]) => items?.length ? <section><h3>{title}</h3><ul>{items.map((item) => <li key={item}>{item}</li>)}</ul></section> : null;
+  return <><button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar resumo da IA" /><aside className="opportunity-drawer ai-summary-drawer" aria-label="Resumo do atendimento"><header><div><span className="eyebrow">Assistente local</span><h2>Resumo da conversa</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></header><div className="drawer-content">{(loading || isRunning) && <div className="ai-summary-progress"><div><Sparkles size={20} /><strong>{generation?.status === 'WAITING_INPUT' ? 'Aguardando transcrição de áudio' : 'Analisando a conversa'}</strong><span>{generation?.progress || 0}% concluído</span></div><i><span style={{ width: `${generation?.progress || 8}%` }} /></i><p>Você pode fechar este painel. O processamento continua em segundo plano.</p></div>}{!loading && !isRunning && !result && <Empty icon={<Sparkles />} title="Nenhum resumo salvo" description="Use o menu de IA na barra de digitação para gerar o primeiro resumo." />}{result && <div className="ai-summary-content"><div className="ai-summary-meta"><span>{generation?.scope === 'FULL_CONVERSATION' ? 'Conversa completa' : 'Atendimento atual'}</span>{generation?.status === 'STALE' && <strong>Desatualizado</strong>}{generation?.completedAt && <time>{dateTime(generation.completedAt)}</time>}</div><section><h3>Visão geral</h3><p>{result.overview || 'Não identificado.'}</p></section><section><h3>Necessidade</h3><p>{result.need || 'Não identificada.'}</p></section>{list('Compromissos', result.commitments)}{list('Próximos passos', result.nextSteps)}{list('Pontos pendentes', result.pending)}</div>}</div></aside></>;
+}
+
+function AiProposalSection(props: Readonly<{
+  proposal: AiProposal;
+  selected: string[];
+  companies: Company[];
+  companyId: string;
+  pending: boolean;
+  onSelection(fields: string[]): void;
+  onCompany(companyId: string): void;
+  onAction(action: 'apply' | 'dismiss'): void;
+}>) {
+  const fields = Object.entries(props.proposal.changes).filter(([, value]) => typeof value === 'string' && value.trim());
+  const labels: Record<string, string> = { name: 'Nome', email: 'E-mail', jobTitle: 'Cargo', companyName: 'Empresa', qualificationNote: 'Nota de qualificação' };
+  const apiField = (field: string) => field === 'companyName' ? 'company' : field;
+  const toggle = (field: string, checked: boolean) => {
+    const normalized = apiField(field);
+    props.onSelection(checked ? [...new Set([...props.selected, normalized])] : props.selected.filter((item) => item !== normalized));
+  };
+  return <section className="ai-proposal-card"><h3><Sparkles size={15} />Sugestões da IA</h3><p>Revise e selecione somente os dados que deseja aplicar.</p><div className="ai-proposal-fields">{fields.map(([field, value]) => <label key={field}><input type="checkbox" checked={props.selected.includes(apiField(field))} onChange={(event) => toggle(field, event.target.checked)} /><span><strong>{labels[field] || field}</strong><small>{value}</small></span></label>)}</div>{props.selected.includes('company') && <label className="field"><span>Confirmar empresa existente</span><select value={props.companyId} onChange={(event) => props.onCompany(event.target.value)}><option value="">Usar correspondência exata pelo nome</option>{props.companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<div className="ai-proposal-actions"><Button variant="ghost" disabled={props.pending} onClick={() => props.onAction('dismiss')}>Descartar</Button><Button disabled={!props.selected.length} loading={props.pending} onClick={() => props.onAction('apply')}><Check size={15} />Aplicar selecionadas</Button></div></section>;
+}
+
 function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversation: Conversation; onClose(): void; onUpdated(): void }>) {
   const { user } = useAuth();
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [inlineField, setInlineField] = useState<ContactInlineField | null>(null);
   const [inlineValue, setInlineValue] = useState('');
+  const [proposalSelections, setProposalSelections] = useState<Record<string, string[]>>({});
+  const [proposalCompanies, setProposalCompanies] = useState<Record<string, string>>({});
   const contact = conversation.contact;
   const company = contact.companies?.find((item) => item.isPrimary)?.company || contact.companies?.[0]?.company;
   const pipelineOpportunity = contact.opportunities?.find(({ isPrimary, opportunity }) => isPrimary && opportunity.status === 'OPEN')?.opportunity
@@ -2183,7 +2305,11 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
   const companies = useQuery({
     queryKey: ['contact-company-options'],
     queryFn: () => api<Envelope<Company[]>>('/companies?limit=100'),
-    enabled: inlineField === 'companyId',
+    enabled: inlineField === 'companyId' || Boolean(Object.keys(proposalSelections).length),
+  });
+  const aiProposals = useQuery({
+    queryKey: ['ai-proposals', conversation.id],
+    queryFn: () => api<Envelope<AiProposal[]>>(`/conversations/${conversation.id}/ai/proposals`),
   });
   const sortedCompanies = useMemo(() => [...(companies.data?.data || [])].sort((left, right) => left.name.localeCompare(right.name, 'pt-BR')), [companies.data?.data]);
   const refresh = () => {
@@ -2202,6 +2328,17 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
       return api<Envelope<Contact>>(`/contacts/${contact.id}`, { method: 'PATCH', body: JSON.stringify(payload) });
     },
     onSuccess: refresh,
+  });
+  const updateProposal = useMutation({
+    mutationFn: ({ proposalId, action }: { proposalId: string; action: 'apply' | 'dismiss' }) => api(`/conversations/${conversation.id}/ai/proposals/${proposalId}`, {
+      method: 'PATCH',
+      body: JSON.stringify({ action, fields: proposalSelections[proposalId] || [], companyId: proposalCompanies[proposalId] || undefined }),
+    }),
+    onSuccess: () => {
+      toast.success('Sugestão da IA atualizada.');
+      void aiProposals.refetch();
+      refresh();
+    },
   });
   const beginInlineEdit = (field: ContactInlineField) => {
     if (!canEdit || inlineUpdate.isPending) return;
@@ -2278,6 +2415,17 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
             <div><h3><UsersRound size={14} />Equipe</h3><p>{crmTeam?.name || 'Sem equipe'}</p></div>
           </div>
         </section>
+        {aiProposals.data?.data.map((proposal) => <AiProposalSection
+          key={proposal.id}
+          proposal={proposal}
+          selected={proposalSelections[proposal.id] || []}
+          companies={sortedCompanies}
+          companyId={proposalCompanies[proposal.id] || ''}
+          pending={updateProposal.isPending && updateProposal.variables?.proposalId === proposal.id}
+          onSelection={(fields) => setProposalSelections((current) => ({ ...current, [proposal.id]: fields }))}
+          onCompany={(companyId) => setProposalCompanies((current) => ({ ...current, [proposal.id]: companyId }))}
+          onAction={(action) => updateProposal.mutate({ proposalId: proposal.id, action })}
+        />)}
         <section>
           <h3><Tags size={15} />Tags</h3>
           {contact.tags?.length ? <div className="drawer-tags">{contact.tags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div> : <p className="drawer-empty-copy">Nenhuma tag adicionada.</p>}

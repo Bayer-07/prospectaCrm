@@ -3,7 +3,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
-  Bell, Blocks, BookOpen, Bot, Building2, Cable, Camera, CheckCheck, CheckSquare, ChevronDown, ContactRound, Eye, Gauge,
+  Bell, Blocks, BookOpen, Bot, BrainCircuit, Building2, Cable, Camera, CheckCheck, CheckSquare, ChevronDown, ContactRound, Eye, Gauge,
   Inbox, KanbanSquare, KeyRound, LogOut, Mail, Menu, MessageSquareReply, MessageSquareText, Moon, Network, Plug, Plus,
   Settings, Sun, Trash2, UserRound, Users, Webhook, X,
 } from 'lucide-react';
@@ -36,7 +36,7 @@ type NavItem = {
   label: string;
   icon: typeof Gauge;
   resource?: string;
-  children?: Array<{ to: string; label: string; icon: typeof Gauge; resource?: string }>;
+  children?: Array<{ to: string; label: string; icon: typeof Gauge; resource?: string; adminOnly?: boolean }>;
 };
 
 const nav: Array<{ section: string; items: NavItem[] }> = [
@@ -62,6 +62,7 @@ const nav: Array<{ section: string; items: NavItem[] }> = [
         { to: '/integracoes/mcp', label: 'Servidor MCP', icon: Network, resource: 'api_keys' },
         { to: '/integracoes/webhooks', label: 'Webhooks', icon: Webhook, resource: 'webhooks' },
         { to: '/integracoes/swagger', label: 'Swagger', icon: BookOpen, resource: 'integrations' },
+        { to: '/integracoes/ai', label: 'Inteligência artificial', icon: BrainCircuit, resource: 'integrations', adminOnly: true },
       ],
     },
   ] },
@@ -89,6 +90,7 @@ type SidebarNavItemProps = Readonly<{
   item: NavItem;
   canRead(resource?: string): boolean | undefined;
   currentPath: string;
+  isAdmin: boolean;
   integrationsOpen: boolean;
   onToggleIntegrations(): void;
   onNavigate(): void;
@@ -108,8 +110,8 @@ function SidebarChildLink({ child, onNavigate }: Readonly<{
   </NavLink>;
 }
 
-function SidebarNavItem({ item, canRead, currentPath, integrationsOpen, onToggleIntegrations, onNavigate }: SidebarNavItemProps) {
-  const visibleChildren = item.children?.filter((child) => canRead(child.resource));
+function SidebarNavItem({ item, canRead, currentPath, isAdmin, integrationsOpen, onToggleIntegrations, onNavigate }: SidebarNavItemProps) {
+  const visibleChildren = item.children?.filter((child) => canRead(child.resource) && (!child.adminOnly || isAdmin));
   if (item.children) {
     if (!visibleChildren?.length) return null;
     const active = currentPath.startsWith(item.to);
@@ -141,9 +143,10 @@ function SidebarNavItem({ item, canRead, currentPath, integrationsOpen, onToggle
   </NavLink>;
 }
 
-function SidebarNavigation({ canRead, currentPath, integrationsOpen, onToggleIntegrations, onNavigate }: Readonly<{
+function SidebarNavigation({ canRead, currentPath, isAdmin, integrationsOpen, onToggleIntegrations, onNavigate }: Readonly<{
   canRead(resource?: string): boolean | undefined;
   currentPath: string;
+  isAdmin: boolean;
   integrationsOpen: boolean;
   onToggleIntegrations(): void;
   onNavigate(): void;
@@ -155,6 +158,7 @@ function SidebarNavigation({ canRead, currentPath, integrationsOpen, onToggleInt
       item={item}
       canRead={canRead}
       currentPath={currentPath}
+      isAdmin={isAdmin}
       integrationsOpen={integrationsOpen}
       onToggleIntegrations={onToggleIntegrations}
       onNavigate={onNavigate}
@@ -340,6 +344,11 @@ export function Shell() {
     socket.on('whatsapp.updated', refreshWhatsapp);
     socket.on('tasks.updated', refreshTasks);
     socket.on('notification.created', () => scheduleInvalidation(['notifications']));
+    socket.on('conversation.ai.updated', (payload: { conversationId?: string; generationId?: string }) => {
+      scheduleInvalidation(['ai-generation', payload?.conversationId, payload?.generationId]);
+      scheduleInvalidation(['ai-summary', payload?.conversationId]);
+      scheduleInvalidation(['ai-proposals', payload?.conversationId]);
+    });
     return () => {
       for (const timer of invalidationTimers.values()) window.clearTimeout(timer);
       invalidationTimers.clear();
@@ -355,6 +364,7 @@ export function Shell() {
     <SidebarNavigation
       canRead={canRead}
       currentPath={location.pathname}
+      isAdmin={user?.roleKey === 'admin'}
       integrationsOpen={integrationsOpen}
       onToggleIntegrations={toggleIntegrations}
       onNavigate={closeMobileNavigation}

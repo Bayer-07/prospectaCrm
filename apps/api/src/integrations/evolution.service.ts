@@ -937,6 +937,9 @@ export class EvolutionService {
       ...(assigneeId ? [this.db.chatbotSession.updateMany({
         where: { conversationId: id, status: { in: ['ACTIVE', 'WAITING', 'HANDED_OFF'] } },
         data: { status: 'STOPPED' as const, wakeAt: null, stopReason: 'Atendimento assumido por um usuário', completedAt: new Date() },
+      }), this.db.conversationAiGeneration.updateMany({
+        where: { conversationId: id, type: 'CHATBOT_REPLY', status: { in: ['PENDING', 'WAITING_INPUT', 'RUNNING'] } },
+        data: { status: 'CANCELLED' as const, error: 'Atendimento assumido por um usuário', completedAt: new Date() },
       })] : []),
       ...(event ? [this.conversationEvent(auth, id, event.type, event.text, { assigneeId })] : []),
       ...(assigneeId && assignee ? [
@@ -1121,6 +1124,13 @@ export class EvolutionService {
       ...(nextStatus === 'CLOSED' ? [this.db.chatbotSession.updateMany({
         where: { conversationId: id, status: { in: ['ACTIVE', 'WAITING', 'HANDED_OFF', 'STOPPED'] } },
         data: { status: 'COMPLETED' as const, wakeAt: null, stopReason: 'Atendimento encerrado por um usuário', completedAt: new Date() },
+      }), this.db.conversationAiGeneration.updateMany({
+        where: { conversationId: id, type: 'CHATBOT_REPLY', status: { in: ['PENDING', 'WAITING_INPUT', 'RUNNING'] } },
+        data: { status: 'CANCELLED' as const, error: 'Atendimento encerrado por um usuário', completedAt: new Date() },
+      })] : []),
+      ...(tookOwnership ? [this.db.conversationAiGeneration.updateMany({
+        where: { conversationId: id, type: 'CHATBOT_REPLY', status: { in: ['PENDING', 'WAITING_INPUT', 'RUNNING'] } },
+        data: { status: 'CANCELLED' as const, error: 'Atendimento assumido por um usuário', completedAt: new Date() },
       })] : []),
       ...(event ? [this.conversationEvent(auth, id, event.type, event.text, {
         previousAssigneeId: conversation.assigneeId,
@@ -1170,6 +1180,7 @@ export class EvolutionService {
       },
       ...(media ? { media: { connect: { id: media.id } } } : {}),
     } });
+    await this.db.conversationAiGeneration.updateMany({ where: { conversationId, type: 'SUMMARY', status: 'COMPLETED' }, data: { status: 'STALE' } });
     await this.outboundQueue.add('send-message', { messageId: message.id }, { jobId: `message-${message.id}`, attempts: 5, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: 1000 });
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId });
     return message;

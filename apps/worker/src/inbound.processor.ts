@@ -1004,6 +1004,10 @@ export class InboundProcessor {
         await tx.suppression.upsert({ where: { contactId_channel: { contactId: contact.id, channel: 'WHATSAPP' } }, update: { reason: `Opt-out: ${text}` }, create: { contactId: contact.id, channel: 'WHATSAPP', reason: `Opt-out: ${text}` } });
       }
       await tx.campaignRecipient.updateMany({ where: { contactId: contact.id, status: { in: ['PENDING', 'QUEUED', 'SENT', 'DELIVERED', 'READ'] } }, data: { status: optOut ? 'OPTED_OUT' : 'REPLIED', repliedAt: new Date(), exclusionReason: optOut ? 'Descadastro recebido' : null } });
+      await tx.conversationAiGeneration.updateMany({
+        where: { conversationId: conversation.id, type: 'SUMMARY', status: 'COMPLETED' },
+        data: { status: 'STALE' },
+      });
       await tx.workflowEnrollment.updateMany({ where: { contactId: contact.id, status: { in: ['ACTIVE', 'WAITING'] } }, data: { status: 'STOPPED', stopReason: optOut ? 'Descadastro recebido' : 'Contato respondeu', completedAt: new Date() } });
       const followUp = await this.interruptFollowUpByReply(tx, instance, conversation.id, contact.name, messageId);
       if (conversation.assigneeId) await tx.notification.create({ data: {

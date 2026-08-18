@@ -147,15 +147,44 @@ enum FollowUpStepStatus {
   FAILED
 }
 
+enum AiGenerationType {
+  SUMMARY
+  REPLY_SUGGESTION
+  CHATBOT_REPLY
+  CONFIG_TEST
+}
+
+enum AiGenerationStatus {
+  PENDING
+  WAITING_INPUT
+  RUNNING
+  COMPLETED
+  FAILED
+  CANCELLED
+  STALE
+}
+
+enum AiSummaryScope {
+  CURRENT_ATTENDANCE
+  FULL_CONVERSATION
+}
+
+enum AiProposalStatus {
+  PENDING
+  PARTIALLY_APPLIED
+  APPLIED
+  DISMISSED
+}
+
 model Organization {
-  id                     String                  @id @default(uuid()) @db.Uuid
+  id                     String                     @id @default(uuid()) @db.Uuid
   name                   String
-  slug                   String                  @unique
-  timezone               String                  @default("America/Sao_Paulo")
-  currency               String                  @default("BRL")
-  messageRetentionMonths Int                     @default(24)
-  createdAt              DateTime                @default(now())
-  updatedAt              DateTime                @updatedAt
+  slug                   String                     @unique
+  timezone               String                     @default("America/Sao_Paulo")
+  currency               String                     @default("BRL")
+  messageRetentionMonths Int                        @default(24)
+  createdAt              DateTime                   @default(now())
+  updatedAt              DateTime                   @updatedAt
   teams                  Team[]
   roles                  Role[]
   users                  User[]
@@ -181,6 +210,9 @@ model Organization {
   emailTemplates         EmailTemplate[]
   quickReplies           QuickReply[]
   conversationFollowUps  ConversationFollowUp[]
+  aiSettings             OrganizationAiSettings?
+  aiGenerations          ConversationAiGeneration[]
+  aiProposals            ConversationAiProposal[]
 }
 
 model Team {
@@ -231,47 +263,50 @@ model RolePermission {
 }
 
 model User {
-  id                      String               @id @default(uuid()) @db.Uuid
-  organizationId          String               @db.Uuid
-  teamId                  String?              @db.Uuid
-  roleId                  String               @db.Uuid
-  profilePhotoId          String?              @unique @db.Uuid
+  id                      String                     @id @default(uuid()) @db.Uuid
+  organizationId          String                     @db.Uuid
+  teamId                  String?                    @db.Uuid
+  roleId                  String                     @db.Uuid
+  profilePhotoId          String?                    @unique @db.Uuid
   name                    String
   email                   String
   passwordHash            String?
-  status                  UserStatus           @default(INVITED)
-  messageSignatureEnabled Boolean              @default(false)
+  status                  UserStatus                 @default(INVITED)
+  messageSignatureEnabled Boolean                    @default(false)
   lastLoginAt             DateTime?
-  createdAt               DateTime             @default(now())
-  updatedAt               DateTime             @updatedAt
-  organization            Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  team                    Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  role                    Role                 @relation(fields: [roleId], references: [id])
-  profilePhoto            MediaAsset?          @relation("UserProfilePhoto", fields: [profilePhotoId], references: [id], onDelete: SetNull)
+  createdAt               DateTime                   @default(now())
+  updatedAt               DateTime                   @updatedAt
+  organization            Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team                    Team?                      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  role                    Role                       @relation(fields: [roleId], references: [id])
+  profilePhoto            MediaAsset?                @relation("UserProfilePhoto", fields: [profilePhotoId], references: [id], onDelete: SetNull)
   sessions                Session[]
-  inviteTokens            InviteToken[]        @relation("InvitedUser")
-  invitesCreated          InviteToken[]        @relation("InviteCreator")
-  resetTokens             PasswordResetToken[] @relation("ResetUser")
-  resetTokensCreated      PasswordResetToken[] @relation("ResetCreator")
-  ownedCompanies          Company[]            @relation("CompanyOwner")
-  ownedContacts           Contact[]            @relation("ContactOwner")
-  ownedOpportunities      Opportunity[]        @relation("OpportunityOwner")
-  assignedTasks           Task[]               @relation("TaskAssignee")
-  createdTasks            Task[]               @relation("TaskCreator")
+  inviteTokens            InviteToken[]              @relation("InvitedUser")
+  invitesCreated          InviteToken[]              @relation("InviteCreator")
+  resetTokens             PasswordResetToken[]       @relation("ResetUser")
+  resetTokensCreated      PasswordResetToken[]       @relation("ResetCreator")
+  ownedCompanies          Company[]                  @relation("CompanyOwner")
+  ownedContacts           Contact[]                  @relation("ContactOwner")
+  ownedOpportunities      Opportunity[]              @relation("OpportunityOwner")
+  assignedTasks           Task[]                     @relation("TaskAssignee")
+  createdTasks            Task[]                     @relation("TaskCreator")
   taskDigestDeliveries    TaskDigestDelivery[]
   notes                   Note[]
   activities              Activity[]
-  assignedConversations   Conversation[]       @relation("ConversationAssignee")
+  assignedConversations   Conversation[]             @relation("ConversationAssignee")
   conversationPins        ConversationPin[]
-  conversationEvents      ConversationEvent[]  @relation("ConversationEventActor")
+  conversationEvents      ConversationEvent[]        @relation("ConversationEventActor")
   createdCampaigns        Campaign[]
   createdWorkflows        Workflow[]
   createdChatbots         Chatbot[]
   createdQuickReplies     QuickReply[]
   auditLogs               AuditLog[]
   notifications           Notification[]
-  followUpsCreated        ConversationFollowUp[] @relation("FollowUpCreator")
-  followUpsResponsible    ConversationFollowUp[] @relation("FollowUpResponsible")
+  followUpsCreated        ConversationFollowUp[]     @relation("FollowUpCreator")
+  followUpsResponsible    ConversationFollowUp[]     @relation("FollowUpResponsible")
+  aiSettingsUpdated       OrganizationAiSettings[]   @relation("AiSettingsUpdater")
+  aiGenerationsRequested  ConversationAiGeneration[] @relation("AiGenerationRequester")
+  aiProposalsApplied      ConversationAiProposal[]   @relation("AiProposalApplier")
 
   @@unique([organizationId, email])
   @@index([organizationId, teamId])
@@ -374,11 +409,11 @@ model Company {
 }
 
 model Contact {
-  id                  String               @id @default(uuid()) @db.Uuid
-  organizationId      String               @db.Uuid
-  teamId              String?              @db.Uuid
-  ownerId             String?              @db.Uuid
-  primaryCompanyId    String?              @db.Uuid
+  id                  String                   @id @default(uuid()) @db.Uuid
+  organizationId      String                   @db.Uuid
+  teamId              String?                  @db.Uuid
+  ownerId             String?                  @db.Uuid
+  primaryCompanyId    String?                  @db.Uuid
   externalId          String?
   name                String
   jobTitle            String?
@@ -386,19 +421,19 @@ model Contact {
   phone               String?
   phoneKey            String?
   source              String?
-  consentStatus       ConsentStatus        @default(UNKNOWN)
+  consentStatus       ConsentStatus            @default(UNKNOWN)
   consentSource       String?
   consentEvidence     String?
   consentGrantedAt    DateTime?
   consentRevokedAt    DateTime?
-  campaignsBlocked    Boolean              @default(false)
-  customFields        Json                 @default("{}")
+  campaignsBlocked    Boolean                  @default(false)
+  customFields        Json                     @default("{}")
   archivedAt          DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  organization        Organization         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  team                Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  owner               User?                @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  organization        Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team                Team?                    @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  owner               User?                    @relation("ContactOwner", fields: [ownerId], references: [id], onDelete: SetNull)
   companies           ContactCompany[]
   opportunities       OpportunityContact[]
   tasks               Task[]
@@ -411,6 +446,7 @@ model Contact {
   consentEvents       ConsentEvent[]
   segmentMemberships  SegmentMember[]
   workflowEnrollments WorkflowEnrollment[]
+  aiProposals         ConversationAiProposal[]
 
   @@unique([organizationId, externalId])
   @@unique([organizationId, phoneKey])
@@ -498,7 +534,7 @@ model Opportunity {
   company         Company?             @relation(fields: [companyId], references: [id], onDelete: SetNull)
   team            Team?                @relation(fields: [teamId], references: [id], onDelete: SetNull)
   owner           User?                @relation("OpportunityOwner", fields: [ownerId], references: [id], onDelete: SetNull)
-  proposalAsset   MediaAsset?           @relation("OpportunityProposalAsset", fields: [proposalAssetId], references: [id], onDelete: SetNull)
+  proposalAsset   MediaAsset?          @relation("OpportunityProposalAsset", fields: [proposalAssetId], references: [id], onDelete: SetNull)
   contacts        OpportunityContact[]
   tasks           Task[]
   notes           Note[]
@@ -531,29 +567,29 @@ model OpportunityContact {
 }
 
 model Task {
-  id             String       @id @default(uuid()) @db.Uuid
-  organizationId String       @db.Uuid
-  teamId         String?      @db.Uuid
-  assigneeId     String?      @db.Uuid
-  createdById    String       @db.Uuid
-  companyId      String?      @db.Uuid
-  contactId      String?      @db.Uuid
-  opportunityId  String?      @db.Uuid
+  id             String                @id @default(uuid()) @db.Uuid
+  organizationId String                @db.Uuid
+  teamId         String?               @db.Uuid
+  assigneeId     String?               @db.Uuid
+  createdById    String                @db.Uuid
+  companyId      String?               @db.Uuid
+  contactId      String?               @db.Uuid
+  opportunityId  String?               @db.Uuid
   title          String
   description    String?
   dueAt          DateTime
-  priority       TaskPriority @default(MEDIUM)
-  status         TaskStatus   @default(OPEN)
+  priority       TaskPriority          @default(MEDIUM)
+  status         TaskStatus            @default(OPEN)
   completedAt    DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
-  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  team           Team?        @relation(fields: [teamId], references: [id], onDelete: SetNull)
-  assignee       User?        @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
-  createdBy      User         @relation("TaskCreator", fields: [createdById], references: [id])
-  company        Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contact        Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  opportunity    Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  createdAt      DateTime              @default(now())
+  updatedAt      DateTime              @updatedAt
+  organization   Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team           Team?                 @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  assignee       User?                 @relation("TaskAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdBy      User                  @relation("TaskCreator", fields: [createdById], references: [id])
+  company        Company?              @relation(fields: [companyId], references: [id], onDelete: Cascade)
+  contact        Contact?              @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  opportunity    Opportunity?          @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
   followUp       ConversationFollowUp?
 
   @@index([organizationId, assigneeId, status, dueAt])
@@ -773,29 +809,31 @@ model WarmupProfile {
 }
 
 model Conversation {
-  id              String              @id @default(uuid()) @db.Uuid
-  organizationId  String              @db.Uuid
-  instanceId      String              @db.Uuid
-  contactId       String              @db.Uuid
-  assigneeId      String?             @db.Uuid
+  id              String                     @id @default(uuid()) @db.Uuid
+  organizationId  String                     @db.Uuid
+  instanceId      String                     @db.Uuid
+  contactId       String                     @db.Uuid
+  assigneeId      String?                    @db.Uuid
   remoteJid       String
   phoneJid        String?
-  status          ConversationStatus  @default(WAITING)
-  unreadCount     Int                 @default(0)
+  status          ConversationStatus         @default(WAITING)
+  unreadCount     Int                        @default(0)
   lastMessageAt   DateTime?
   firstResponseAt DateTime?
   closedAt        DateTime?
-  createdAt       DateTime            @default(now())
-  updatedAt       DateTime            @updatedAt
-  organization    Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  instance        WhatsappInstance    @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  contact         Contact             @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  assignee        User?               @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  createdAt       DateTime                   @default(now())
+  updatedAt       DateTime                   @updatedAt
+  organization    Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  instance        WhatsappInstance           @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  contact         Contact                    @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  assignee        User?                      @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
   messages        Message[]
   events          ConversationEvent[]
   pins            ConversationPin[]
   chatbotSession  ChatbotSession?
   followUps       ConversationFollowUp[]
+  aiGenerations   ConversationAiGeneration[]
+  aiProposals     ConversationAiProposal[]
 
   @@unique([instanceId, remoteJid])
   @@unique([instanceId, phoneJid])
@@ -836,29 +874,29 @@ model ConversationEvent {
 }
 
 model Message {
-  id                String           @id @default(uuid()) @db.Uuid
-  instanceId        String           @db.Uuid
-  conversationId    String           @db.Uuid
-  providerMessageId String
-  direction         MessageDirection
-  type              String
-  text              String?
-  status            MessageStatus    @default(PENDING)
-  payload           Json             @default("{}")
-  sentAt            DateTime?
-  deliveredAt       DateTime?
-  readAt            DateTime?
+  id                    String                    @id @default(uuid()) @db.Uuid
+  instanceId            String                    @db.Uuid
+  conversationId        String                    @db.Uuid
+  providerMessageId     String
+  direction             MessageDirection
+  type                  String
+  text                  String?
+  status                MessageStatus             @default(PENDING)
+  payload               Json                      @default("{}")
+  sentAt                DateTime?
+  deliveredAt           DateTime?
+  readAt                DateTime?
   transcriptionStatus   String?
   transcriptionText     String?
   transcriptionError    String?
   transcriptionProvider String?
   transcribedAt         DateTime?
-  createdAt         DateTime         @default(now())
-  updatedAt         DateTime         @updatedAt
-  instance          WhatsappInstance @relation(fields: [instanceId], references: [id], onDelete: Cascade)
-  conversation      Conversation     @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  media             MediaAsset[]
-  followUpStep      ConversationFollowUpStep?
+  createdAt             DateTime                  @default(now())
+  updatedAt             DateTime                  @updatedAt
+  instance              WhatsappInstance          @relation(fields: [instanceId], references: [id], onDelete: Cascade)
+  conversation          Conversation              @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  media                 MediaAsset[]
+  followUpStep          ConversationFollowUpStep?
 
   @@unique([instanceId, providerMessageId])
   @@index([conversationId, createdAt(sort: Desc), id(sort: Desc)], map: "Message_page_idx")
@@ -866,36 +904,36 @@ model Message {
 }
 
 model MediaAsset {
-  id          String    @id @default(uuid()) @db.Uuid
-  messageId   String?   @db.Uuid
-  key         String    @unique
-  filename    String
-  contentType String
-  sizeBytes   Int
-  expiresAt   DateTime?
-  createdAt   DateTime  @default(now())
-  message     Message?  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  profilePhotoFor User? @relation("UserProfilePhoto")
-  companyLogoFor Company? @relation("CompanyLogo")
-  quickReplyFor QuickReply?
+  id                     String       @id @default(uuid()) @db.Uuid
+  messageId              String?      @db.Uuid
+  key                    String       @unique
+  filename               String
+  contentType            String
+  sizeBytes              Int
+  expiresAt              DateTime?
+  createdAt              DateTime     @default(now())
+  message                Message?     @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  profilePhotoFor        User?        @relation("UserProfilePhoto")
+  companyLogoFor         Company?     @relation("CompanyLogo")
+  quickReplyFor          QuickReply?
   opportunityProposalFor Opportunity? @relation("OpportunityProposalAsset")
 
   @@index([messageId])
 }
 
 model QuickReply {
-  id             String      @id @default(uuid()) @db.Uuid
-  organizationId String      @db.Uuid
-  createdById    String      @db.Uuid
-  mediaAssetId   String?     @unique @db.Uuid
+  id             String       @id @default(uuid()) @db.Uuid
+  organizationId String       @db.Uuid
+  createdById    String       @db.Uuid
+  mediaAssetId   String?      @unique @db.Uuid
   title          String
   shortcut       String
   text           String?
-  createdAt      DateTime    @default(now())
-  updatedAt      DateTime    @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  createdBy      User        @relation(fields: [createdById], references: [id])
-  mediaAsset     MediaAsset? @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
+  createdBy      User         @relation(fields: [createdById], references: [id])
+  mediaAsset     MediaAsset?  @relation(fields: [mediaAssetId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, shortcut])
   @@index([organizationId, title, id], map: "QuickReply_org_title_idx")
@@ -1041,13 +1079,13 @@ model Workflow {
 }
 
 model WorkflowVersion {
-  id          String               @id @default(uuid()) @db.Uuid
-  workflowId  String               @db.Uuid
+  id          String                 @id @default(uuid()) @db.Uuid
+  workflowId  String                 @db.Uuid
   version     Int
   graph       Json
   publishedAt DateTime?
-  createdAt   DateTime             @default(now())
-  workflow    Workflow             @relation(fields: [workflowId], references: [id], onDelete: Cascade)
+  createdAt   DateTime               @default(now())
+  workflow    Workflow               @relation(fields: [workflowId], references: [id], onDelete: Cascade)
   enrollments WorkflowEnrollment[]
   followUps   ConversationFollowUp[]
 
@@ -1078,32 +1116,32 @@ model WorkflowEnrollment {
 }
 
 model ConversationFollowUp {
-  id                   String              @id @default(uuid()) @db.Uuid
-  organizationId       String              @db.Uuid
-  conversationId       String              @db.Uuid
-  taskId               String              @unique @db.Uuid
-  createdById          String              @db.Uuid
-  responsibleId        String              @db.Uuid
-  workflowVersionId    String?             @db.Uuid
-  workflowEnrollmentId String?             @unique @db.Uuid
+  id                   String                     @id @default(uuid()) @db.Uuid
+  organizationId       String                     @db.Uuid
+  conversationId       String                     @db.Uuid
+  taskId               String                     @unique @db.Uuid
+  createdById          String                     @db.Uuid
+  responsibleId        String                     @db.Uuid
+  workflowVersionId    String?                    @db.Uuid
+  workflowEnrollmentId String?                    @unique @db.Uuid
   mode                 FollowUpMode
-  status               FollowUpStatus      @default(SCHEDULED)
+  status               FollowUpStatus             @default(SCHEDULED)
   scheduledAt          DateTime
-  revision             Int                 @default(1)
+  revision             Int                        @default(1)
   startedAt            DateTime?
   completedAt          DateTime?
   cancelledAt          DateTime?
   cancellationReason   String?
   failureReason        String?
-  createdAt            DateTime            @default(now())
-  updatedAt            DateTime            @updatedAt
-  organization         Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  conversation         Conversation        @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-  task                 Task                @relation(fields: [taskId], references: [id], onDelete: Cascade)
-  createdBy            User                @relation("FollowUpCreator", fields: [createdById], references: [id])
-  responsible          User                @relation("FollowUpResponsible", fields: [responsibleId], references: [id])
-  workflowVersion      WorkflowVersion?    @relation(fields: [workflowVersionId], references: [id], onDelete: SetNull)
-  workflowEnrollment   WorkflowEnrollment? @relation(fields: [workflowEnrollmentId], references: [id], onDelete: SetNull)
+  createdAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
+  organization         Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation         Conversation               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  task                 Task                       @relation(fields: [taskId], references: [id], onDelete: Cascade)
+  createdBy            User                       @relation("FollowUpCreator", fields: [createdById], references: [id])
+  responsible          User                       @relation("FollowUpResponsible", fields: [responsibleId], references: [id])
+  workflowVersion      WorkflowVersion?           @relation(fields: [workflowVersionId], references: [id], onDelete: SetNull)
+  workflowEnrollment   WorkflowEnrollment?        @relation(fields: [workflowEnrollmentId], references: [id], onDelete: SetNull)
   steps                ConversationFollowUpStep[]
 
   @@index([organizationId, status, scheduledAt], map: "FollowUp_org_status_due_idx")
@@ -1112,24 +1150,24 @@ model ConversationFollowUp {
 }
 
 model ConversationFollowUpStep {
-  id           String             @id @default(uuid()) @db.Uuid
-  followUpId   String             @db.Uuid
-  messageId    String?            @unique @db.Uuid
-  position     Int
-  text         String?
-  messageType  String             @default("text")
-  mediaKey     String?
-  mediaName    String?
-  mediaType    String?
-  delaySeconds Int                @default(0)
-  status       FollowUpStepStatus @default(PENDING)
-  scheduledAt  DateTime?
-  sentAt       DateTime?
+  id            String               @id @default(uuid()) @db.Uuid
+  followUpId    String               @db.Uuid
+  messageId     String?              @unique @db.Uuid
+  position      Int
+  text          String?
+  messageType   String               @default("text")
+  mediaKey      String?
+  mediaName     String?
+  mediaType     String?
+  delaySeconds  Int                  @default(0)
+  status        FollowUpStepStatus   @default(PENDING)
+  scheduledAt   DateTime?
+  sentAt        DateTime?
   failureReason String?
-  createdAt    DateTime           @default(now())
-  updatedAt    DateTime           @updatedAt
-  followUp     ConversationFollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
-  message      Message?           @relation(fields: [messageId], references: [id], onDelete: SetNull)
+  createdAt     DateTime             @default(now())
+  updatedAt     DateTime             @updatedAt
+  followUp      ConversationFollowUp @relation(fields: [followUpId], references: [id], onDelete: Cascade)
+  message       Message?             @relation(fields: [messageId], references: [id], onDelete: SetNull)
 
   @@unique([followUpId, position])
   @@index([followUpId, status, position], map: "FollowUpStep_followup_status_position_idx")
@@ -1190,27 +1228,98 @@ model ChatbotVersion {
 }
 
 model ChatbotSession {
-  id                   String                 @id @default(uuid()) @db.Uuid
-  chatbotId            String                 @db.Uuid
-  versionId            String                 @db.Uuid
-  conversationId       String                 @unique @db.Uuid
-  status               ChatbotSessionStatus   @default(ACTIVE)
+  id                   String                     @id @default(uuid()) @db.Uuid
+  chatbotId            String                     @db.Uuid
+  versionId            String                     @db.Uuid
+  conversationId       String                     @unique @db.Uuid
+  status               ChatbotSessionStatus       @default(ACTIVE)
   currentNodeId        String?
-  lastInboundMessageId String?                @db.Uuid
-  context              Json                   @default("{}")
+  lastInboundMessageId String?                    @db.Uuid
+  context              Json                       @default("{}")
   wakeAt               DateTime?
   stopReason           String?
-  startedAt            DateTime               @default(now())
-  updatedAt            DateTime               @updatedAt
+  startedAt            DateTime                   @default(now())
+  updatedAt            DateTime                   @updatedAt
   completedAt          DateTime?
-  chatbot              Chatbot                @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
-  version              ChatbotVersion         @relation(fields: [versionId], references: [id])
-  conversation         Conversation           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  chatbot              Chatbot                    @relation(fields: [chatbotId], references: [id], onDelete: Cascade)
+  version              ChatbotVersion             @relation(fields: [versionId], references: [id])
+  conversation         Conversation               @relation(fields: [conversationId], references: [id], onDelete: Cascade)
   executions           ChatbotStepExecution[]
+  aiGenerations        ConversationAiGeneration[]
 
   @@index([chatbotId, status])
   @@index([status, wakeAt], map: "ChatbotSession_status_wake_idx")
   @@index([status, updatedAt])
+}
+
+model OrganizationAiSettings {
+  organizationId     String       @id @db.Uuid
+  enabled            Boolean      @default(false)
+  globalInstructions String       @default("")
+  fallbackMessage    String       @default("No momento não consegui continuar o atendimento automático. Vou encaminhar você para nossa equipe.")
+  updatedById        String?      @db.Uuid
+  createdAt          DateTime     @default(now())
+  updatedAt          DateTime     @updatedAt
+  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedBy          User?        @relation("AiSettingsUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+model ConversationAiGeneration {
+  id                   String                  @id @default(uuid()) @db.Uuid
+  organizationId       String                  @db.Uuid
+  conversationId       String?                 @db.Uuid
+  requestedById        String?                 @db.Uuid
+  chatbotSessionId     String?                 @db.Uuid
+  type                 AiGenerationType
+  status               AiGenerationStatus      @default(PENDING)
+  scope                AiSummaryScope?
+  deduplicationKey     String                  @unique
+  sourceFirstMessageId String?                 @db.Uuid
+  sourceLastMessageId  String?                 @db.Uuid
+  input                Json                    @default("{}")
+  result               Json?
+  progress             Int                     @default(0)
+  model                String?
+  error                String?
+  promptEvalCount      Int?
+  evalCount            Int?
+  totalDurationMs      Int?
+  createdAt            DateTime                @default(now())
+  updatedAt            DateTime                @updatedAt
+  completedAt          DateTime?
+  organization         Organization            @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation         Conversation?           @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  requestedBy          User?                   @relation("AiGenerationRequester", fields: [requestedById], references: [id], onDelete: SetNull)
+  chatbotSession       ChatbotSession?         @relation(fields: [chatbotSessionId], references: [id], onDelete: Cascade)
+  proposal             ConversationAiProposal?
+
+  @@index([status, createdAt], map: "AiGeneration_status_created_idx")
+  @@index([status, updatedAt], map: "AiGeneration_status_updated_idx")
+  @@index([conversationId, type, createdAt(sort: Desc)], map: "AiGeneration_conversation_type_recent_idx")
+  @@index([chatbotSessionId, status])
+}
+
+model ConversationAiProposal {
+  id             String                   @id @default(uuid()) @db.Uuid
+  organizationId String                   @db.Uuid
+  conversationId String                   @db.Uuid
+  contactId      String                   @db.Uuid
+  generationId   String                   @unique @db.Uuid
+  status         AiProposalStatus         @default(PENDING)
+  changes        Json
+  appliedFields  Json                     @default("[]")
+  appliedById    String?                  @db.Uuid
+  createdAt      DateTime                 @default(now())
+  updatedAt      DateTime                 @updatedAt
+  appliedAt      DateTime?
+  organization   Organization             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  conversation   Conversation             @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  contact        Contact                  @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  generation     ConversationAiGeneration @relation(fields: [generationId], references: [id], onDelete: Cascade)
+  appliedBy      User?                    @relation("AiProposalApplier", fields: [appliedById], references: [id], onDelete: SetNull)
+
+  @@index([conversationId, status, createdAt(sort: Desc)], map: "AiProposal_conversation_status_recent_idx")
+  @@index([contactId, status])
 }
 
 model ChatbotStepExecution {
