@@ -56,7 +56,7 @@ export class AiService {
       enabled: settings?.enabled ?? false,
       globalInstructions: settings?.globalInstructions ?? '',
       fallbackMessage: settings?.fallbackMessage ?? DEFAULT_FALLBACK,
-      model: process.env.OLLAMA_MODEL || 'gemma3:1b',
+      model: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
       runtime,
     };
   }
@@ -101,7 +101,7 @@ export class AiService {
         requestedById: auth.userId,
         type: 'CONFIG_TEST',
         deduplicationKey: `config-test:${auth.organizationId}:${randomUUID()}`,
-        input: { message: message?.trim() || 'Responda em português: o serviço de IA local está funcionando.' },
+        input: { message: message?.trim() || 'Responda em português: o serviço de IA da OpenAI está funcionando.' },
       },
     });
     await this.enqueue(generation.id, 'CONFIG_TEST', generation.updatedAt);
@@ -235,11 +235,12 @@ export class AiService {
 
   private assertFeatureEnabled() {
     if (process.env.AI_ASSISTANT_ENABLED !== 'true') throw new ServiceUnavailableException('O assistente de IA está desativado neste ambiente');
+    if (!process.env.OPENAI_API_KEY?.trim()) throw new ServiceUnavailableException('Configure OPENAI_API_KEY antes de usar o assistente');
   }
 
   private async assertOrganizationEnabled(organizationId: string) {
     const settings = await this.db.organizationAiSettings.findUnique({ where: { organizationId }, select: { enabled: true } });
-    if (!settings?.enabled) throw new ServiceUnavailableException('Ative a IA local nas configurações antes de usar o assistente');
+    if (!settings?.enabled) throw new ServiceUnavailableException('Ative a IA nas configurações antes de usar o assistente');
   }
 
   private async visibleConversation(auth: AuthContext, id: string) {
@@ -305,20 +306,8 @@ export class AiService {
   }
 
   private async runtimeStatus() {
-    if (process.env.AI_ASSISTANT_ENABLED !== 'true') return { available: false, reason: 'disabled', loadedModels: [] };
-    const baseUrl = process.env.OLLAMA_API_URL?.replace(/\/$/, '');
-    if (!baseUrl) return { available: false, reason: 'not_configured', loadedModels: [] };
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 2_500);
-    try {
-      const response = await fetch(`${baseUrl}/api/ps`, { signal: controller.signal });
-      if (!response.ok) return { available: false, reason: `http_${response.status}`, loadedModels: [] };
-      const data = await response.json() as { models?: Array<{ name?: string; size?: number }> };
-      return { available: true, loadedModels: data.models || [] };
-    } catch {
-      return { available: false, reason: 'unreachable', loadedModels: [] };
-    } finally {
-      clearTimeout(timer);
-    }
+    if (process.env.AI_ASSISTANT_ENABLED !== 'true') return { available: false, reason: 'disabled', provider: 'openai' as const };
+    if (!process.env.OPENAI_API_KEY?.trim()) return { available: false, reason: 'not_configured', provider: 'openai' as const };
+    return { available: true, provider: 'openai' as const };
   }
 }

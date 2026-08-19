@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { Job, Queue } from 'bullmq';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { OllamaResponseProvider, RulesResponseProvider, type ChatbotResponseProvider, type ChatbotRuleContext } from './chatbot-response-provider.js';
+import { OpenAiResponseProvider, RulesResponseProvider, type ChatbotResponseProvider, type ChatbotRuleContext } from './chatbot-response-provider.js';
 
 type Node = { id: string; type: string; data?: Record<string, unknown> };
 type Edge = { source: string; target: string; sourceHandle?: string | null };
@@ -23,7 +23,7 @@ export class ChatbotProcessor {
     private readonly chatbotQueue: Queue,
     private readonly outboundQueue: Queue,
     private readonly aiQueue?: Queue,
-    providers: ChatbotResponseProvider[] = [new RulesResponseProvider(), new OllamaResponseProvider()],
+    providers: ChatbotResponseProvider[] = [new RulesResponseProvider(), new OpenAiResponseProvider()],
   ) {
     this.providers = new Map(providers.map((provider) => [provider.key, provider]));
   }

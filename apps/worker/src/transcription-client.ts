@@ -15,7 +15,11 @@ export type TranscriptionResult = {
 
 export class TranscriptionClient {
   private readonly apiUrl = (process.env.TRANSCRIPTION_API_URL || DEFAULT_TRANSCRIPTION_URL).trim();
-  private readonly apiKey = (process.env.TRANSCRIPTION_API_KEY || process.env.OPENAI_API_KEY || '').trim();
+  private readonly apiKey = (
+    process.env.TRANSCRIPTION_API_KEY
+    || (/^https?:\/\/api\.openai\.com(?:\/|$)/i.test(this.apiUrl) ? process.env.OPENAI_API_KEY : '')
+    || ''
+  ).trim();
   private readonly model = (process.env.TRANSCRIPTION_MODEL || 'Systran/faster-whisper-small').trim();
   private readonly language = (process.env.TRANSCRIPTION_LANGUAGE || 'pt').trim();
   private readonly prompt = (process.env.TRANSCRIPTION_PROMPT || '').trim();

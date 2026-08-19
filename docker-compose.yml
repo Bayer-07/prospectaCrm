@@ -50,8 +50,8 @@ services:
       REDIS_URL: redis://redis:6379
       EVOLUTION_API_URL: http://evolution:8080
       S3_ENDPOINT: http://minio:9000
-      OLLAMA_API_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:1b}
+      OPENAI_API_URL: ${OPENAI_API_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
     expose: ["3000"]
     depends_on:
       postgres: { condition: service_healthy }
@@ -104,8 +104,8 @@ services:
       TRANSCRIPTION_API_URL: http://transcription:8000/v1/audio/transcriptions
       TRANSCRIPTION_API_KEY: ""
       TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}
-      OLLAMA_API_URL: http://ollama:11434
-      OLLAMA_MODEL: ${OLLAMA_MODEL:-gemma3:1b}
+      OPENAI_API_URL: ${OPENAI_API_URL:-https://api.openai.com/v1}
+      OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
     depends_on:
       api: { condition: service_healthy }
       evolution: { condition: service_started }
@@ -135,31 +135,6 @@ services:
       timeout: 8s
       retries: 10
       start_period: 10m
-    networks: [app, egress]
-
-  ollama:
-    image: ollama/ollama:0.32.5
-    profiles: [ai]
-    restart: unless-stopped
-    cpu_shares: 128
-    mem_limit: ${OLLAMA_MEMORY_LIMIT:-4g}
-    environment:
-      OLLAMA_HOST: 0.0.0.0:11434
-      OLLAMA_CONTEXT_LENGTH: ${OLLAMA_CONTEXT_LENGTH:-4096}
-      OLLAMA_NUM_PARALLEL: ${OLLAMA_NUM_PARALLEL:-1}
-      OLLAMA_MAX_LOADED_MODELS: ${OLLAMA_MAX_LOADED_MODELS:-1}
-      OLLAMA_KEEP_ALIVE: ${OLLAMA_KEEP_ALIVE:-2m}
-    volumes:
-      - ollama_models:/root/.ollama
-    ports:
-      - "127.0.0.1:${OLLAMA_BIND_PORT:-11434}:11434"
-    expose: ["11434"]
-    healthcheck:
-      test: ["CMD", "ollama", "list"]
-      interval: 20s
-      timeout: 10s
-      retries: 10
-      start_period: 30s
     networks: [app, egress]
 
   postgres:
@@ -351,4 +326,3 @@ volumes:
   evolution_redis_data:
   evolution_minio_data:
   transcription_models:
-  ollama_models:

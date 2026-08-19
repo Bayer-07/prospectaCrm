@@ -72,7 +72,7 @@ type AiSettingsData = {
   globalInstructions: string;
   fallbackMessage: string;
   model: string;
-  runtime: { available: boolean; reason?: string; loadedModels: Array<{ name?: string; size?: number }> };
+  runtime: { available: boolean; reason?: string; provider: 'openai' };
 };
 type AiConfigTest = { id: string; status: string; result?: { reply?: string }; error?: string };
 
@@ -96,7 +96,7 @@ function AiSettings() {
     },
   });
   const test = useMutation({
-    mutationFn: () => api<Envelope<{ id: string }>>('/settings/ai/test', { method: 'POST', body: JSON.stringify({ message: 'Confirme em uma frase que a IA local do BZS One está pronta.' }) }),
+    mutationFn: () => api<Envelope<{ id: string }>>('/settings/ai/test', { method: 'POST', body: JSON.stringify({ message: 'Confirme em uma frase que a integração da OpenAI com o BZS One está pronta.' }) }),
     onSuccess: (result) => {
       setTestGenerationId(result.data.id);
       toast.success('Teste iniciado em segundo plano.');
@@ -109,7 +109,7 @@ function AiSettings() {
     refetchInterval: (query) => ['COMPLETED', 'FAILED', 'CANCELLED'].includes(query.state.data?.data.status || '') ? false : 1_500,
   });
   useEffect(() => {
-    if (testResult.data?.data.status === 'COMPLETED') toast.success(testResult.data.data.result?.reply || 'A IA local respondeu corretamente.');
+    if (testResult.data?.data.status === 'COMPLETED') toast.success(testResult.data.data.result?.reply || 'A OpenAI respondeu corretamente.');
     if (testResult.data?.data.status === 'FAILED') toast.error(testResult.data.data.error || 'O teste da IA falhou.');
   }, [testResult.data]);
   if (settings.isLoading || !current) return <PageLoading />;
@@ -117,21 +117,21 @@ function AiSettings() {
   const runtime = settings.data!.data.runtime;
   const currentTest = testResult.data?.data;
   let testMessage = 'O modelo está processando o teste…';
-  if (currentTest?.status === 'COMPLETED') testMessage = currentTest.result?.reply || 'A IA local respondeu corretamente.';
+  if (currentTest?.status === 'COMPLETED') testMessage = currentTest.result?.reply || 'A OpenAI respondeu corretamente.';
   if (currentTest?.status === 'FAILED') testMessage = currentTest.error || 'O teste da IA falhou.';
   const update = (values: Partial<typeof current>) => setForm({ ...current, ...values });
   return <div className="ai-settings-page">
     <div className="settings-heading">
-      <div><h2>Inteligência artificial</h2><p>Assistente local executado no servidor da BZS, sem enviar conversas para provedores externos.</p></div>
-      <div className={`ai-runtime-pill ${runtime.available ? 'online' : 'offline'}`}><span />{runtime.available ? 'Ollama disponível' : 'Ollama indisponível'}</div>
+      <div><h2>Inteligência artificial</h2><p>Resumos, sugestões e pré-atendimento processados pela API da OpenAI.</p></div>
+      <div className={`ai-runtime-pill ${runtime.available ? 'online' : 'offline'}`}><span />{runtime.available ? 'OpenAI configurada' : 'OpenAI não configurada'}</div>
     </div>
     <div className="ai-settings-grid">
       <article className="ai-status-card">
         <div className="ai-status-icon"><BrainCircuit size={22} /></div>
-        <div><span>Modelo configurado</span><strong>{settings.data!.data.model}</strong><small>{runtime.loadedModels[0]?.name ? `Carregado: ${runtime.loadedModels[0].name}` : 'O modelo será carregado sob demanda.'}</small></div>
+        <div><span>Modelo configurado</span><strong>{settings.data!.data.model}</strong><small>Processamento em nuvem pela API da OpenAI.</small></div>
       </article>
       <label className="ai-enable-card">
-        <div><strong>Habilitar recursos de IA</strong><span>Libera resumos, sugestões e chatbots Ollama para esta organização.</span></div>
+        <div><strong>Habilitar recursos de IA</strong><span>Libera resumos, sugestões e chatbots OpenAI para esta organização.</span></div>
         <input type="checkbox" checked={current.enabled} onChange={(event) => update({ enabled: event.target.checked })} />
       </label>
     </div>

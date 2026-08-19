@@ -49,6 +49,7 @@ describe('TranscriptionClient', () => {
   it('downloads a missing local Speaches model and retries the transcription', async () => {
     vi.stubEnv('TRANSCRIPTION_API_URL', 'http://localhost:8000/v1/audio/transcriptions');
     vi.stubEnv('TRANSCRIPTION_API_KEY', '');
+    vi.stubEnv('OPENAI_API_KEY', 'openai-secret-that-must-not-leave');
     vi.stubEnv('TRANSCRIPTION_MODEL', 'Systran/faster-whisper-small');
     const fetchMock = vi.spyOn(globalThis, 'fetch')
       .mockResolvedValueOnce(new Response(JSON.stringify({
@@ -68,6 +69,7 @@ describe('TranscriptionClient', () => {
 
     expect(result.text).toBe('Modelo local funcionando.');
     expect(fetchMock).toHaveBeenCalledTimes(3);
+    expect(fetchMock.mock.calls[0][1]?.headers).toBeUndefined();
     expect(String(fetchMock.mock.calls[1][0])).toBe(
       'http://localhost:8000/v1/models/Systran%2Ffaster-whisper-small',
     );

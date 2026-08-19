@@ -55,7 +55,7 @@ describe('espera do chatbot', () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const db = {
       message: { findUnique: vi.fn().mockResolvedValue(inboundMessage()) },
-      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'OLLAMA' }) },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'OPENAI' }) },
       chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: aiGraph }) },
       chatbotSession: {
         upsert: vi.fn().mockResolvedValue({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'trigger' }),

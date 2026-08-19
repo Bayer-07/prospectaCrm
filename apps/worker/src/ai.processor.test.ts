@@ -30,8 +30,8 @@ describe('processamento estruturado da IA', () => {
 
   it('refaz em português uma geração inicialmente escrita em inglês', async () => {
     const generate = vi.fn()
-      .mockResolvedValueOnce({ data: { reply: 'Hello, how can I help you with this system?' }, model: 'gemma3:1b', metrics: {} })
-      .mockResolvedValueOnce({ data: { reply: 'Olá, como posso ajudar com este sistema?' }, model: 'gemma3:1b', metrics: {} });
+      .mockResolvedValueOnce({ data: { reply: 'Hello, how can I help you with this system?' }, model: 'gpt-5.6-luna', metrics: {} })
+      .mockResolvedValueOnce({ data: { reply: 'Olá, como posso ajudar com este sistema?' }, model: 'gpt-5.6-luna', metrics: {} });
 
     await expect(generateInPortuguese<{ reply: string }>({ generate } as never, {
       system: 'Responda ao cliente.', prompt: 'O cliente disse olá.', schema: { type: 'object' }, timeoutMs: 1_000,
@@ -73,14 +73,14 @@ describe('processamento estruturado da IA', () => {
     };
     const aiQueue = { add: vi.fn().mockResolvedValue({}) };
     const transcriptionQueue = { add: vi.fn().mockResolvedValue({}) };
-    const ollama = { model: 'test', generate: vi.fn() };
-    const processor = new AiGenerationProcessor(db as never, aiQueue as never, {} as never, {} as never, transcriptionQueue as never, ollama as never);
+    const ai = { model: 'test', generate: vi.fn() };
+    const processor = new AiGenerationProcessor(db as never, aiQueue as never, {} as never, {} as never, transcriptionQueue as never, ai as never);
 
     await expect(processor.process({ data: { generationId: 'generation-1' } } as never)).resolves.toMatchObject({ payload: { status: 'WAITING_INPUT' } });
     expect(transcriptionQueue.add).toHaveBeenCalledWith('transcribe-audio', { messageId: 'message-1' }, expect.objectContaining({ jobId: 'transcription-message-1' }));
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'generation-1' }, data: expect.objectContaining({ status: 'WAITING_INPUT' }) }));
     expect(aiQueue.add).toHaveBeenCalledWith('generate', { generationId: 'generation-1' }, expect.objectContaining({ delay: 5_000 }));
-    expect(ollama.generate).not.toHaveBeenCalled();
+    expect(ai.generate).not.toHaveBeenCalled();
   });
 
   it('descarta a resposta automática se um atendente assumir durante a geração', async () => {
@@ -118,8 +118,8 @@ describe('processamento estruturado da IA', () => {
       },
     };
     const outboundQueue = { add: vi.fn() };
-    const ollama = { model: 'test', generate: vi.fn().mockResolvedValue({ data: { reply: 'Claro!', action: 'continue', confidence: 0.9, proposal: {} }, model: 'test', metrics: {} }) };
-    const processor = new AiGenerationProcessor(db as never, {} as never, outboundQueue as never, {} as never, {} as never, ollama as never);
+    const ai = { model: 'test', generate: vi.fn().mockResolvedValue({ data: { reply: 'Claro!', action: 'continue', confidence: 0.9, proposal: {} }, model: 'test', metrics: {} }) };
+    const processor = new AiGenerationProcessor(db as never, {} as never, outboundQueue as never, {} as never, {} as never, ai as never);
 
     await processor.process({ data: { generationId: 'generation-2' } } as never);
 
@@ -129,10 +129,10 @@ describe('processamento estruturado da IA', () => {
       where: { conversationId: 'conversation-1', createdAt: { gte: sessionStartedAt } },
       take: 12,
     }));
-    expect(ollama.generate).toHaveBeenCalledWith(expect.objectContaining({
+    expect(ai.generate).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining('Cliente: Olá'),
     }));
-    expect(ollama.generate).toHaveBeenCalledWith(expect.objectContaining({
+    expect(ai.generate).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining('Cliente: Quero ajuda'),
     }));
   });

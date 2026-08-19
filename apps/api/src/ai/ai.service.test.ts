@@ -17,6 +17,7 @@ describe('serviço de IA', () => {
 
   it('deduplica a mesma sugestão pela conversa e mensagem de origem', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const generation = { id: 'generation-1', type: 'REPLY_SUGGESTION', status: 'PENDING', updatedAt: new Date('2026-08-18T12:00:00.000Z') };
     const db = {
       organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
@@ -37,6 +38,7 @@ describe('serviço de IA', () => {
 
   it('permite tentar novamente uma sugestão que falhou sem duplicar o registro', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
     const failed = {
       id: 'generation-1', type: 'REPLY_SUGGESTION', status: 'FAILED',
       updatedAt: new Date('2026-08-18T12:00:00.000Z'),
@@ -69,6 +71,13 @@ describe('serviço de IA', () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'false');
     const service = new AiService({} as never, {} as never);
     await expect(service.createGeneration(admin, 'conversation-1', { type: 'SUMMARY' })).rejects.toThrow(/desativado/);
+  });
+
+  it('não cria gerações sem uma chave da OpenAI', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', '');
+    const service = new AiService({} as never, {} as never);
+    await expect(service.createGeneration(admin, 'conversation-1', { type: 'SUMMARY' })).rejects.toThrow(/OPENAI_API_KEY/);
   });
 
   it('não permite consultar um teste administrativo de outra organização', async () => {

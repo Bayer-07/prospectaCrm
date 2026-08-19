@@ -8,7 +8,6 @@ cd "$ROOT_DIR"
 UPDATE_CODE="${UPDATE_CODE:-1}"
 REBUILD_EVOLUTION="${REBUILD_EVOLUTION:-0}"
 PULL_BASE_IMAGES="${PULL_BASE_IMAGES:-0}"
-WITH_AI="${WITH_AI:-0}"
 
 usage() {
   cat <<'EOF'
@@ -20,7 +19,6 @@ Opções:
   --no-pull          não executa git pull
   --with-evolution   também reconstrói a imagem customizada da Evolution API
   --pull-images      atualiza as imagens-base durante o build
-  --with-ai          sobe o Ollama, preserva o volume e garante o modelo configurado
   -h, --help         mostra esta ajuda
 
 Variáveis opcionais:
@@ -28,7 +26,6 @@ Variáveis opcionais:
   UPDATE_CODE=0          equivalente a --no-pull
   REBUILD_EVOLUTION=1    equivalente a --with-evolution
   PULL_BASE_IMAGES=1     equivalente a --pull-images
-  WITH_AI=1              equivalente a --with-ai
 EOF
 }
 
@@ -42,9 +39,6 @@ while (($# > 0)); do
       ;;
     --pull-images)
       PULL_BASE_IMAGES=1
-      ;;
-    --with-ai)
-      WITH_AI=1
       ;;
     -h|--help)
       usage
@@ -106,7 +100,6 @@ if [[ "$UPDATE_CODE" == "1" ]]; then
       reexec_args=(--no-pull)
       [[ "$REBUILD_EVOLUTION" == "1" ]] && reexec_args+=(--with-evolution)
       [[ "$PULL_BASE_IMAGES" == "1" ]] && reexec_args+=(--pull-images)
-      [[ "$WITH_AI" == "1" ]] && reexec_args+=(--with-ai)
       log "Reiniciando o rebuild com a versão atualizada do script"
       exec bash "$ROOT_DIR/rebuild.sh" "${reexec_args[@]}"
     fi
@@ -119,32 +112,7 @@ if [[ ! -f .env ]]; then
   printf 'Arquivo .env não encontrado em %s\n' "$ROOT_DIR" >&2
   exit 1
 fi
-read_env_value() {
-  local key="$1"
-  awk -v key="$key" '
-    index($0, key "=") == 1 { value = substr($0, length(key) + 2) }
-    END {
-      sub(/\r$/, "", value)
-      sub(/^[[:space:]]+/, "", value)
-      sub(/[[:space:]]+$/, "", value)
-      first = substr(value, 1, 1)
-      last = substr(value, length(value), 1)
-      if ((first == "\"" && last == "\"") || (first == "\047" && last == "\047")) {
-        value = substr(value, 2, length(value) - 2)
-      }
-      print value
-    }
-  ' .env
-}
-
-configured_ollama_model="$(read_env_value OLLAMA_MODEL)"
-ollama_model="${OLLAMA_MODEL:-${configured_ollama_model:-gemma3:1b}}"
-
 compose_files=(-f docker-compose.yml)
-compose_profiles=()
-if [[ "$WITH_AI" == "1" ]]; then
-  compose_profiles+=(--profile ai)
-fi
 tailscale_mode=0
 
 if [[ -f docker-compose.tailscale.yml ]]; then
@@ -161,7 +129,7 @@ if [[ -n "${COMPOSE_OVERRIDE_FILE:-}" ]]; then
 fi
 
 compose() {
-  docker compose "${compose_files[@]}" "${compose_profiles[@]}" "$@"
+  docker compose "${compose_files[@]}" "$@"
 }
 
 log "Validando a configuração do Docker Compose"
@@ -169,9 +137,6 @@ compose config --quiet
 
 build_services=(api worker web mcp)
 deploy_services=(api worker web mcp evolution transcription)
-if [[ "$WITH_AI" == "1" ]]; then
-  deploy_services+=(ollama)
-fi
 
 if [[ "$REBUILD_EVOLUTION" == "1" ]]; then
   build_services+=(evolution)
@@ -196,13 +161,6 @@ compose build "${build_args[@]}" "${build_services[@]}"
 
 log "Aplicando as migrações do banco de dados"
 compose run --rm --no-deps api pnpm --filter @prospecta/database db:deploy
-
-if [[ "$WITH_AI" == "1" ]]; then
-  log "Aguardando o Ollama ficar saudável"
-  compose up -d --wait ollama
-  log "Garantindo o modelo local de IA"
-  compose exec -T ollama ollama pull "$ollama_model"
-fi
 
 log "Publicando os novos containers"
 compose up -d --remove-orphans "${deploy_services[@]}"

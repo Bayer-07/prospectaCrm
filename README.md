@@ -243,84 +243,50 @@ SPEACHES_IMAGE=ghcr.io/speaches-ai/speaches:latest-cpu
 
 Na primeira transcrição, o worker verifica se o modelo existe, baixa-o automaticamente e o mantém no volume `transcription_models`; isso pode levar alguns minutos, mas acontece somente uma vez. A porta `8000` fica vinculada ao `localhost` e não é exposta para outros computadores da rede. Se necessário, ajuste `TRANSCRIPTION_CPU_THREADS` à quantidade de núcleos que deseja reservar para as transcrições.
 
-## IA local com Ollama
+## IA com OpenAI API
 
-O BZS One usa o modelo leve `gemma3:1b` para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. O Ollama atende a aplicação somente pela rede interna do Docker, possui saída controlada para baixar modelos, processa uma geração por vez e descarrega o modelo depois do período configurado em `OLLAMA_KEEP_ALIVE`.
+O BZS One usa a Responses API da OpenAI para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. As gerações continuam assíncronas na fila do worker e não bloqueiam a navegação. O modelo padrão é `gpt-5.6-luna`, configurável por ambiente.
 
-O recurso nasce desligado. Mesmo sem o container Ollama, o CRM, WhatsApp, campanhas e demais workers continuam funcionando normalmente. Depois da instalação, um administrador deve abrir **Integrações → Inteligência artificial**, revisar as instruções gerais e habilitar a organização.
+O recurso nasce desligado. O CRM, WhatsApp, campanhas e demais workers continuam funcionando normalmente sem uma chave. Ao ativá-lo, o conteúdo necessário da conversa é enviado à OpenAI para processamento. As requisições usam `store: false`; ainda assim, revise as políticas internas de privacidade antes da homologação.
 
-### Instalação inicial no Ubuntu
+### Configuração no Ubuntu
 
-Execute na raiz do repositório:
+Crie uma chave de API na plataforma da OpenAI e configure na raiz do repositório:
 
 ```bash
-cp .env.example .env
-nano .env
+sed -i '/^AI_ASSISTANT_ENABLED=/d;/^OPENAI_/d;/^OLLAMA_/d' .env
+cat >> .env <<'EOF'
+AI_ASSISTANT_ENABLED=true
+OPENAI_API_KEY=COLE_SUA_CHAVE_AQUI
+OPENAI_API_URL=https://api.openai.com/v1
+OPENAI_MODEL=gpt-5.6-luna
+OPENAI_REASONING_EFFORT=none
+OPENAI_INTERACTIVE_TIMEOUT_MS=90000
+OPENAI_SUMMARY_TIMEOUT_MS=180000
+EOF
 
-# No editor, configure os segredos existentes e altere:
-# AI_ASSISTANT_ENABLED=true
-# OLLAMA_MODEL=gemma3:1b
-# OLLAMA_MEMORY_LIMIT=4g
-
-chmod +x rebuild.sh scripts/setup-local-ai.sh
-./scripts/setup-local-ai.sh
-./rebuild.sh --no-pull --with-ai
-
-docker compose --profile ai ps ollama worker api
-docker compose --profile ai exec -T ollama ollama list
-docker compose --profile ai exec -T ollama ollama ps
+./rebuild.sh --no-pull
+docker compose ps api worker
+docker compose logs --tail=100 worker
 ```
 
-O script verifica `nvidia-smi`, a VRAM disponível e o NVIDIA Container Toolkit. O override `docker-compose.ai-gpu.yml` é criado quando a GPU possui pelo menos `OLLAMA_MIN_GPU_VRAM_MB` (2 GB por padrão). O `gemma3:1b` ocupa aproximadamente 815 MB e pode ser carregado integralmente na GTX 750 Ti de 2 GB com o contexto de 4.096 tokens; se a GPU ou o runtime NVIDIA não estiverem disponíveis, o script usa CPU automaticamente. Para utilizar o override gerado em atualizações, execute `COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --with-ai`.
+Depois, um administrador deve abrir **Integrações → Inteligência artificial**, revisar as instruções gerais, habilitar a organização e executar **Testar geração**. A chave da API nunca deve ser colocada no navegador nem versionada no Git.
 
 ### Atualizações futuras
 
-Ao migrar uma instalação que ainda usa o Qwen, atualize o modelo no `.env` e execute novamente o instalador. Os comandos abaixo removem eventuais valores antigos antes de adicionar a configuração atual:
-
-```bash
-sed -i '/^OLLAMA_MODEL=/d;/^OLLAMA_MIN_GPU_VRAM_MB=/d' .env
-printf '\nOLLAMA_MODEL=gemma3:1b\nOLLAMA_MIN_GPU_VRAM_MB=2048\n' >> .env
-./scripts/setup-local-ai.sh
-COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --no-pull --with-ai
-```
-
-Com CPU:
-
 ```bash
 git pull --ff-only
-./rebuild.sh --no-pull --with-ai
-docker compose --profile ai exec -T ollama ollama ps
+./rebuild.sh --no-pull
 ```
 
-Com o override de GPU gerado na instalação:
+O Ollama deixou de fazer parte da aplicação. Após validar a OpenAI em produção, o container e o volume antigos podem ser removidos sem afetar PostgreSQL, Redis ou MinIO:
 
 ```bash
-git pull --ff-only
-COMPOSE_OVERRIDE_FILE=docker-compose.ai-gpu.yml ./rebuild.sh --no-pull --with-ai
-docker compose -f docker-compose.yml -f docker-compose.ai-gpu.yml --profile ai exec -T ollama ollama ps
+docker rm -f prospecta-ollama-1 2>/dev/null || true
+docker volume rm prospecta_ollama_models 2>/dev/null || true
 ```
 
-O volume `ollama_models` não é recriado pelo rebuild, portanto o modelo de aproximadamente 815 MB não é baixado novamente. Não use `docker compose down -v`, pois isso apagaria também os modelos, bancos e mídias. A imagem está fixada em `ollama/ollama:0.32.5`; atualize-a somente depois de executar o smoke test do script.
-
-Variáveis:
-
-```dotenv
-AI_ASSISTANT_ENABLED=true
-OLLAMA_API_URL=http://localhost:11434
-OLLAMA_MODEL=gemma3:1b
-OLLAMA_CONTEXT_LENGTH=4096
-OLLAMA_NUM_PARALLEL=1
-OLLAMA_MAX_LOADED_MODELS=1
-OLLAMA_KEEP_ALIVE=2m
-OLLAMA_INTERACTIVE_TIMEOUT_MS=180000
-OLLAMA_SUMMARY_TIMEOUT_MS=180000
-OLLAMA_MEMORY_LIMIT=4g
-OLLAMA_BIND_PORT=11434
-OLLAMA_MIN_GPU_VRAM_MB=2048
-OLLAMA_SMOKE_TIMEOUT_SECONDS=150
-```
-
-No Docker de produção, o Compose sobrescreve `OLLAMA_API_URL` para `http://ollama:11434`. A porta `11434` no host fica vinculada exclusivamente a `127.0.0.1`, permitindo o desenvolvimento local sem expor o modelo à rede. Consulte a [documentação oficial do Ollama sobre Docker](https://hub.docker.com/r/ollama/ollama) e as [configurações de concorrência e descarregamento](https://docs.ollama.com/faq).
+A API da OpenAI é cobrada separadamente de uma assinatura do ChatGPT. Consulte a documentação oficial da [Responses API](https://developers.openai.com/api/docs/guides/migrate-to-responses) e do [GPT-5.6 Luna](https://developers.openai.com/api/docs/models/gpt-5.6-luna).
 
 ## CSV de campanhas
 

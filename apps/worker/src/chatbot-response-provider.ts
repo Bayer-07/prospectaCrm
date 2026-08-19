@@ -54,6 +54,6 @@ export class RulesResponseProvider implements ChatbotResponseProvider {
   }
 }
 
-export class OllamaResponseProvider extends RulesResponseProvider {
-  override readonly key = 'OLLAMA';
+export class OpenAiResponseProvider extends RulesResponseProvider {
+  override readonly key = 'OPENAI';
 }

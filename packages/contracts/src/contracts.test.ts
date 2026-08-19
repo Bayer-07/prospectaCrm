@@ -2,8 +2,8 @@ import { describe, expect, it } from 'vitest';
 import { aiGenerationStatuses, aiGenerationTypes, aiProposalStatuses, aiSummaryScopes, campaignCadenceSchema, canSendWhatsapp, chatbotNodeTypes, chatbotResponseProviders, companyInputSchema, contactInputSchema, contactsAreDuplicates, extractSharedWhatsappContacts, formatCnpj, isOptOutMessage, isValidCnpj, nextWarmupCap, normalizeEvolutionInstanceStatus, normalizePhoneKey, opportunityStatusForStage, phoneSchema } from './index.js';
 
 describe('contratos', () => {
-  it('expõe os contratos versionados do assistente local e do chatbot Ollama', () => {
-    expect(chatbotResponseProviders).toContain('OLLAMA');
+  it('expõe os contratos versionados do assistente e do chatbot OpenAI', () => {
+    expect(chatbotResponseProviders).toContain('OPENAI');
     expect(chatbotNodeTypes).toContain('ai_conversation');
     expect(aiGenerationTypes).toEqual(['SUMMARY', 'REPLY_SUGGESTION', 'CHATBOT_REPLY', 'CONFIG_TEST']);
     expect(aiGenerationStatuses).toContain('WAITING_INPUT');
