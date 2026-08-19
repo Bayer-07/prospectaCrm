@@ -24,6 +24,8 @@ describe('cliente da OpenAI', () => {
       system: 'Sistema',
       prompt: 'Usuário',
       schema: { type: 'object' },
+      apiKey: 'organization-key',
+      model: 'gpt-5.6-terra',
       timeoutMs: 1_000,
       maxTokens: 160,
       validate: (value) => value,
@@ -37,10 +39,10 @@ describe('cliente da OpenAI', () => {
     const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(fetchMock).toHaveBeenCalledWith('https://openai.test/v1/responses', expect.objectContaining({
       method: 'POST',
-      headers: expect.objectContaining({ authorization: 'Bearer test-key' }),
+      headers: expect.objectContaining({ authorization: 'Bearer organization-key' }),
     }));
     expect(request).toMatchObject({
-      model: 'gpt-5.6-luna',
+      model: 'gpt-5.6-terra',
       store: false,
       instructions: 'Sistema',
       input: 'Usuário',

@@ -3,12 +3,19 @@ import { Prisma, type AiGenerationType, type AiSummaryScope, type ConversationAi
 import type { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AuthContext } from '../auth/types.js';
+import { encryptSecret } from '../common/encryption.js';
 import { conversationVisibilityWhere } from '../integrations/conversation-visibility.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AI_GENERATION_QUEUE } from '../queue/queue.module.js';
 
 const DEFAULT_FALLBACK = 'No momento não consegui continuar o atendimento automático. Vou encaminhar você para nossa equipe.';
 const VALID_FIELDS = new Set(['name', 'email', 'jobTitle', 'company', 'qualificationNote']);
+const OPENAI_MODELS = Object.freeze([
+  { id: 'gpt-5.6-luna', name: 'GPT-5.6 Luna', description: 'Mais econômico para alto volume.' },
+  { id: 'gpt-5.6-terra', name: 'GPT-5.6 Terra', description: 'Equilíbrio entre qualidade e custo.' },
+  { id: 'gpt-5.6-sol', name: 'GPT-5.6 Sol', description: 'Maior qualidade para atendimentos complexos.' },
+]);
+const OPENAI_MODEL_IDS = new Set(OPENAI_MODELS.map((model) => model.id));
 
 function jsonObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -37,6 +44,12 @@ function generationPriority(type: AiGenerationType) {
   return priorities[type];
 }
 
+function configuredApiKeySource(settings: { openAiApiKeyEncrypted?: string | null } | null) {
+  if (settings?.openAiApiKeyEncrypted) return 'organization' as const;
+  if (process.env.OPENAI_API_KEY?.trim()) return 'environment' as const;
+  return 'none' as const;
+}
+
 function assertProposalRequest(auth: AuthContext, input: { action: string; fields?: unknown }): asserts auth is AuthContext & { userId: string } {
   if (!auth.userId) throw new ForbiddenException('A operação exige um usuário');
   if (!['apply', 'dismiss'].includes(input.action)) throw new BadRequestException('Ação da proposta é inválida');
@@ -51,43 +64,82 @@ export class AiService {
   async getSettings(auth: AuthContext) {
     this.assertAdmin(auth);
     const settings = await this.db.organizationAiSettings.findUnique({ where: { organizationId: auth.organizationId } });
-    const runtime = await this.runtimeStatus();
+    const apiKeySource = configuredApiKeySource(settings);
+    const runtime = await this.runtimeStatus(apiKeySource !== 'none');
     return {
       enabled: settings?.enabled ?? false,
       globalInstructions: settings?.globalInstructions ?? '',
       fallbackMessage: settings?.fallbackMessage ?? DEFAULT_FALLBACK,
-      model: process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+      model: settings?.model || process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+      models: OPENAI_MODELS,
+      apiKeyConfigured: apiKeySource !== 'none',
+      apiKeySource,
+      apiKeyLastFour: apiKeySource === 'organization' ? settings?.openAiApiKeyLastFour || null : null,
       runtime,
     };
   }
 
-  async updateSettings(auth: AuthContext, input: { enabled?: boolean; globalInstructions?: string; fallbackMessage?: string }) {
+  async updateSettings(auth: AuthContext, input: {
+    enabled?: boolean;
+    globalInstructions?: string;
+    fallbackMessage?: string;
+    model?: string;
+    apiKey?: string;
+    removeApiKey?: boolean;
+  }) {
     this.assertAdmin(auth);
     if (input.enabled !== undefined && typeof input.enabled !== 'boolean') throw new BadRequestException('O estado da IA deve ser verdadeiro ou falso');
     if (input.fallbackMessage !== undefined && typeof input.fallbackMessage !== 'string') throw new BadRequestException('A mensagem de indisponibilidade é inválida');
     if (input.globalInstructions !== undefined && typeof input.globalInstructions !== 'string') throw new BadRequestException('As instruções gerais são inválidas');
+    if (input.model !== undefined && (typeof input.model !== 'string' || !OPENAI_MODEL_IDS.has(input.model))) throw new BadRequestException('Selecione um modelo da OpenAI válido');
+    if (input.apiKey !== undefined && typeof input.apiKey !== 'string') throw new BadRequestException('A chave da OpenAI é inválida');
+    if (input.removeApiKey !== undefined && typeof input.removeApiKey !== 'boolean') throw new BadRequestException('A remoção da chave é inválida');
+    if (input.removeApiKey && input.apiKey?.trim()) throw new BadRequestException('Não é possível adicionar e remover a chave ao mesmo tempo');
     const fallbackMessage = input.fallbackMessage?.trim();
     if (fallbackMessage !== undefined && (fallbackMessage.length < 5 || fallbackMessage.length > 1_000)) {
       throw new BadRequestException('A mensagem de indisponibilidade deve ter entre 5 e 1.000 caracteres');
     }
     const globalInstructions = input.globalInstructions?.trim();
     if (globalInstructions && globalInstructions.length > 10_000) throw new BadRequestException('As instruções podem ter no máximo 10.000 caracteres');
-    return this.db.organizationAiSettings.upsert({
+    const apiKey = input.apiKey?.trim();
+    if (apiKey && (apiKey.length < 20 || apiKey.length > 512)) throw new BadRequestException('A chave da OpenAI deve ter entre 20 e 512 caracteres');
+    if (apiKey && !(process.env.ENCRYPTION_KEY || process.env.SESSION_SECRET)) {
+      throw new ServiceUnavailableException('Configure ENCRYPTION_KEY ou SESSION_SECRET antes de salvar a chave da OpenAI');
+    }
+    const existing = await this.db.organizationAiSettings.findUnique({
+      where: { organizationId: auth.organizationId },
+      select: { openAiApiKeyEncrypted: true },
+    });
+    const apiKeyConfigured = Boolean(
+      apiKey
+      || (!input.removeApiKey && existing?.openAiApiKeyEncrypted)
+      || process.env.OPENAI_API_KEY?.trim(),
+    );
+    if (input.enabled && !apiKeyConfigured) throw new BadRequestException('Informe uma chave da OpenAI antes de habilitar os recursos de IA');
+    let credentialData: { openAiApiKeyEncrypted?: string | null; openAiApiKeyLastFour?: string | null } = {};
+    if (apiKey) credentialData = { openAiApiKeyEncrypted: encryptSecret(apiKey), openAiApiKeyLastFour: apiKey.slice(-4) };
+    else if (input.removeApiKey) credentialData = { openAiApiKeyEncrypted: null, openAiApiKeyLastFour: null };
+    await this.db.organizationAiSettings.upsert({
       where: { organizationId: auth.organizationId },
       create: {
         organizationId: auth.organizationId,
         enabled: input.enabled ?? false,
         globalInstructions: globalInstructions || '',
         fallbackMessage: fallbackMessage || DEFAULT_FALLBACK,
+        model: input.model || process.env.OPENAI_MODEL || 'gpt-5.6-luna',
+        ...credentialData,
         updatedById: auth.userId,
       },
       update: {
         ...(input.enabled === undefined ? {} : { enabled: input.enabled }),
         ...(globalInstructions === undefined ? {} : { globalInstructions }),
         ...(fallbackMessage === undefined ? {} : { fallbackMessage }),
+        ...(input.model === undefined ? {} : { model: input.model }),
+        ...credentialData,
         updatedById: auth.userId,
       },
     });
+    return this.getSettings(auth);
   }
 
   async test(auth: AuthContext, message?: string) {
@@ -235,12 +287,17 @@ export class AiService {
 
   private assertFeatureEnabled() {
     if (process.env.AI_ASSISTANT_ENABLED !== 'true') throw new ServiceUnavailableException('O assistente de IA está desativado neste ambiente');
-    if (!process.env.OPENAI_API_KEY?.trim()) throw new ServiceUnavailableException('Configure OPENAI_API_KEY antes de usar o assistente');
   }
 
   private async assertOrganizationEnabled(organizationId: string) {
-    const settings = await this.db.organizationAiSettings.findUnique({ where: { organizationId }, select: { enabled: true } });
+    const settings = await this.db.organizationAiSettings.findUnique({
+      where: { organizationId },
+      select: { enabled: true, openAiApiKeyEncrypted: true },
+    });
     if (!settings?.enabled) throw new ServiceUnavailableException('Ative a IA nas configurações antes de usar o assistente');
+    if (!settings.openAiApiKeyEncrypted && !process.env.OPENAI_API_KEY?.trim()) {
+      throw new ServiceUnavailableException('Configure a chave da OpenAI antes de usar o assistente');
+    }
   }
 
   private async visibleConversation(auth: AuthContext, id: string) {
@@ -305,9 +362,9 @@ export class AiService {
     });
   }
 
-  private async runtimeStatus() {
+  private async runtimeStatus(apiKeyConfigured: boolean) {
     if (process.env.AI_ASSISTANT_ENABLED !== 'true') return { available: false, reason: 'disabled', provider: 'openai' as const };
-    if (!process.env.OPENAI_API_KEY?.trim()) return { available: false, reason: 'not_configured', provider: 'openai' as const };
+    if (!apiKeyConfigured) return { available: false, reason: 'not_configured', provider: 'openai' as const };
     return { available: true, provider: 'openai' as const };
   }
 }

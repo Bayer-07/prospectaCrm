@@ -1253,15 +1253,18 @@ model ChatbotSession {
 }
 
 model OrganizationAiSettings {
-  organizationId     String       @id @db.Uuid
-  enabled            Boolean      @default(false)
-  globalInstructions String       @default("")
-  fallbackMessage    String       @default("No momento não consegui continuar o atendimento automático. Vou encaminhar você para nossa equipe.")
-  updatedById        String?      @db.Uuid
-  createdAt          DateTime     @default(now())
-  updatedAt          DateTime     @updatedAt
-  organization       Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  updatedBy          User?        @relation("AiSettingsUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  organizationId          String       @id @db.Uuid
+  enabled                 Boolean      @default(false)
+  globalInstructions      String       @default("")
+  fallbackMessage         String       @default("No momento não consegui continuar o atendimento automático. Vou encaminhar você para nossa equipe.")
+  model                    String       @default("gpt-5.6-luna")
+  openAiApiKeyEncrypted    String?
+  openAiApiKeyLastFour     String?
+  updatedById             String?      @db.Uuid
+  createdAt               DateTime     @default(now())
+  updatedAt               DateTime     @updatedAt
+  organization            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedBy               User?        @relation("AiSettingsUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
 }
 
 model ConversationAiGeneration {

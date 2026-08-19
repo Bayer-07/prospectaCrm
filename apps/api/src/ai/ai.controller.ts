@@ -16,7 +16,7 @@ export class AiController {
   @Patch('settings/ai')
   updateSettings(
     @CurrentUser() auth: AuthContext,
-    @Body() body: { enabled?: boolean; globalInstructions?: string; fallbackMessage?: string },
+    @Body() body: { enabled?: boolean; globalInstructions?: string; fallbackMessage?: string; model?: string; apiKey?: string; removeApiKey?: boolean },
   ) {
     return this.ai.updateSettings(auth, body).then((data) => ({ data }));
   }

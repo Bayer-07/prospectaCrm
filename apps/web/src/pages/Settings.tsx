@@ -72,22 +72,47 @@ type AiSettingsData = {
   globalInstructions: string;
   fallbackMessage: string;
   model: string;
+  models: Array<{ id: string; name: string; description: string }>;
+  apiKeyConfigured: boolean;
+  apiKeySource: 'organization' | 'environment' | 'none';
+  apiKeyLastFour: string | null;
   runtime: { available: boolean; reason?: string; provider: 'openai' };
 };
 type AiConfigTest = { id: string; status: string; result?: { reply?: string }; error?: string };
+type AiSettingsForm = Pick<AiSettingsData, 'enabled' | 'globalInstructions' | 'fallbackMessage' | 'model'> & {
+  apiKey: string;
+  removeApiKey: boolean;
+};
 
 function AiSettings() {
   const client = useQueryClient();
   const settings = useQuery({ queryKey: ['ai-settings'], queryFn: () => api<Envelope<AiSettingsData>>('/settings/ai') });
   const [testGenerationId, setTestGenerationId] = useState<string | null>(null);
-  const [form, setForm] = useState<Pick<AiSettingsData, 'enabled' | 'globalInstructions' | 'fallbackMessage'> | null>(null);
+  const [form, setForm] = useState<AiSettingsForm | null>(null);
   const current = form || (settings.data ? {
     enabled: settings.data.data.enabled,
     globalInstructions: settings.data.data.globalInstructions,
     fallbackMessage: settings.data.data.fallbackMessage,
+    model: settings.data.data.model,
+    apiKey: '',
+    removeApiKey: false,
   } : null);
   const save = useMutation({
-    mutationFn: () => api('/settings/ai', { method: 'PATCH', body: JSON.stringify(current) }),
+    mutationFn: () => {
+      if (!current) throw new Error('As configurações da IA ainda não foram carregadas');
+      const apiKey = current.apiKey.trim();
+      return api('/settings/ai', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          enabled: current.enabled,
+          globalInstructions: current.globalInstructions,
+          fallbackMessage: current.fallbackMessage,
+          model: current.model,
+          ...(apiKey ? { apiKey } : {}),
+          ...(current.removeApiKey ? { removeApiKey: true } : {}),
+        }),
+      });
+    },
     onSuccess: () => {
       toast.success('Configurações da IA atualizadas.');
       setForm(null);
@@ -115,26 +140,61 @@ function AiSettings() {
   if (settings.isLoading || !current) return <PageLoading />;
   if (settings.error) return null;
   const runtime = settings.data!.data.runtime;
+  let runtimeLabel = 'OpenAI não configurada';
+  if (runtime.available) runtimeLabel = 'OpenAI configurada';
+  else if (runtime.reason === 'disabled') runtimeLabel = 'IA desativada no servidor';
   const currentTest = testResult.data?.data;
   let testMessage = 'O modelo está processando o teste…';
   if (currentTest?.status === 'COMPLETED') testMessage = currentTest.result?.reply || 'A OpenAI respondeu corretamente.';
   if (currentTest?.status === 'FAILED') testMessage = currentTest.error || 'O teste da IA falhou.';
   const update = (values: Partial<typeof current>) => setForm({ ...current, ...values });
+  const credentialStatus = (() => {
+    if (current.removeApiKey) return 'A chave salva será removida ao salvar.';
+    if (current.apiKey.trim()) return `Nova chave pronta para salvar ••••${current.apiKey.trim().slice(-4)}`;
+    if (settings.data!.data.apiKeySource === 'organization') return `Chave salva com final ••••${settings.data!.data.apiKeyLastFour || '••••'}`;
+    if (settings.data!.data.apiKeySource === 'environment') return 'Chave fornecida pelas variáveis do servidor.';
+    return 'Nenhuma chave configurada.';
+  })();
   return <div className="ai-settings-page">
     <div className="settings-heading">
       <div><h2>Inteligência artificial</h2><p>Resumos, sugestões e pré-atendimento processados pela API da OpenAI.</p></div>
-      <div className={`ai-runtime-pill ${runtime.available ? 'online' : 'offline'}`}><span />{runtime.available ? 'OpenAI configurada' : 'OpenAI não configurada'}</div>
+      <div className={`ai-runtime-pill ${runtime.available ? 'online' : 'offline'}`}><span />{runtimeLabel}</div>
     </div>
     <div className="ai-settings-grid">
       <article className="ai-status-card">
         <div className="ai-status-icon"><BrainCircuit size={22} /></div>
-        <div><span>Modelo configurado</span><strong>{settings.data!.data.model}</strong><small>Processamento em nuvem pela API da OpenAI.</small></div>
+        <div><span>Modelo configurado</span><strong>{settings.data!.data.models.find((model) => model.id === current.model)?.name || current.model}</strong><small>Processamento em nuvem pela API da OpenAI.</small></div>
       </article>
       <label className="ai-enable-card">
         <div><strong>Habilitar recursos de IA</strong><span>Libera resumos, sugestões e chatbots OpenAI para esta organização.</span></div>
         <input type="checkbox" checked={current.enabled} onChange={(event) => update({ enabled: event.target.checked })} />
       </label>
     </div>
+    <section className="ai-provider-card">
+      <div className="ai-provider-card-header">
+        <div className="ai-provider-icon"><KeyRound size={19} /></div>
+        <div><h3>Conexão com a OpenAI</h3><p>Escolha o modelo e armazene a credencial exclusiva desta organização.</p></div>
+      </div>
+      <div className="ai-provider-grid">
+        <SelectField label="Modelo" value={current.model} onChange={(event) => update({ model: event.target.value })}>
+          {settings.data!.data.models.map((model) => <option key={model.id} value={model.id}>{model.name} — {model.description}</option>)}
+        </SelectField>
+        <Field
+          label="API Key da OpenAI"
+          type="password"
+          autoComplete="new-password"
+          value={current.apiKey}
+          onChange={(event) => update({ apiKey: event.target.value, removeApiKey: false })}
+          placeholder={settings.data!.data.apiKeyConfigured ? 'Digite somente para substituir a chave atual' : 'sk-proj-…'}
+        />
+      </div>
+      <div className={`ai-credential-status ${settings.data!.data.apiKeyConfigured && !current.removeApiKey ? 'configured' : ''}`}>
+        <LockKeyhole size={15} />
+        <span><strong>{credentialStatus}</strong>A chave é criptografada antes de ser salva e nunca volta a aparecer nesta tela.</span>
+        {settings.data!.data.apiKeySource === 'organization' && !current.removeApiKey && !current.apiKey && <button type="button" onClick={() => update({ removeApiKey: true })}>Remover chave salva</button>}
+        {current.removeApiKey && <button type="button" onClick={() => update({ removeApiKey: false })}>Desfazer</button>}
+      </div>
+    </section>
     <label className="field ai-textarea-field"><span>Instruções gerais da BZS</span><textarea rows={8} maxLength={10_000} value={current.globalInstructions} onChange={(event) => update({ globalInstructions: event.target.value })} placeholder="Tom de voz, produtos, limites comerciais e informações que a IA deve respeitar." /><small>{current.globalInstructions.length.toLocaleString('pt-BR')} / 10.000 caracteres</small></label>
     <label className="field ai-textarea-field"><span>Mensagem de indisponibilidade</span><textarea rows={3} maxLength={1_000} value={current.fallbackMessage} onChange={(event) => update({ fallbackMessage: event.target.value })} /><small>Enviada antes da transferência quando o pré-atendimento não puder continuar.</small></label>
     {testGenerationId && currentTest && <div className={`ai-test-result ${currentTest.status.toLowerCase()}`}><BrainCircuit size={16} /><span>{testMessage}</span></div>}

@@ -245,19 +245,20 @@ Na primeira transcrição, o worker verifica se o modelo existe, baixa-o automat
 
 ## IA com OpenAI API
 
-O BZS One usa a Responses API da OpenAI para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. As gerações continuam assíncronas na fila do worker e não bloqueiam a navegação. O modelo padrão é `gpt-5.6-luna`, configurável por ambiente.
+O BZS One usa a Responses API da OpenAI para gerar resumos persistentes, sugerir respostas editáveis e executar blocos de pré-atendimento nos chatbots. As gerações continuam assíncronas na fila do worker e não bloqueiam a navegação. O modelo e a chave podem ser configurados por organização em **Integrações → Inteligência artificial**.
 
 O recurso nasce desligado. O CRM, WhatsApp, campanhas e demais workers continuam funcionando normalmente sem uma chave. Ao ativá-lo, o conteúdo necessário da conversa é enviado à OpenAI para processamento. As requisições usam `store: false`; ainda assim, revise as políticas internas de privacidade antes da homologação.
 
 ### Configuração no Ubuntu
 
-Crie uma chave de API na plataforma da OpenAI e configure na raiz do repositório:
+Mantenha o recurso habilitado no servidor e configure a chave de criptografia usada para proteger credenciais salvas pelo painel:
 
 ```bash
 sed -i '/^AI_ASSISTANT_ENABLED=/d;/^OPENAI_/d;/^OLLAMA_/d' .env
 cat >> .env <<'EOF'
 AI_ASSISTANT_ENABLED=true
-OPENAI_API_KEY=COLE_SUA_CHAVE_AQUI
+# Opcional: chave global de fallback. A chave cadastrada no painel tem precedência.
+OPENAI_API_KEY=
 OPENAI_API_URL=https://api.openai.com/v1
 OPENAI_MODEL=gpt-5.6-luna
 OPENAI_REASONING_EFFORT=none
@@ -270,7 +271,13 @@ docker compose ps api worker
 docker compose logs --tail=100 worker
 ```
 
-Depois, um administrador deve abrir **Integrações → Inteligência artificial**, revisar as instruções gerais, habilitar a organização e executar **Testar geração**. A chave da API nunca deve ser colocada no navegador nem versionada no Git.
+Depois, um administrador deve abrir **Integrações → Inteligência artificial**, escolher o modelo, cadastrar a API Key, revisar as instruções gerais, habilitar a organização e executar **Testar geração**. A credencial é criptografada no banco com `ENCRYPTION_KEY` (ou `SESSION_SECRET` como fallback) e somente os quatro últimos caracteres são exibidos depois de salva. Ela nunca é devolvida pela API nem deve ser versionada no Git.
+
+Os modelos disponibilizados no painel são:
+
+- `gpt-5.6-luna`: mais econômico para alto volume.
+- `gpt-5.6-terra`: equilíbrio entre qualidade e custo.
+- `gpt-5.6-sol`: maior qualidade para atendimentos complexos.
 
 ### Atualizações futuras
 

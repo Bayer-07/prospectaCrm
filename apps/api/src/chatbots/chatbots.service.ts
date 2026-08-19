@@ -133,15 +133,20 @@ export class ChatbotsService {
   async metadata(auth: AuthContext) {
     const scope = permissionScope(auth, 'workflows', 'read');
     const teamFilter = instanceTeamFilter(auth, scope);
-    const [instances, tags] = await Promise.all([
+    const [instances, tags, aiSettings] = await Promise.all([
       this.db.whatsappInstance.findMany({
         where: { organizationId: auth.organizationId, archivedAt: null, ...teamFilter },
         select: { id: true, name: true, phone: true, status: true },
         orderBy: { name: 'asc' },
       }),
       this.db.tag.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, color: true }, orderBy: { name: 'asc' } }),
+      this.db.organizationAiSettings.findUnique({
+        where: { organizationId: auth.organizationId },
+        select: { openAiApiKeyEncrypted: true },
+      }),
     ]);
-    const openAiAvailable = process.env.AI_ASSISTANT_ENABLED === 'true' && Boolean(process.env.OPENAI_API_KEY?.trim());
+    const openAiAvailable = process.env.AI_ASSISTANT_ENABLED === 'true'
+      && Boolean(aiSettings?.openAiApiKeyEncrypted || process.env.OPENAI_API_KEY?.trim());
     return { instances, tags, responseProviders: [{ key: 'RULES', name: 'Regras', available: true }, { key: 'OPENAI', name: 'OpenAI', available: openAiAvailable }] };
   }
 
@@ -166,9 +171,7 @@ export class ChatbotsService {
     const graph = input.graph || this.defaultGraph();
     const responseProvider = input.responseProvider || 'RULES';
     if (!['RULES', 'OPENAI'].includes(responseProvider)) throw new BadRequestException('Motor de resposta inválido');
-    if (responseProvider === 'OPENAI' && (process.env.AI_ASSISTANT_ENABLED !== 'true' || !process.env.OPENAI_API_KEY?.trim())) {
-      throw new BadRequestException('A integração com a OpenAI não está configurada neste ambiente');
-    }
+    if (responseProvider === 'OPENAI') await this.assertOpenAiAvailable(auth.organizationId);
     this.validateShape(graph, false);
     return this.db.chatbot.create({
       data: {
@@ -206,9 +209,7 @@ export class ChatbotsService {
     if (graph.nodes.some((node) => node.type === 'ai_conversation') && chatbot.responseProvider !== 'OPENAI') {
       throw new BadRequestException('Blocos de atendimento por IA exigem o motor OpenAI');
     }
-    if (chatbot.responseProvider === 'OPENAI' && (process.env.AI_ASSISTANT_ENABLED !== 'true' || !process.env.OPENAI_API_KEY?.trim())) {
-      throw new BadRequestException('Configure e ative a OpenAI antes de publicar este chatbot');
-    }
+    if (chatbot.responseProvider === 'OPENAI') await this.assertOpenAiAvailable(auth.organizationId);
     await this.db.$transaction([
       this.db.chatbot.updateMany({ where: { instanceId: chatbot.instanceId, status: 'PUBLISHED', id: { not: id } }, data: { status: 'PAUSED' } }),
       this.db.chatbotVersion.update({ where: { id: latest.id }, data: { publishedAt: new Date() } }),
@@ -325,6 +326,17 @@ export class ChatbotsService {
       select: { id: true },
     });
     if (!allowed) throw new BadRequestException('Número de WhatsApp inválido ou sem acesso');
+  }
+
+  private async assertOpenAiAvailable(organizationId: string) {
+    if (process.env.AI_ASSISTANT_ENABLED !== 'true') throw new BadRequestException('O assistente de IA está desativado neste ambiente');
+    const settings = await this.db.organizationAiSettings.findUnique({
+      where: { organizationId },
+      select: { openAiApiKeyEncrypted: true },
+    });
+    if (!settings?.openAiApiKeyEncrypted && !process.env.OPENAI_API_KEY?.trim()) {
+      throw new BadRequestException('Configure a chave da OpenAI antes de usar este chatbot');
+    }
   }
 
   private scope(auth: AuthContext) {

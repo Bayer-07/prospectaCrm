@@ -76,8 +76,51 @@ describe('serviço de IA', () => {
   it('não cria gerações sem uma chave da OpenAI', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
     vi.stubEnv('OPENAI_API_KEY', '');
+    const db = { organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, openAiApiKeyEncrypted: null }) } };
+    const service = new AiService(db as never, {} as never);
+    await expect(service.createGeneration(admin, 'conversation-1', { type: 'SUMMARY' })).rejects.toThrow(/chave da OpenAI/);
+  });
+
+  it('criptografa a chave da organização e nunca a devolve para o navegador', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', '');
+    vi.stubEnv('SESSION_SECRET', 'segredo-de-teste-com-tamanho-suficiente');
+    const apiKey = 'sk-proj-chave-exclusiva-da-organizacao-1234';
+    const findUnique = vi.fn()
+      .mockResolvedValueOnce({ openAiApiKeyEncrypted: null })
+      .mockImplementation(async () => {
+        const saved = db.organizationAiSettings.upsert.mock.calls[0]?.[0].create;
+        return {
+          enabled: true,
+          globalInstructions: 'Responda em português.',
+          fallbackMessage: 'Transferindo para a equipe.',
+          model: 'gpt-5.6-terra',
+          openAiApiKeyEncrypted: saved.openAiApiKeyEncrypted,
+          openAiApiKeyLastFour: saved.openAiApiKeyLastFour,
+        };
+      });
+    const db = { organizationAiSettings: { findUnique, upsert: vi.fn().mockResolvedValue({}) } };
+    const service = new AiService(db as never, {} as never);
+
+    const result = await service.updateSettings(admin, {
+      enabled: true,
+      globalInstructions: 'Responda em português.',
+      fallbackMessage: 'Transferindo para a equipe.',
+      model: 'gpt-5.6-terra',
+      apiKey,
+    });
+
+    const create = db.organizationAiSettings.upsert.mock.calls[0][0].create;
+    expect(create.openAiApiKeyEncrypted).toMatch(/^v1\./);
+    expect(create.openAiApiKeyEncrypted).not.toContain(apiKey);
+    expect(create.openAiApiKeyLastFour).toBe('1234');
+    expect(result).toMatchObject({ model: 'gpt-5.6-terra', apiKeyConfigured: true, apiKeySource: 'organization', apiKeyLastFour: '1234' });
+    expect(result).not.toHaveProperty('openAiApiKeyEncrypted');
+  });
+
+  it('rejeita um modelo que não esteja na lista curada', async () => {
     const service = new AiService({} as never, {} as never);
-    await expect(service.createGeneration(admin, 'conversation-1', { type: 'SUMMARY' })).rejects.toThrow(/OPENAI_API_KEY/);
+    await expect(service.updateSettings(admin, { model: 'modelo-inexistente' })).rejects.toThrow(/modelo da OpenAI válido/);
   });
 
   it('não permite consultar um teste administrativo de outra organização', async () => {

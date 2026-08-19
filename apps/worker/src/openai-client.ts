@@ -11,6 +11,8 @@ export type GenerateOptions = {
   prompt: string;
   schema: Record<string, unknown>;
   timeoutMs: number;
+  apiKey?: string;
+  model?: string;
   maxTokens?: number;
   validate?: (value: unknown) => unknown;
 };
@@ -39,8 +41,9 @@ export class OpenAiClient {
 
   async generate<T>(options: GenerateOptions): Promise<AiResult<T>> {
     if (process.env.AI_ASSISTANT_ENABLED !== 'true') throw new Error('O assistente de IA está desativado');
-    const apiKey = process.env.OPENAI_API_KEY?.trim();
+    const apiKey = options.apiKey?.trim() || process.env.OPENAI_API_KEY?.trim();
     if (!apiKey) throw new Error('OPENAI_API_KEY não está configurada');
+    const model = options.model?.trim() || this.model;
     const baseUrl = (process.env.OPENAI_API_URL || 'https://api.openai.com/v1').replace(/\/$/, '');
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), options.timeoutMs);
@@ -54,7 +57,7 @@ export class OpenAiClient {
         },
         signal: controller.signal,
         body: JSON.stringify({
-          model: this.model,
+          model,
           store: false,
           instructions: options.system,
           input: options.prompt,
@@ -85,7 +88,7 @@ export class OpenAiClient {
       const decoded: unknown = JSON.parse(content);
       return {
         data: (options.validate ? options.validate(decoded) : decoded) as T,
-        model: payload.model || this.model,
+        model: payload.model || model,
         metrics: {
           promptEvalCount: payload.usage?.input_tokens,
           evalCount: payload.usage?.output_tokens,

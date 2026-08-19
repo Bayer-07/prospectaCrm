@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { createCipheriv, createHash, randomBytes } from 'node:crypto';
 import {
   AiGenerationProcessor,
   generateInPortuguese,
@@ -8,6 +9,13 @@ import {
   validateSuggestedReply,
   validateSummary,
 } from './ai.processor.js';
+
+function encryptTestSecret(value: string, secret: string) {
+  const iv = randomBytes(12);
+  const cipher = createCipheriv('aes-256-gcm', createHash('sha256').update(secret).digest(), iv);
+  const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
+  return `v1.${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${encrypted.toString('base64url')}`;
+}
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -85,6 +93,7 @@ describe('processamento estruturado da IA', () => {
 
   it('descarta a resposta automática se um atendente assumir durante a geração', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('ENCRYPTION_KEY', 'segredo-de-criptografia-do-teste');
     const sessionStartedAt = new Date('2026-08-18T14:00:01.000Z');
     const firstInbound = {
       id: 'message-initial', direction: 'INBOUND', type: 'text', text: 'Olá', transcriptionText: null,
@@ -111,7 +120,13 @@ describe('processamento estruturado da IA', () => {
           .mockResolvedValueOnce({ assigneeId: null, contact: { id: 'contact-1', name: 'Maria', email: null, jobTitle: null, companies: [] }, chatbotSession: { id: 'session-1', context: {}, startedAt: sessionStartedAt } })
           .mockResolvedValueOnce({ assigneeId: 'human-1' }),
       },
-      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, globalInstructions: '', fallbackMessage: 'Transferindo.' }) },
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({
+        enabled: true,
+        globalInstructions: '',
+        fallbackMessage: 'Transferindo.',
+        model: 'gpt-5.6-terra',
+        openAiApiKeyEncrypted: encryptTestSecret('chave-da-organizacao', 'segredo-de-criptografia-do-teste'),
+      }) },
       message: {
         findFirst: vi.fn().mockResolvedValue({ id: 'message-initial' }),
         findMany: vi.fn().mockResolvedValueOnce([currentInbound]).mockResolvedValueOnce([firstInbound]),
@@ -134,6 +149,8 @@ describe('processamento estruturado da IA', () => {
     }));
     expect(ai.generate).toHaveBeenCalledWith(expect.objectContaining({
       prompt: expect.stringContaining('Cliente: Quero ajuda'),
+      model: 'gpt-5.6-terra',
+      apiKey: 'chave-da-organizacao',
     }));
   });
 
