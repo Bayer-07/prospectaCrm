@@ -6,7 +6,7 @@ export type OllamaMetrics = {
 
 export type OllamaResult<T> = { data: T; model: string; metrics: OllamaMetrics };
 
-type GenerateOptions = {
+export type GenerateOptions = {
   system: string;
   prompt: string;
   schema: Record<string, unknown>;

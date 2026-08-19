@@ -1,5 +1,13 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { AiGenerationProcessor, splitTranscript, validateChatbotDecision, validateSuggestedReply, validateSummary } from './ai.processor.js';
+import {
+  AiGenerationProcessor,
+  generateInPortuguese,
+  isProbablyEnglishText,
+  splitTranscript,
+  validateChatbotDecision,
+  validateSuggestedReply,
+  validateSummary,
+} from './ai.processor.js';
 
 afterEach(() => vi.unstubAllEnvs());
 
@@ -13,6 +21,25 @@ describe('processamento estruturado da IA', () => {
     expect(validateSummary({
       overview: '  Conversa comercial ', need: ' Integração ', commitments: [' Retornar '], nextSteps: [], pending: [' Preço '],
     })).toEqual({ overview: 'Conversa comercial', need: 'Integração', commitments: ['Retornar'], nextSteps: [], pending: ['Preço'] });
+  });
+
+  it('distingue uma saída claramente inglesa de um resumo em português', () => {
+    expect(isProbablyEnglishText('The customer requested information about the system and the next steps are pending.')).toBe(true);
+    expect(isProbablyEnglishText('O cliente solicitou informações sobre o sistema e os próximos passos estão pendentes.')).toBe(false);
+  });
+
+  it('refaz em português uma geração inicialmente escrita em inglês', async () => {
+    const generate = vi.fn()
+      .mockResolvedValueOnce({ data: { reply: 'Hello, how can I help you with this system?' }, model: 'gemma3:1b', metrics: {} })
+      .mockResolvedValueOnce({ data: { reply: 'Olá, como posso ajudar com este sistema?' }, model: 'gemma3:1b', metrics: {} });
+
+    await expect(generateInPortuguese<{ reply: string }>({ generate } as never, {
+      system: 'Responda ao cliente.', prompt: 'O cliente disse olá.', schema: { type: 'object' }, timeoutMs: 1_000,
+    }, (data) => data.reply)).resolves.toMatchObject({ data: { reply: 'Olá, como posso ajudar com este sistema?' } });
+
+    expect(generate).toHaveBeenCalledTimes(2);
+    expect(generate).toHaveBeenNthCalledWith(1, expect.objectContaining({ system: expect.stringContaining('exclusivamente em português do Brasil') }));
+    expect(generate).toHaveBeenNthCalledWith(2, expect.objectContaining({ prompt: expect.stringContaining('foi escrita em inglês e foi rejeitada') }));
   });
 
   it('rejeita respostas incompletas ou confiança fora do intervalo', () => {
