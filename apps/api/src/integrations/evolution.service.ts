@@ -34,6 +34,17 @@ const PDF_TRANSCRIPTION_TIMEOUT_MS = Math.min(
   Math.max(Number(process.env.PDF_TRANSCRIPTION_TIMEOUT_MS) || 5 * 60_000, 10_000),
   15 * 60_000,
 );
+const EVOLUTION_WEBHOOK_EVENTS = Object.freeze([
+  'QRCODE_UPDATED',
+  'CONNECTION_UPDATE',
+  'MESSAGES_UPSERT',
+  'MESSAGES_UPDATE',
+  'MESSAGES_EDITED',
+  'MESSAGES_DELETE',
+  'SEND_MESSAGE',
+]);
+const PROVIDER_RECREATE_ATTEMPTS = 3;
+const PROVIDER_RECREATE_DELAY_MS = 500;
 
 function primitiveText(value: unknown) {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
@@ -213,6 +224,7 @@ export class EvolutionService {
     });
     try {
       const response = await this.createProviderInstance(input.instanceKey);
+      await this.ensureProviderWebhook(input.instanceKey);
       await this.audit(auth, 'whatsapp.instance_created', instance.id, { instanceKey: input.instanceKey, teamIds: input.teamIds });
       return { instance, qrcode: this.extractQrCode(response) };
     } catch (error) {
@@ -223,15 +235,17 @@ export class EvolutionService {
 
   async connect(auth: AuthContext, id: string) {
     const instance = await this.getInstance(auth, id);
-    let result: Record<string, any>;
-    try {
-      result = await this.request(`/instance/connect/${encodeURIComponent(instance.instanceKey)}`, { method: 'GET' });
-    } catch (error) {
-      if (!this.isProviderNotFound(error)) throw error;
-      result = await this.createProviderInstance(instance.instanceKey);
-    }
+    const result = await this.connectProviderInstance(instance.instanceKey);
+    await this.ensureProviderWebhook(instance.instanceKey);
     const qrcode = this.extractQrCode(result);
     if (!qrcode) {
+      const providerError = this.providerFailureMessage(result);
+      if (providerError) {
+        throw new BadGatewayException({
+          message: 'A Evolution API não conseguiu iniciar esta conexão',
+          details: providerError,
+        });
+      }
       const providerStatus = normalizeEvolutionInstanceStatus(result.instance?.state || result.state);
       if (providerStatus === 'CONNECTED') throw new BadRequestException('Este número já está conectado');
       throw new BadGatewayException('A Evolution API não retornou um QR Code válido');
@@ -243,7 +257,12 @@ export class EvolutionService {
 
   async restart(auth: AuthContext, id: string) {
     const instance = await this.getInstance(auth, id);
-    await this.request(`/instance/restart/${encodeURIComponent(instance.instanceKey)}`, { method: 'PUT' });
+    const result = await this.request(`/instance/restart/${encodeURIComponent(instance.instanceKey)}`, { method: 'PUT' });
+    const providerError = this.providerFailureMessage(result);
+    if (providerError) {
+      throw new BadGatewayException({ message: 'A Evolution API não conseguiu reiniciar esta conexão', details: providerError });
+    }
+    await this.ensureProviderWebhook(instance.instanceKey);
     return this.db.whatsappInstance.update({ where: { id }, data: { status: 'CONNECTING' } });
   }
 
@@ -1654,24 +1673,90 @@ export class EvolutionService {
 
   private tryJson(text: string) { try { return JSON.parse(text); } catch { return { message: text }; } }
 
-  private createProviderInstance(instanceKey: string) {
+  private async connectProviderInstance(instanceKey: string) {
+    let result: Record<string, any>;
+    try {
+      result = await this.request(`/instance/connect/${encodeURIComponent(instanceKey)}`, { method: 'GET' });
+    } catch (error) {
+      if (!this.isProviderNotFound(error)) throw error;
+      return this.createProviderInstance(instanceKey);
+    }
+    if (!this.providerReportsMissingInstance(result)) return result;
+    return this.recreateMissingProviderInstance(instanceKey);
+  }
+
+  private async recreateMissingProviderInstance(instanceKey: string) {
+    try {
+      await this.request(`/instance/delete/${encodeURIComponent(instanceKey)}`, { method: 'DELETE' });
+    } catch (error) {
+      if (!this.isProviderNotFound(error)) {
+        console.warn('[evolution:repair-instance] A sessão inconsistente não pôde ser removida antes da recriação.', {
+          instanceKey,
+          error: this.errorMessage(error),
+        });
+      }
+    }
+
+    let lastError: unknown;
+    for (let attempt = 1; attempt <= PROVIDER_RECREATE_ATTEMPTS; attempt += 1) {
+      if (attempt > 1) await this.wait(PROVIDER_RECREATE_DELAY_MS * (attempt - 1));
+      try {
+        return await this.createProviderInstance(instanceKey);
+      } catch (error) {
+        lastError = error;
+      }
+    }
+    throw lastError;
+  }
+
+  private providerFailureMessage(payload: Record<string, any>) {
+    if (payload.error !== true) return '';
+    return primitiveText(payload.message || payload.details || payload.response?.message || payload.response?.error)
+      || 'A Evolution API retornou uma falha sem detalhes';
+  }
+
+  private providerReportsMissingInstance(payload: Record<string, any>) {
+    const message = this.providerFailureMessage(payload).toLocaleLowerCase('pt-BR');
+    return message.includes('does not exist')
+      || message.includes('not found')
+      || message.includes('não existe')
+      || message.includes('não encontrada');
+  }
+
+  private wait(milliseconds: number) {
+    return new Promise<void>((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  private providerWebhookConfig() {
     const apiInternalUrl = process.env.API_INTERNAL_URL?.replace(/\/$/, '');
     if (!apiInternalUrl) {
       throw new ServiceUnavailableException('API_INTERNAL_URL não configurada para receber webhooks da Evolution');
     }
-    const webhookUrl = `${apiInternalUrl}/webhooks/evolution`;
+    return {
+      enabled: true,
+      url: `${apiInternalUrl}/webhooks/evolution`,
+      byEvents: false,
+      base64: false,
+      events: [...EVOLUTION_WEBHOOK_EVENTS],
+      headers: { 'x-prospecta-webhook-secret': process.env.EVOLUTION_WEBHOOK_SECRET || '' },
+    };
+  }
+
+  private ensureProviderWebhook(instanceKey: string) {
+    return this.request(`/webhook/set/${encodeURIComponent(instanceKey)}`, {
+      method: 'POST',
+      body: JSON.stringify({ webhook: this.providerWebhookConfig() }),
+    });
+  }
+
+  private createProviderInstance(instanceKey: string) {
     return this.request('/instance/create', {
       method: 'POST',
       body: JSON.stringify({
         instanceName: instanceKey,
         integration: 'WHATSAPP-BAILEYS',
         qrcode: true,
-        webhook: {
-          enabled: true,
-          url: webhookUrl,
-          events: ['QRCODE_UPDATED', 'CONNECTION_UPDATE', 'MESSAGES_UPSERT', 'MESSAGES_UPDATE', 'MESSAGES_EDITED', 'MESSAGES_DELETE', 'SEND_MESSAGE'],
-          headers: { 'x-prospecta-webhook-secret': process.env.EVOLUTION_WEBHOOK_SECRET || '' },
-        },
+        webhook: this.providerWebhookConfig(),
       }),
     });
   }

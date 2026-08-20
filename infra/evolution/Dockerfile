@@ -12,9 +12,12 @@ RUN git clone https://github.com/evolution-foundation/evolution-api.git . \
     && git checkout "${EVOLUTION_SOURCE_REF}"
 
 COPY infra/evolution/link-preview.patch /tmp/link-preview.patch
+COPY infra/evolution/multi-instance-stability.patch /tmp/multi-instance-stability.patch
 
 RUN git apply --check /tmp/link-preview.patch \
     && git apply /tmp/link-preview.patch \
+    && git apply --check /tmp/multi-instance-stability.patch \
+    && git apply /tmp/multi-instance-stability.patch \
     && npm ci --ignore-scripts --silent \
     && cp .env.example .env \
     && chmod +x ./Docker/scripts/* \

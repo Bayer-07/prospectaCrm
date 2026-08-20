@@ -63,6 +63,7 @@ describe('conexões do WhatsApp', () => {
     const instances = [
       { id: 'instance-1', instanceKey: 'comercial', status: 'CONNECTED', connectedAt: new Date('2026-07-28T10:00:00Z') },
       { id: 'instance-2', instanceKey: 'teste', status: 'DISCONNECTED', connectedAt: null },
+      { id: 'instance-3', instanceKey: 'financeiro', status: 'CONNECTING', connectedAt: null },
     ];
     const update = vi.fn().mockImplementation(({ where, data }) => Promise.resolve({ id: where.id, ...data }));
     const fetchMock = vi.fn().mockResolvedValue({
@@ -70,6 +71,7 @@ describe('conexões do WhatsApp', () => {
       text: vi.fn().mockResolvedValue(JSON.stringify([
         { name: 'comercial', connectionStatus: 'close' },
         { name: 'teste', connectionStatus: 'open' },
+        { name: 'financeiro', connectionStatus: 'connecting' },
       ])),
     });
     const previousApiKey = process.env.EVOLUTION_API_KEY;
@@ -88,6 +90,7 @@ describe('conexões do WhatsApp', () => {
       expect(result).toEqual([
         expect.objectContaining({ id: 'instance-1', status: 'DISCONNECTED', connectedAt: null }),
         expect.objectContaining({ id: 'instance-2', status: 'CONNECTED', connectedAt: expect.any(Date) }),
+        expect.objectContaining({ id: 'instance-3', status: 'CONNECTING', connectedAt: null }),
       ]);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(update).toHaveBeenCalledTimes(2);
@@ -115,7 +118,9 @@ describe('conexões do WhatsApp', () => {
       text: vi.fn().mockResolvedValue(JSON.stringify({ base64: 'data:image/png;base64,QUJD' })),
     });
     const previousApiKey = process.env.EVOLUTION_API_KEY;
+    const previousInternalUrl = process.env.API_INTERNAL_URL;
     process.env.EVOLUTION_API_KEY = 'test-api-key';
+    process.env.API_INTERNAL_URL = 'http://api:3000/api/v1';
     vi.stubGlobal('fetch', fetchMock);
     const service = new EvolutionService({
       whatsappInstance: {
@@ -136,9 +141,83 @@ describe('conexões do WhatsApp', () => {
       expect(notifyOrganization).toHaveBeenCalledWith('organization-1', 'whatsapp.updated', {
         instanceId: instance.id,
       });
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'http://localhost:8080/webhook/set/comercial',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('http://api:3000/api/v1/webhooks/evolution'),
+        }),
+      );
     } finally {
       if (previousApiKey === undefined) delete process.env.EVOLUTION_API_KEY;
       else process.env.EVOLUTION_API_KEY = previousApiKey;
+      if (previousInternalUrl === undefined) delete process.env.API_INTERNAL_URL;
+      else process.env.API_INTERNAL_URL = previousInternalUrl;
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('recria uma terceira sessão ausente na memória da Evolution e restaura seu webhook', async () => {
+    const instance = { id: 'instance-3', instanceKey: 'financeiro' };
+    const update = vi.fn().mockResolvedValue({});
+    const notifyOrganization = vi.fn();
+    const responses = [
+      { error: true, message: 'Error: The "financeiro" instance does not exist' },
+      {},
+      { base64: 'data:image/png;base64,REVG' },
+      {},
+    ];
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve({
+      ok: true,
+      text: vi.fn().mockResolvedValue(JSON.stringify(responses.shift() || {})),
+    }));
+    const previousApiKey = process.env.EVOLUTION_API_KEY;
+    const previousInternalUrl = process.env.API_INTERNAL_URL;
+    process.env.EVOLUTION_API_KEY = 'test-api-key';
+    process.env.API_INTERNAL_URL = 'http://api:3000/api/v1';
+    vi.stubGlobal('fetch', fetchMock);
+    const service = new EvolutionService({
+      whatsappInstance: {
+        findFirst: vi.fn().mockResolvedValue(instance),
+        update,
+      },
+    } as never, {} as never, {} as never, { notifyOrganization } as never);
+
+    try {
+      await expect(service.connect(auth, instance.id)).resolves.toEqual({
+        qrcode: 'data:image/png;base64,REVG',
+        expiresInSeconds: 30,
+      });
+      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        1,
+        'http://localhost:8080/instance/connect/financeiro',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        2,
+        'http://localhost:8080/instance/delete/financeiro',
+        expect.objectContaining({ method: 'DELETE' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        3,
+        'http://localhost:8080/instance/create',
+        expect.objectContaining({
+          method: 'POST',
+          body: expect.stringContaining('"instanceName":"financeiro"'),
+        }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        4,
+        'http://localhost:8080/webhook/set/financeiro',
+        expect.objectContaining({ method: 'POST' }),
+      );
+    } finally {
+      if (previousApiKey === undefined) delete process.env.EVOLUTION_API_KEY;
+      else process.env.EVOLUTION_API_KEY = previousApiKey;
+      if (previousInternalUrl === undefined) delete process.env.API_INTERNAL_URL;
+      else process.env.API_INTERNAL_URL = previousInternalUrl;
       vi.unstubAllGlobals();
     }
   });

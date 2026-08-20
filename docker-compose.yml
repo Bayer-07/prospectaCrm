@@ -217,6 +217,9 @@ services:
       # A Evolution não é publicada pelo proxy; somente API/worker a acessam com apikey.
       # O wildcard evita que o middleware recuse chamadas servidor-a-servidor sem Origin.
       CORS_ORIGIN: "*"
+      # A pilha do WhatsApp pode receber endereços IPv6 antes do IPv4 em hosts
+      # cuja rota IPv6 não funciona, deixando novas sessões sem QR ou presas em conexão.
+      NODE_OPTIONS: --dns-result-order=ipv4first
       AUTHENTICATION_API_KEY: ${EVOLUTION_API_KEY}
       AUTHENTICATION_EXPOSE_IN_FETCH_INSTANCES: "false"
       DATABASE_ENABLED: "true"
