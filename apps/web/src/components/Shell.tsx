@@ -46,8 +46,18 @@ const nav: Array<{ section: string; items: NavItem[] }> = [
     { to: '/tarefas', label: 'Tarefas', icon: CheckSquare, resource: 'tasks' },
   ] },
   { section: 'Conversas', items: [
-    { to: '/inbox', label: 'Inbox', icon: Inbox, resource: 'conversations' }, { to: '/respostas-rapidas', label: 'Respostas rápidas', icon: MessageSquareReply, resource: 'conversations' }, { to: '/chatbots', label: 'Chatbots', icon: Bot, resource: 'workflows' }, { to: '/campanhas', label: 'Campanhas', icon: MessageSquareText, resource: 'campaigns' },
-    { to: '/automacoes', label: 'Automações', icon: Bot, resource: 'workflows' }, { to: '/email', label: 'E-mail', icon: Mail, resource: 'campaigns' },
+    { to: '/inbox', label: 'Inbox', icon: Inbox, resource: 'conversations' }, { to: '/respostas-rapidas', label: 'Respostas rápidas', icon: MessageSquareReply, resource: 'conversations' }, { to: '/chatbots', label: 'Chatbots', icon: Bot, resource: 'workflows' },
+    {
+      to: '/campanhas',
+      label: 'Campanhas',
+      icon: MessageSquareText,
+      resource: 'campaigns',
+      children: [
+        { to: '/campanhas', label: 'WhatsApp', icon: MessageSquareText, resource: 'campaigns' },
+        { to: '/email', label: 'E-mail', icon: Mail, resource: 'campaigns' },
+      ],
+    },
+    { to: '/automacoes', label: 'Automações', icon: Bot, resource: 'workflows' },
   ] },
   { section: 'Gestão', items: [
     { to: '/relatorios', label: 'Relatórios', icon: Blocks, resource: 'reports' },
@@ -91,8 +101,8 @@ type SidebarNavItemProps = Readonly<{
   canRead(resource?: string): boolean | undefined;
   currentPath: string;
   isAdmin: boolean;
-  integrationsOpen: boolean;
-  onToggleIntegrations(): void;
+  submenuOpen: boolean;
+  onToggleSubmenu(): void;
   onNavigate(): void;
 }>;
 
@@ -110,23 +120,23 @@ function SidebarChildLink({ child, onNavigate }: Readonly<{
   </NavLink>;
 }
 
-function SidebarNavItem({ item, canRead, currentPath, isAdmin, integrationsOpen, onToggleIntegrations, onNavigate }: SidebarNavItemProps) {
+function SidebarNavItem({ item, canRead, currentPath, isAdmin, submenuOpen, onToggleSubmenu, onNavigate }: SidebarNavItemProps) {
   const visibleChildren = item.children?.filter((child) => canRead(child.resource) && (!child.adminOnly || isAdmin));
   if (item.children) {
     if (!visibleChildren?.length) return null;
-    const active = currentPath.startsWith(item.to);
+    const active = currentPath === item.to || visibleChildren.some((child) => currentPath === child.to || currentPath.startsWith(`${child.to}/`));
     return <div className="nav-submenu-wrap">
       <button
         type="button"
         className={`nav-item nav-parent ${active ? 'active' : ''}`}
-        onClick={onToggleIntegrations}
-        aria-expanded={integrationsOpen}
+        onClick={onToggleSubmenu}
+        aria-expanded={submenuOpen}
       >
         <item.icon size={17} strokeWidth={1.9} />
         <span>{item.label}</span>
         <ChevronDown className="nav-parent-chevron" size={14} />
       </button>
-      {integrationsOpen && <div className="nav-submenu">
+      {submenuOpen && <div className="nav-submenu">
         {visibleChildren.map((child) => <SidebarChildLink key={child.to} child={child} onNavigate={onNavigate} />)}
       </div>}
     </div>;
@@ -143,12 +153,12 @@ function SidebarNavItem({ item, canRead, currentPath, isAdmin, integrationsOpen,
   </NavLink>;
 }
 
-function SidebarNavigation({ canRead, currentPath, isAdmin, integrationsOpen, onToggleIntegrations, onNavigate }: Readonly<{
+function SidebarNavigation({ canRead, currentPath, isAdmin, openSubmenus, onToggleSubmenu, onNavigate }: Readonly<{
   canRead(resource?: string): boolean | undefined;
   currentPath: string;
   isAdmin: boolean;
-  integrationsOpen: boolean;
-  onToggleIntegrations(): void;
+  openSubmenus: ReadonlySet<string>;
+  onToggleSubmenu(path: string): void;
   onNavigate(): void;
 }>) {
   return <nav>{nav.map((group) => <div className="nav-group" key={group.section}>
@@ -159,8 +169,8 @@ function SidebarNavigation({ canRead, currentPath, isAdmin, integrationsOpen, on
       canRead={canRead}
       currentPath={currentPath}
       isAdmin={isAdmin}
-      integrationsOpen={integrationsOpen}
-      onToggleIntegrations={onToggleIntegrations}
+      submenuOpen={openSubmenus.has(item.to)}
+      onToggleSubmenu={() => onToggleSubmenu(item.to)}
       onNavigate={onNavigate}
     />)}
   </div>)}</nav>;
@@ -172,7 +182,13 @@ export function Shell() {
   const [profileOpen, setProfileOpen] = useState(false);
   const [quickAddOpen, setQuickAddOpen] = useState(false);
   const [profileModalOpen, setProfileModalOpen] = useState(false);
-  const [integrationsOpen, setIntegrationsOpen] = useState(() => window.location.pathname.startsWith('/integracoes'));
+  const [openSubmenus, setOpenSubmenus] = useState<Set<string>>(() => {
+    const currentPath = window.location.pathname;
+    const initiallyOpen = nav.flatMap((group) => group.items)
+      .filter((item) => item.children && (currentPath === item.to || item.children.some((child) => currentPath === child.to || currentPath.startsWith(`${child.to}/`))))
+      .map((item) => item.to);
+    return new Set(initiallyOpen);
+  });
   const [realtimeConnected, setRealtimeConnected] = useState(false);
   const historyRefreshes = useRef(new Map<string, { running: boolean; rerun: boolean }>());
   const { theme, toggleTheme } = useTheme();
@@ -225,7 +241,14 @@ export function Shell() {
   };
 
   useEffect(() => {
-    if (location.pathname.startsWith('/integracoes')) setIntegrationsOpen(true);
+    const activeParents = nav.flatMap((group) => group.items)
+      .filter((item) => item.children && (location.pathname === item.to || item.children.some((child) => location.pathname === child.to || location.pathname.startsWith(`${child.to}/`))))
+      .map((item) => item.to);
+    if (!activeParents.length) return;
+    setOpenSubmenus((current) => {
+      if (activeParents.every((path) => current.has(path))) return current;
+      return new Set([...current, ...activeParents]);
+    });
   }, [location.pathname]);
 
   useEffect(() => {
@@ -359,15 +382,20 @@ export function Shell() {
   }, [queryClient]);
 
   const closeMobileNavigation = () => setMobileOpen(false);
-  const toggleIntegrations = () => setIntegrationsOpen((open) => !open);
+  const toggleSubmenu = (path: string) => setOpenSubmenus((current) => {
+    const next = new Set(current);
+    if (next.has(path)) next.delete(path);
+    else next.add(path);
+    return next;
+  });
   const sidebar = <aside className={`sidebar ${mobileOpen ? 'sidebar-open' : ''}`}>
     <div className="brand"><img className="brand-logo" src="/brand-logo.png" alt="Logo BZS One" /><div><strong>BZS One</strong></div><button type="button" className="mobile-close" onClick={() => setMobileOpen(false)}><X size={18} /></button></div>
     <SidebarNavigation
       canRead={canRead}
       currentPath={location.pathname}
       isAdmin={user?.roleKey === 'admin'}
-      integrationsOpen={integrationsOpen}
-      onToggleIntegrations={toggleIntegrations}
+      openSubmenus={openSubmenus}
+      onToggleSubmenu={toggleSubmenu}
       onNavigate={closeMobileNavigation}
     />
     <div className="sidebar-footer"><img className="workspace-avatar" src="/brand-logo.png" alt="Logo BZS" /><div><strong>BZS Tecnologia</strong><span>Ambiente corporativo</span></div><ChevronDown size={15} /></div>
