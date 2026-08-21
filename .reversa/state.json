@@ -8,12 +8,12 @@
   "doc_level": "completo",
   "output_folder": "_reversa_sdd",
   "forward_folder": "_reversa_forward",
-  "phase": "escavacao",
+  "phase": "interpretacao",
   "completed": [
-    "reconhecimento"
+    "reconhecimento",
+    "escavacao"
   ],
   "pending": [
-    "escavacao",
     "interpretacao",
     "geracao",
     "revisao"
@@ -69,6 +69,25 @@
         "_reversa_sdd/flowcharts/async-platform.md",
         "_reversa_sdd/flowcharts/infrastructure.md",
         ".reversa/context/modules.json"
+      ]
+    },
+    "detective": {
+      "completed_at": "2026-08-21T13:46:38Z",
+      "git_commits_analyzed": 49,
+      "adrs_generated": 9,
+      "files": [
+        "_reversa_sdd/domain.md",
+        "_reversa_sdd/state-machines.md",
+        "_reversa_sdd/permissions.md",
+        "_reversa_sdd/adrs/001-monorepo-typescript-auto-hospedado.md",
+        "_reversa_sdd/adrs/002-postgresql-fonte-de-verdade-e-bullmq.md",
+        "_reversa_sdd/adrs/003-autenticacao-propria-rbac-e-api-keys.md",
+        "_reversa_sdd/adrs/004-evolution-isolada-e-imagem-customizada.md",
+        "_reversa_sdd/adrs/005-provedores-de-email-separados.md",
+        "_reversa_sdd/adrs/006-mcp-como-adaptador-seguro-da-api.md",
+        "_reversa_sdd/adrs/007-follow-ups-persistentes-vinculados-a-tarefas.md",
+        "_reversa_sdd/adrs/008-openai-com-rag-em-vez-de-ollama-local.md",
+        "_reversa_sdd/adrs/009-urls-relativas-e-proxy-de-borda.md"
       ]
     }
   },
@@ -155,6 +174,18 @@
     "_reversa_sdd\\flowcharts\\external-api-mcp.md",
     "_reversa_sdd\\flowcharts\\web-interface.md",
     "_reversa_sdd\\flowcharts\\async-platform.md",
-    "_reversa_sdd\\flowcharts\\infrastructure.md"
+    "_reversa_sdd\\flowcharts\\infrastructure.md",
+    "_reversa_sdd\\domain.md",
+    "_reversa_sdd\\state-machines.md",
+    "_reversa_sdd\\permissions.md",
+    "_reversa_sdd\\adrs\\001-monorepo-typescript-auto-hospedado.md",
+    "_reversa_sdd\\adrs\\002-postgresql-fonte-de-verdade-e-bullmq.md",
+    "_reversa_sdd\\adrs\\003-autenticacao-propria-rbac-e-api-keys.md",
+    "_reversa_sdd\\adrs\\004-evolution-isolada-e-imagem-customizada.md",
+    "_reversa_sdd\\adrs\\005-provedores-de-email-separados.md",
+    "_reversa_sdd\\adrs\\006-mcp-como-adaptador-seguro-da-api.md",
+    "_reversa_sdd\\adrs\\007-follow-ups-persistentes-vinculados-a-tarefas.md",
+    "_reversa_sdd\\adrs\\008-openai-com-rag-em-vez-de-ollama-local.md",
+    "_reversa_sdd\\adrs\\009-urls-relativas-e-proxy-de-borda.md"
   ]
 }

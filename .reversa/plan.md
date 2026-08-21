@@ -32,16 +32,16 @@
 - [x] ✅ **Arqueólogo** — Análise do módulo `reports-webhooks`
 - [x] ✅ **Arqueólogo** — Análise do módulo `quick-replies`
 - [x] ✅ **Arqueólogo** — Análise do módulo `realtime-notifications`
-- [x] **Arqueólogo** — Análise do módulo `external-api-mcp`
-- [x] **Arqueólogo** — Análise do módulo `web-interface`
-- [x] **Arqueólogo** — Análise do módulo `async-platform`
-- [x] **Arqueólogo** — Análise do módulo `infrastructure`
+- [x] ✅ **Arqueólogo** — Análise do módulo `external-api-mcp`
+- [x] ✅ **Arqueólogo** — Análise do módulo `web-interface`
+- [x] ✅ **Arqueólogo** — Análise do módulo `async-platform`
+- [x] ✅ **Arqueólogo** — Análise do módulo `infrastructure`
 
 ## Fase 3: Interpretação 🧠
 
-- [ ] **Detetive** — Arqueologia Git e ADRs retroativos
-- [ ] **Detetive** — Regras de negócio implícitas e máquinas de estado
-- [ ] **Detetive** — Matriz de permissões (RBAC/ACL)
+- [x] ✅ **Detetive** — Arqueologia Git e ADRs retroativos
+- [x] ✅ **Detetive** — Regras de negócio implícitas e máquinas de estado
+- [x] ✅ **Detetive** — Matriz de permissões (RBAC/ACL)
 - [ ] **Arquiteto** — Diagramas C4 (Contexto, Containers, Componentes)
 - [ ] **Arquiteto** — ERD completo e integrações externas
 - [ ] **Arquiteto** — Spec Impact Matrix
