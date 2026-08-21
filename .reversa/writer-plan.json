@@ -1,0 +1,1678 @@
+{
+  "generated_at": "2026-08-21T13:58:00Z",
+  "granularity": "hybrid",
+  "doc_level": "completo",
+  "auto_continue": true,
+  "module_count": 16,
+  "use_case_count": 55,
+  "unit_count": 71,
+  "file_count": 238,
+  "items": [
+    {
+      "order": 1,
+      "path": "_reversa_sdd/identidade-acesso/requirements.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso",
+      "status": "completed"
+    },
+    {
+      "order": 2,
+      "path": "_reversa_sdd/identidade-acesso/design.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso",
+      "status": "completed"
+    },
+    {
+      "order": 3,
+      "path": "_reversa_sdd/identidade-acesso/tasks.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso",
+      "status": "completed"
+    },
+    {
+      "order": 4,
+      "path": "_reversa_sdd/identidade-acesso/contracts.md",
+      "kind": "optional",
+      "unit": "identidade-acesso",
+      "status": "completed"
+    },
+    {
+      "order": 5,
+      "path": "_reversa_sdd/identidade-acesso/login-sessoes/requirements.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/login-sessoes",
+      "status": "completed"
+    },
+    {
+      "order": 6,
+      "path": "_reversa_sdd/identidade-acesso/login-sessoes/design.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/login-sessoes",
+      "status": "completed"
+    },
+    {
+      "order": 7,
+      "path": "_reversa_sdd/identidade-acesso/login-sessoes/tasks.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/login-sessoes",
+      "status": "completed"
+    },
+    {
+      "order": 8,
+      "path": "_reversa_sdd/identidade-acesso/usuarios-papeis/requirements.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/usuarios-papeis",
+      "status": "completed"
+    },
+    {
+      "order": 9,
+      "path": "_reversa_sdd/identidade-acesso/usuarios-papeis/design.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/usuarios-papeis",
+      "status": "completed"
+    },
+    {
+      "order": 10,
+      "path": "_reversa_sdd/identidade-acesso/usuarios-papeis/tasks.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/usuarios-papeis",
+      "status": "completed"
+    },
+    {
+      "order": 11,
+      "path": "_reversa_sdd/identidade-acesso/convites-recuperacao/requirements.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/convites-recuperacao",
+      "status": "completed"
+    },
+    {
+      "order": 12,
+      "path": "_reversa_sdd/identidade-acesso/convites-recuperacao/design.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/convites-recuperacao",
+      "status": "completed"
+    },
+    {
+      "order": 13,
+      "path": "_reversa_sdd/identidade-acesso/convites-recuperacao/tasks.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/convites-recuperacao",
+      "status": "completed"
+    },
+    {
+      "order": 14,
+      "path": "_reversa_sdd/identidade-acesso/chaves-api/requirements.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/chaves-api",
+      "status": "completed"
+    },
+    {
+      "order": 15,
+      "path": "_reversa_sdd/identidade-acesso/chaves-api/design.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/chaves-api",
+      "status": "completed"
+    },
+    {
+      "order": 16,
+      "path": "_reversa_sdd/identidade-acesso/chaves-api/tasks.md",
+      "kind": "canonical",
+      "unit": "identidade-acesso/chaves-api",
+      "status": "completed"
+    },
+    {
+      "order": 17,
+      "path": "_reversa_sdd/crm-vendas/requirements.md",
+      "kind": "canonical",
+      "unit": "crm-vendas",
+      "status": "pending"
+    },
+    {
+      "order": 18,
+      "path": "_reversa_sdd/crm-vendas/design.md",
+      "kind": "canonical",
+      "unit": "crm-vendas",
+      "status": "pending"
+    },
+    {
+      "order": 19,
+      "path": "_reversa_sdd/crm-vendas/tasks.md",
+      "kind": "canonical",
+      "unit": "crm-vendas",
+      "status": "pending"
+    },
+    {
+      "order": 20,
+      "path": "_reversa_sdd/crm-vendas/contracts.md",
+      "kind": "optional",
+      "unit": "crm-vendas",
+      "status": "pending"
+    },
+    {
+      "order": 21,
+      "path": "_reversa_sdd/crm-vendas/empresas-contatos/requirements.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/empresas-contatos",
+      "status": "pending"
+    },
+    {
+      "order": 22,
+      "path": "_reversa_sdd/crm-vendas/empresas-contatos/design.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/empresas-contatos",
+      "status": "pending"
+    },
+    {
+      "order": 23,
+      "path": "_reversa_sdd/crm-vendas/empresas-contatos/tasks.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/empresas-contatos",
+      "status": "pending"
+    },
+    {
+      "order": 24,
+      "path": "_reversa_sdd/crm-vendas/pipeline-oportunidades/requirements.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/pipeline-oportunidades",
+      "status": "pending"
+    },
+    {
+      "order": 25,
+      "path": "_reversa_sdd/crm-vendas/pipeline-oportunidades/design.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/pipeline-oportunidades",
+      "status": "pending"
+    },
+    {
+      "order": 26,
+      "path": "_reversa_sdd/crm-vendas/pipeline-oportunidades/tasks.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/pipeline-oportunidades",
+      "status": "pending"
+    },
+    {
+      "order": 27,
+      "path": "_reversa_sdd/crm-vendas/tarefas-agenda/requirements.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/tarefas-agenda",
+      "status": "pending"
+    },
+    {
+      "order": 28,
+      "path": "_reversa_sdd/crm-vendas/tarefas-agenda/design.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/tarefas-agenda",
+      "status": "pending"
+    },
+    {
+      "order": 29,
+      "path": "_reversa_sdd/crm-vendas/tarefas-agenda/tasks.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/tarefas-agenda",
+      "status": "pending"
+    },
+    {
+      "order": 30,
+      "path": "_reversa_sdd/crm-vendas/importacao-segmentacao/requirements.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/importacao-segmentacao",
+      "status": "pending"
+    },
+    {
+      "order": 31,
+      "path": "_reversa_sdd/crm-vendas/importacao-segmentacao/design.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/importacao-segmentacao",
+      "status": "pending"
+    },
+    {
+      "order": 32,
+      "path": "_reversa_sdd/crm-vendas/importacao-segmentacao/tasks.md",
+      "kind": "canonical",
+      "unit": "crm-vendas/importacao-segmentacao",
+      "status": "pending"
+    },
+    {
+      "order": 33,
+      "path": "_reversa_sdd/whatsapp-inbox/requirements.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox",
+      "status": "pending"
+    },
+    {
+      "order": 34,
+      "path": "_reversa_sdd/whatsapp-inbox/design.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox",
+      "status": "pending"
+    },
+    {
+      "order": 35,
+      "path": "_reversa_sdd/whatsapp-inbox/tasks.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox",
+      "status": "pending"
+    },
+    {
+      "order": 36,
+      "path": "_reversa_sdd/whatsapp-inbox/contracts.md",
+      "kind": "optional",
+      "unit": "whatsapp-inbox",
+      "status": "pending"
+    },
+    {
+      "order": 37,
+      "path": "_reversa_sdd/whatsapp-inbox/conexoes-evolution/requirements.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/conexoes-evolution",
+      "status": "pending"
+    },
+    {
+      "order": 38,
+      "path": "_reversa_sdd/whatsapp-inbox/conexoes-evolution/design.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/conexoes-evolution",
+      "status": "pending"
+    },
+    {
+      "order": 39,
+      "path": "_reversa_sdd/whatsapp-inbox/conexoes-evolution/tasks.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/conexoes-evolution",
+      "status": "pending"
+    },
+    {
+      "order": 40,
+      "path": "_reversa_sdd/whatsapp-inbox/atendimento-tickets/requirements.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/atendimento-tickets",
+      "status": "pending"
+    },
+    {
+      "order": 41,
+      "path": "_reversa_sdd/whatsapp-inbox/atendimento-tickets/design.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/atendimento-tickets",
+      "status": "pending"
+    },
+    {
+      "order": 42,
+      "path": "_reversa_sdd/whatsapp-inbox/atendimento-tickets/tasks.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/atendimento-tickets",
+      "status": "pending"
+    },
+    {
+      "order": 43,
+      "path": "_reversa_sdd/whatsapp-inbox/mensagens-midias/requirements.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/mensagens-midias",
+      "status": "pending"
+    },
+    {
+      "order": 44,
+      "path": "_reversa_sdd/whatsapp-inbox/mensagens-midias/design.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/mensagens-midias",
+      "status": "pending"
+    },
+    {
+      "order": 45,
+      "path": "_reversa_sdd/whatsapp-inbox/mensagens-midias/tasks.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/mensagens-midias",
+      "status": "pending"
+    },
+    {
+      "order": 46,
+      "path": "_reversa_sdd/whatsapp-inbox/sincronizacao-webhooks/requirements.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/sincronizacao-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 47,
+      "path": "_reversa_sdd/whatsapp-inbox/sincronizacao-webhooks/design.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/sincronizacao-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 48,
+      "path": "_reversa_sdd/whatsapp-inbox/sincronizacao-webhooks/tasks.md",
+      "kind": "canonical",
+      "unit": "whatsapp-inbox/sincronizacao-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 49,
+      "path": "_reversa_sdd/campanhas-email/requirements.md",
+      "kind": "canonical",
+      "unit": "campanhas-email",
+      "status": "pending"
+    },
+    {
+      "order": 50,
+      "path": "_reversa_sdd/campanhas-email/design.md",
+      "kind": "canonical",
+      "unit": "campanhas-email",
+      "status": "pending"
+    },
+    {
+      "order": 51,
+      "path": "_reversa_sdd/campanhas-email/tasks.md",
+      "kind": "canonical",
+      "unit": "campanhas-email",
+      "status": "pending"
+    },
+    {
+      "order": 52,
+      "path": "_reversa_sdd/campanhas-email/contracts.md",
+      "kind": "optional",
+      "unit": "campanhas-email",
+      "status": "pending"
+    },
+    {
+      "order": 53,
+      "path": "_reversa_sdd/campanhas-email/criar-audiencia/requirements.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/criar-audiencia",
+      "status": "pending"
+    },
+    {
+      "order": 54,
+      "path": "_reversa_sdd/campanhas-email/criar-audiencia/design.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/criar-audiencia",
+      "status": "pending"
+    },
+    {
+      "order": 55,
+      "path": "_reversa_sdd/campanhas-email/criar-audiencia/tasks.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/criar-audiencia",
+      "status": "pending"
+    },
+    {
+      "order": 56,
+      "path": "_reversa_sdd/campanhas-email/executar-whatsapp/requirements.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/executar-whatsapp",
+      "status": "pending"
+    },
+    {
+      "order": 57,
+      "path": "_reversa_sdd/campanhas-email/executar-whatsapp/design.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/executar-whatsapp",
+      "status": "pending"
+    },
+    {
+      "order": 58,
+      "path": "_reversa_sdd/campanhas-email/executar-whatsapp/tasks.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/executar-whatsapp",
+      "status": "pending"
+    },
+    {
+      "order": 59,
+      "path": "_reversa_sdd/campanhas-email/executar-email/requirements.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/executar-email",
+      "status": "pending"
+    },
+    {
+      "order": 60,
+      "path": "_reversa_sdd/campanhas-email/executar-email/design.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/executar-email",
+      "status": "pending"
+    },
+    {
+      "order": 61,
+      "path": "_reversa_sdd/campanhas-email/executar-email/tasks.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/executar-email",
+      "status": "pending"
+    },
+    {
+      "order": 62,
+      "path": "_reversa_sdd/campanhas-email/ciclo-campanha/requirements.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/ciclo-campanha",
+      "status": "pending"
+    },
+    {
+      "order": 63,
+      "path": "_reversa_sdd/campanhas-email/ciclo-campanha/design.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/ciclo-campanha",
+      "status": "pending"
+    },
+    {
+      "order": 64,
+      "path": "_reversa_sdd/campanhas-email/ciclo-campanha/tasks.md",
+      "kind": "canonical",
+      "unit": "campanhas-email/ciclo-campanha",
+      "status": "pending"
+    },
+    {
+      "order": 65,
+      "path": "_reversa_sdd/chatbots/requirements.md",
+      "kind": "canonical",
+      "unit": "chatbots",
+      "status": "pending"
+    },
+    {
+      "order": 66,
+      "path": "_reversa_sdd/chatbots/design.md",
+      "kind": "canonical",
+      "unit": "chatbots",
+      "status": "pending"
+    },
+    {
+      "order": 67,
+      "path": "_reversa_sdd/chatbots/tasks.md",
+      "kind": "canonical",
+      "unit": "chatbots",
+      "status": "pending"
+    },
+    {
+      "order": 68,
+      "path": "_reversa_sdd/chatbots/contracts.md",
+      "kind": "optional",
+      "unit": "chatbots",
+      "status": "pending"
+    },
+    {
+      "order": 69,
+      "path": "_reversa_sdd/chatbots/modelar-publicar/requirements.md",
+      "kind": "canonical",
+      "unit": "chatbots/modelar-publicar",
+      "status": "pending"
+    },
+    {
+      "order": 70,
+      "path": "_reversa_sdd/chatbots/modelar-publicar/design.md",
+      "kind": "canonical",
+      "unit": "chatbots/modelar-publicar",
+      "status": "pending"
+    },
+    {
+      "order": 71,
+      "path": "_reversa_sdd/chatbots/modelar-publicar/tasks.md",
+      "kind": "canonical",
+      "unit": "chatbots/modelar-publicar",
+      "status": "pending"
+    },
+    {
+      "order": 72,
+      "path": "_reversa_sdd/chatbots/executar-regras/requirements.md",
+      "kind": "canonical",
+      "unit": "chatbots/executar-regras",
+      "status": "pending"
+    },
+    {
+      "order": 73,
+      "path": "_reversa_sdd/chatbots/executar-regras/design.md",
+      "kind": "canonical",
+      "unit": "chatbots/executar-regras",
+      "status": "pending"
+    },
+    {
+      "order": 74,
+      "path": "_reversa_sdd/chatbots/executar-regras/tasks.md",
+      "kind": "canonical",
+      "unit": "chatbots/executar-regras",
+      "status": "pending"
+    },
+    {
+      "order": 75,
+      "path": "_reversa_sdd/chatbots/espera-handoff-ia/requirements.md",
+      "kind": "canonical",
+      "unit": "chatbots/espera-handoff-ia",
+      "status": "pending"
+    },
+    {
+      "order": 76,
+      "path": "_reversa_sdd/chatbots/espera-handoff-ia/design.md",
+      "kind": "canonical",
+      "unit": "chatbots/espera-handoff-ia",
+      "status": "pending"
+    },
+    {
+      "order": 77,
+      "path": "_reversa_sdd/chatbots/espera-handoff-ia/tasks.md",
+      "kind": "canonical",
+      "unit": "chatbots/espera-handoff-ia",
+      "status": "pending"
+    },
+    {
+      "order": 78,
+      "path": "_reversa_sdd/automacoes/requirements.md",
+      "kind": "canonical",
+      "unit": "automacoes",
+      "status": "pending"
+    },
+    {
+      "order": 79,
+      "path": "_reversa_sdd/automacoes/design.md",
+      "kind": "canonical",
+      "unit": "automacoes",
+      "status": "pending"
+    },
+    {
+      "order": 80,
+      "path": "_reversa_sdd/automacoes/tasks.md",
+      "kind": "canonical",
+      "unit": "automacoes",
+      "status": "pending"
+    },
+    {
+      "order": 81,
+      "path": "_reversa_sdd/automacoes/contracts.md",
+      "kind": "optional",
+      "unit": "automacoes",
+      "status": "pending"
+    },
+    {
+      "order": 82,
+      "path": "_reversa_sdd/automacoes/modelar-publicar/requirements.md",
+      "kind": "canonical",
+      "unit": "automacoes/modelar-publicar",
+      "status": "pending"
+    },
+    {
+      "order": 83,
+      "path": "_reversa_sdd/automacoes/modelar-publicar/design.md",
+      "kind": "canonical",
+      "unit": "automacoes/modelar-publicar",
+      "status": "pending"
+    },
+    {
+      "order": 84,
+      "path": "_reversa_sdd/automacoes/modelar-publicar/tasks.md",
+      "kind": "canonical",
+      "unit": "automacoes/modelar-publicar",
+      "status": "pending"
+    },
+    {
+      "order": 85,
+      "path": "_reversa_sdd/automacoes/inscrever-contatos/requirements.md",
+      "kind": "canonical",
+      "unit": "automacoes/inscrever-contatos",
+      "status": "pending"
+    },
+    {
+      "order": 86,
+      "path": "_reversa_sdd/automacoes/inscrever-contatos/design.md",
+      "kind": "canonical",
+      "unit": "automacoes/inscrever-contatos",
+      "status": "pending"
+    },
+    {
+      "order": 87,
+      "path": "_reversa_sdd/automacoes/inscrever-contatos/tasks.md",
+      "kind": "canonical",
+      "unit": "automacoes/inscrever-contatos",
+      "status": "pending"
+    },
+    {
+      "order": 88,
+      "path": "_reversa_sdd/automacoes/executar-acoes/requirements.md",
+      "kind": "canonical",
+      "unit": "automacoes/executar-acoes",
+      "status": "pending"
+    },
+    {
+      "order": 89,
+      "path": "_reversa_sdd/automacoes/executar-acoes/design.md",
+      "kind": "canonical",
+      "unit": "automacoes/executar-acoes",
+      "status": "pending"
+    },
+    {
+      "order": 90,
+      "path": "_reversa_sdd/automacoes/executar-acoes/tasks.md",
+      "kind": "canonical",
+      "unit": "automacoes/executar-acoes",
+      "status": "pending"
+    },
+    {
+      "order": 91,
+      "path": "_reversa_sdd/follow-ups/requirements.md",
+      "kind": "canonical",
+      "unit": "follow-ups",
+      "status": "pending"
+    },
+    {
+      "order": 92,
+      "path": "_reversa_sdd/follow-ups/design.md",
+      "kind": "canonical",
+      "unit": "follow-ups",
+      "status": "pending"
+    },
+    {
+      "order": 93,
+      "path": "_reversa_sdd/follow-ups/tasks.md",
+      "kind": "canonical",
+      "unit": "follow-ups",
+      "status": "pending"
+    },
+    {
+      "order": 94,
+      "path": "_reversa_sdd/follow-ups/contracts.md",
+      "kind": "optional",
+      "unit": "follow-ups",
+      "status": "pending"
+    },
+    {
+      "order": 95,
+      "path": "_reversa_sdd/follow-ups/agendar-editar/requirements.md",
+      "kind": "canonical",
+      "unit": "follow-ups/agendar-editar",
+      "status": "pending"
+    },
+    {
+      "order": 96,
+      "path": "_reversa_sdd/follow-ups/agendar-editar/design.md",
+      "kind": "canonical",
+      "unit": "follow-ups/agendar-editar",
+      "status": "pending"
+    },
+    {
+      "order": 97,
+      "path": "_reversa_sdd/follow-ups/agendar-editar/tasks.md",
+      "kind": "canonical",
+      "unit": "follow-ups/agendar-editar",
+      "status": "pending"
+    },
+    {
+      "order": 98,
+      "path": "_reversa_sdd/follow-ups/executar-sequencia/requirements.md",
+      "kind": "canonical",
+      "unit": "follow-ups/executar-sequencia",
+      "status": "pending"
+    },
+    {
+      "order": 99,
+      "path": "_reversa_sdd/follow-ups/executar-sequencia/design.md",
+      "kind": "canonical",
+      "unit": "follow-ups/executar-sequencia",
+      "status": "pending"
+    },
+    {
+      "order": 100,
+      "path": "_reversa_sdd/follow-ups/executar-sequencia/tasks.md",
+      "kind": "canonical",
+      "unit": "follow-ups/executar-sequencia",
+      "status": "pending"
+    },
+    {
+      "order": 101,
+      "path": "_reversa_sdd/follow-ups/interromper-recuperar/requirements.md",
+      "kind": "canonical",
+      "unit": "follow-ups/interromper-recuperar",
+      "status": "pending"
+    },
+    {
+      "order": 102,
+      "path": "_reversa_sdd/follow-ups/interromper-recuperar/design.md",
+      "kind": "canonical",
+      "unit": "follow-ups/interromper-recuperar",
+      "status": "pending"
+    },
+    {
+      "order": 103,
+      "path": "_reversa_sdd/follow-ups/interromper-recuperar/tasks.md",
+      "kind": "canonical",
+      "unit": "follow-ups/interromper-recuperar",
+      "status": "pending"
+    },
+    {
+      "order": 104,
+      "path": "_reversa_sdd/ia-conhecimento/requirements.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento",
+      "status": "pending"
+    },
+    {
+      "order": 105,
+      "path": "_reversa_sdd/ia-conhecimento/design.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento",
+      "status": "pending"
+    },
+    {
+      "order": 106,
+      "path": "_reversa_sdd/ia-conhecimento/tasks.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento",
+      "status": "pending"
+    },
+    {
+      "order": 107,
+      "path": "_reversa_sdd/ia-conhecimento/contracts.md",
+      "kind": "optional",
+      "unit": "ia-conhecimento",
+      "status": "pending"
+    },
+    {
+      "order": 108,
+      "path": "_reversa_sdd/ia-conhecimento/configurar-openai/requirements.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/configurar-openai",
+      "status": "pending"
+    },
+    {
+      "order": 109,
+      "path": "_reversa_sdd/ia-conhecimento/configurar-openai/design.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/configurar-openai",
+      "status": "pending"
+    },
+    {
+      "order": 110,
+      "path": "_reversa_sdd/ia-conhecimento/configurar-openai/tasks.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/configurar-openai",
+      "status": "pending"
+    },
+    {
+      "order": 111,
+      "path": "_reversa_sdd/ia-conhecimento/resumir-sugerir/requirements.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/resumir-sugerir",
+      "status": "pending"
+    },
+    {
+      "order": 112,
+      "path": "_reversa_sdd/ia-conhecimento/resumir-sugerir/design.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/resumir-sugerir",
+      "status": "pending"
+    },
+    {
+      "order": 113,
+      "path": "_reversa_sdd/ia-conhecimento/resumir-sugerir/tasks.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/resumir-sugerir",
+      "status": "pending"
+    },
+    {
+      "order": 114,
+      "path": "_reversa_sdd/ia-conhecimento/pre-atendimento/requirements.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/pre-atendimento",
+      "status": "pending"
+    },
+    {
+      "order": 115,
+      "path": "_reversa_sdd/ia-conhecimento/pre-atendimento/design.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/pre-atendimento",
+      "status": "pending"
+    },
+    {
+      "order": 116,
+      "path": "_reversa_sdd/ia-conhecimento/pre-atendimento/tasks.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/pre-atendimento",
+      "status": "pending"
+    },
+    {
+      "order": 117,
+      "path": "_reversa_sdd/ia-conhecimento/rag-documental/requirements.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/rag-documental",
+      "status": "pending"
+    },
+    {
+      "order": 118,
+      "path": "_reversa_sdd/ia-conhecimento/rag-documental/design.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/rag-documental",
+      "status": "pending"
+    },
+    {
+      "order": 119,
+      "path": "_reversa_sdd/ia-conhecimento/rag-documental/tasks.md",
+      "kind": "canonical",
+      "unit": "ia-conhecimento/rag-documental",
+      "status": "pending"
+    },
+    {
+      "order": 120,
+      "path": "_reversa_sdd/midia-transcricao/requirements.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao",
+      "status": "pending"
+    },
+    {
+      "order": 121,
+      "path": "_reversa_sdd/midia-transcricao/design.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao",
+      "status": "pending"
+    },
+    {
+      "order": 122,
+      "path": "_reversa_sdd/midia-transcricao/tasks.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao",
+      "status": "pending"
+    },
+    {
+      "order": 123,
+      "path": "_reversa_sdd/midia-transcricao/contracts.md",
+      "kind": "optional",
+      "unit": "midia-transcricao",
+      "status": "pending"
+    },
+    {
+      "order": 124,
+      "path": "_reversa_sdd/midia-transcricao/upload-download/requirements.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/upload-download",
+      "status": "pending"
+    },
+    {
+      "order": 125,
+      "path": "_reversa_sdd/midia-transcricao/upload-download/design.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/upload-download",
+      "status": "pending"
+    },
+    {
+      "order": 126,
+      "path": "_reversa_sdd/midia-transcricao/upload-download/tasks.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/upload-download",
+      "status": "pending"
+    },
+    {
+      "order": 127,
+      "path": "_reversa_sdd/midia-transcricao/midia-whatsapp/requirements.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/midia-whatsapp",
+      "status": "pending"
+    },
+    {
+      "order": 128,
+      "path": "_reversa_sdd/midia-transcricao/midia-whatsapp/design.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/midia-whatsapp",
+      "status": "pending"
+    },
+    {
+      "order": 129,
+      "path": "_reversa_sdd/midia-transcricao/midia-whatsapp/tasks.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/midia-whatsapp",
+      "status": "pending"
+    },
+    {
+      "order": 130,
+      "path": "_reversa_sdd/midia-transcricao/transcrever-audio/requirements.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/transcrever-audio",
+      "status": "pending"
+    },
+    {
+      "order": 131,
+      "path": "_reversa_sdd/midia-transcricao/transcrever-audio/design.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/transcrever-audio",
+      "status": "pending"
+    },
+    {
+      "order": 132,
+      "path": "_reversa_sdd/midia-transcricao/transcrever-audio/tasks.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/transcrever-audio",
+      "status": "pending"
+    },
+    {
+      "order": 133,
+      "path": "_reversa_sdd/midia-transcricao/retencao/requirements.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/retencao",
+      "status": "pending"
+    },
+    {
+      "order": 134,
+      "path": "_reversa_sdd/midia-transcricao/retencao/design.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/retencao",
+      "status": "pending"
+    },
+    {
+      "order": 135,
+      "path": "_reversa_sdd/midia-transcricao/retencao/tasks.md",
+      "kind": "canonical",
+      "unit": "midia-transcricao/retencao",
+      "status": "pending"
+    },
+    {
+      "order": 136,
+      "path": "_reversa_sdd/relatorios-webhooks/requirements.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 137,
+      "path": "_reversa_sdd/relatorios-webhooks/design.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 138,
+      "path": "_reversa_sdd/relatorios-webhooks/tasks.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 139,
+      "path": "_reversa_sdd/relatorios-webhooks/contracts.md",
+      "kind": "optional",
+      "unit": "relatorios-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 140,
+      "path": "_reversa_sdd/relatorios-webhooks/relatorios-pdf/requirements.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/relatorios-pdf",
+      "status": "pending"
+    },
+    {
+      "order": 141,
+      "path": "_reversa_sdd/relatorios-webhooks/relatorios-pdf/design.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/relatorios-pdf",
+      "status": "pending"
+    },
+    {
+      "order": 142,
+      "path": "_reversa_sdd/relatorios-webhooks/relatorios-pdf/tasks.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/relatorios-pdf",
+      "status": "pending"
+    },
+    {
+      "order": 143,
+      "path": "_reversa_sdd/relatorios-webhooks/configurar-webhooks/requirements.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/configurar-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 144,
+      "path": "_reversa_sdd/relatorios-webhooks/configurar-webhooks/design.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/configurar-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 145,
+      "path": "_reversa_sdd/relatorios-webhooks/configurar-webhooks/tasks.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/configurar-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 146,
+      "path": "_reversa_sdd/relatorios-webhooks/entregar-webhooks/requirements.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/entregar-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 147,
+      "path": "_reversa_sdd/relatorios-webhooks/entregar-webhooks/design.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/entregar-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 148,
+      "path": "_reversa_sdd/relatorios-webhooks/entregar-webhooks/tasks.md",
+      "kind": "canonical",
+      "unit": "relatorios-webhooks/entregar-webhooks",
+      "status": "pending"
+    },
+    {
+      "order": 149,
+      "path": "_reversa_sdd/respostas-rapidas/requirements.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas",
+      "status": "pending"
+    },
+    {
+      "order": 150,
+      "path": "_reversa_sdd/respostas-rapidas/design.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas",
+      "status": "pending"
+    },
+    {
+      "order": 151,
+      "path": "_reversa_sdd/respostas-rapidas/tasks.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas",
+      "status": "pending"
+    },
+    {
+      "order": 152,
+      "path": "_reversa_sdd/respostas-rapidas/contracts.md",
+      "kind": "optional",
+      "unit": "respostas-rapidas",
+      "status": "pending"
+    },
+    {
+      "order": 153,
+      "path": "_reversa_sdd/respostas-rapidas/gerenciar-catalogo/requirements.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas/gerenciar-catalogo",
+      "status": "pending"
+    },
+    {
+      "order": 154,
+      "path": "_reversa_sdd/respostas-rapidas/gerenciar-catalogo/design.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas/gerenciar-catalogo",
+      "status": "pending"
+    },
+    {
+      "order": 155,
+      "path": "_reversa_sdd/respostas-rapidas/gerenciar-catalogo/tasks.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas/gerenciar-catalogo",
+      "status": "pending"
+    },
+    {
+      "order": 156,
+      "path": "_reversa_sdd/respostas-rapidas/inserir-no-composer/requirements.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas/inserir-no-composer",
+      "status": "pending"
+    },
+    {
+      "order": 157,
+      "path": "_reversa_sdd/respostas-rapidas/inserir-no-composer/design.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas/inserir-no-composer",
+      "status": "pending"
+    },
+    {
+      "order": 158,
+      "path": "_reversa_sdd/respostas-rapidas/inserir-no-composer/tasks.md",
+      "kind": "canonical",
+      "unit": "respostas-rapidas/inserir-no-composer",
+      "status": "pending"
+    },
+    {
+      "order": 159,
+      "path": "_reversa_sdd/tempo-real-notificacoes/requirements.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes",
+      "status": "pending"
+    },
+    {
+      "order": 160,
+      "path": "_reversa_sdd/tempo-real-notificacoes/design.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes",
+      "status": "pending"
+    },
+    {
+      "order": 161,
+      "path": "_reversa_sdd/tempo-real-notificacoes/tasks.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes",
+      "status": "pending"
+    },
+    {
+      "order": 162,
+      "path": "_reversa_sdd/tempo-real-notificacoes/contracts.md",
+      "kind": "optional",
+      "unit": "tempo-real-notificacoes",
+      "status": "pending"
+    },
+    {
+      "order": 163,
+      "path": "_reversa_sdd/tempo-real-notificacoes/socket-autenticado/requirements.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/socket-autenticado",
+      "status": "pending"
+    },
+    {
+      "order": 164,
+      "path": "_reversa_sdd/tempo-real-notificacoes/socket-autenticado/design.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/socket-autenticado",
+      "status": "pending"
+    },
+    {
+      "order": 165,
+      "path": "_reversa_sdd/tempo-real-notificacoes/socket-autenticado/tasks.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/socket-autenticado",
+      "status": "pending"
+    },
+    {
+      "order": 166,
+      "path": "_reversa_sdd/tempo-real-notificacoes/notificacoes/requirements.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/notificacoes",
+      "status": "pending"
+    },
+    {
+      "order": 167,
+      "path": "_reversa_sdd/tempo-real-notificacoes/notificacoes/design.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/notificacoes",
+      "status": "pending"
+    },
+    {
+      "order": 168,
+      "path": "_reversa_sdd/tempo-real-notificacoes/notificacoes/tasks.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/notificacoes",
+      "status": "pending"
+    },
+    {
+      "order": 169,
+      "path": "_reversa_sdd/tempo-real-notificacoes/invalidacao-som/requirements.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/invalidacao-som",
+      "status": "pending"
+    },
+    {
+      "order": 170,
+      "path": "_reversa_sdd/tempo-real-notificacoes/invalidacao-som/design.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/invalidacao-som",
+      "status": "pending"
+    },
+    {
+      "order": 171,
+      "path": "_reversa_sdd/tempo-real-notificacoes/invalidacao-som/tasks.md",
+      "kind": "canonical",
+      "unit": "tempo-real-notificacoes/invalidacao-som",
+      "status": "pending"
+    },
+    {
+      "order": 172,
+      "path": "_reversa_sdd/api-externa-mcp/requirements.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp",
+      "status": "pending"
+    },
+    {
+      "order": 173,
+      "path": "_reversa_sdd/api-externa-mcp/design.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp",
+      "status": "pending"
+    },
+    {
+      "order": 174,
+      "path": "_reversa_sdd/api-externa-mcp/tasks.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp",
+      "status": "pending"
+    },
+    {
+      "order": 175,
+      "path": "_reversa_sdd/api-externa-mcp/contracts.md",
+      "kind": "optional",
+      "unit": "api-externa-mcp",
+      "status": "pending"
+    },
+    {
+      "order": 176,
+      "path": "_reversa_sdd/api-externa-mcp/chaves-idempotencia/requirements.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/chaves-idempotencia",
+      "status": "pending"
+    },
+    {
+      "order": 177,
+      "path": "_reversa_sdd/api-externa-mcp/chaves-idempotencia/design.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/chaves-idempotencia",
+      "status": "pending"
+    },
+    {
+      "order": 178,
+      "path": "_reversa_sdd/api-externa-mcp/chaves-idempotencia/tasks.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/chaves-idempotencia",
+      "status": "pending"
+    },
+    {
+      "order": 179,
+      "path": "_reversa_sdd/api-externa-mcp/api-publica-swagger/requirements.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/api-publica-swagger",
+      "status": "pending"
+    },
+    {
+      "order": 180,
+      "path": "_reversa_sdd/api-externa-mcp/api-publica-swagger/design.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/api-publica-swagger",
+      "status": "pending"
+    },
+    {
+      "order": 181,
+      "path": "_reversa_sdd/api-externa-mcp/api-publica-swagger/tasks.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/api-publica-swagger",
+      "status": "pending"
+    },
+    {
+      "order": 182,
+      "path": "_reversa_sdd/api-externa-mcp/servidor-mcp/requirements.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/servidor-mcp",
+      "status": "pending"
+    },
+    {
+      "order": 183,
+      "path": "_reversa_sdd/api-externa-mcp/servidor-mcp/design.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/servidor-mcp",
+      "status": "pending"
+    },
+    {
+      "order": 184,
+      "path": "_reversa_sdd/api-externa-mcp/servidor-mcp/tasks.md",
+      "kind": "canonical",
+      "unit": "api-externa-mcp/servidor-mcp",
+      "status": "pending"
+    },
+    {
+      "order": 185,
+      "path": "_reversa_sdd/interface-web/requirements.md",
+      "kind": "canonical",
+      "unit": "interface-web",
+      "status": "pending"
+    },
+    {
+      "order": 186,
+      "path": "_reversa_sdd/interface-web/design.md",
+      "kind": "canonical",
+      "unit": "interface-web",
+      "status": "pending"
+    },
+    {
+      "order": 187,
+      "path": "_reversa_sdd/interface-web/tasks.md",
+      "kind": "canonical",
+      "unit": "interface-web",
+      "status": "pending"
+    },
+    {
+      "order": 188,
+      "path": "_reversa_sdd/interface-web/autenticacao-navegacao/requirements.md",
+      "kind": "canonical",
+      "unit": "interface-web/autenticacao-navegacao",
+      "status": "pending"
+    },
+    {
+      "order": 189,
+      "path": "_reversa_sdd/interface-web/autenticacao-navegacao/design.md",
+      "kind": "canonical",
+      "unit": "interface-web/autenticacao-navegacao",
+      "status": "pending"
+    },
+    {
+      "order": 190,
+      "path": "_reversa_sdd/interface-web/autenticacao-navegacao/tasks.md",
+      "kind": "canonical",
+      "unit": "interface-web/autenticacao-navegacao",
+      "status": "pending"
+    },
+    {
+      "order": 191,
+      "path": "_reversa_sdd/interface-web/busca-feedback/requirements.md",
+      "kind": "canonical",
+      "unit": "interface-web/busca-feedback",
+      "status": "pending"
+    },
+    {
+      "order": 192,
+      "path": "_reversa_sdd/interface-web/busca-feedback/design.md",
+      "kind": "canonical",
+      "unit": "interface-web/busca-feedback",
+      "status": "pending"
+    },
+    {
+      "order": 193,
+      "path": "_reversa_sdd/interface-web/busca-feedback/tasks.md",
+      "kind": "canonical",
+      "unit": "interface-web/busca-feedback",
+      "status": "pending"
+    },
+    {
+      "order": 194,
+      "path": "_reversa_sdd/interface-web/interacoes-complexas/requirements.md",
+      "kind": "canonical",
+      "unit": "interface-web/interacoes-complexas",
+      "status": "pending"
+    },
+    {
+      "order": 195,
+      "path": "_reversa_sdd/interface-web/interacoes-complexas/design.md",
+      "kind": "canonical",
+      "unit": "interface-web/interacoes-complexas",
+      "status": "pending"
+    },
+    {
+      "order": 196,
+      "path": "_reversa_sdd/interface-web/interacoes-complexas/tasks.md",
+      "kind": "canonical",
+      "unit": "interface-web/interacoes-complexas",
+      "status": "pending"
+    },
+    {
+      "order": 197,
+      "path": "_reversa_sdd/interface-web/tema-movimento/requirements.md",
+      "kind": "canonical",
+      "unit": "interface-web/tema-movimento",
+      "status": "pending"
+    },
+    {
+      "order": 198,
+      "path": "_reversa_sdd/interface-web/tema-movimento/design.md",
+      "kind": "canonical",
+      "unit": "interface-web/tema-movimento",
+      "status": "pending"
+    },
+    {
+      "order": 199,
+      "path": "_reversa_sdd/interface-web/tema-movimento/tasks.md",
+      "kind": "canonical",
+      "unit": "interface-web/tema-movimento",
+      "status": "pending"
+    },
+    {
+      "order": 200,
+      "path": "_reversa_sdd/plataforma-assincrona/requirements.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona",
+      "status": "pending"
+    },
+    {
+      "order": 201,
+      "path": "_reversa_sdd/plataforma-assincrona/design.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona",
+      "status": "pending"
+    },
+    {
+      "order": 202,
+      "path": "_reversa_sdd/plataforma-assincrona/tasks.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona",
+      "status": "pending"
+    },
+    {
+      "order": 203,
+      "path": "_reversa_sdd/plataforma-assincrona/contracts.md",
+      "kind": "optional",
+      "unit": "plataforma-assincrona",
+      "status": "pending"
+    },
+    {
+      "order": 204,
+      "path": "_reversa_sdd/plataforma-assincrona/filas-workers/requirements.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/filas-workers",
+      "status": "pending"
+    },
+    {
+      "order": 205,
+      "path": "_reversa_sdd/plataforma-assincrona/filas-workers/design.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/filas-workers",
+      "status": "pending"
+    },
+    {
+      "order": 206,
+      "path": "_reversa_sdd/plataforma-assincrona/filas-workers/tasks.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/filas-workers",
+      "status": "pending"
+    },
+    {
+      "order": 207,
+      "path": "_reversa_sdd/plataforma-assincrona/reconciliacao-manutencao/requirements.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/reconciliacao-manutencao",
+      "status": "pending"
+    },
+    {
+      "order": 208,
+      "path": "_reversa_sdd/plataforma-assincrona/reconciliacao-manutencao/design.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/reconciliacao-manutencao",
+      "status": "pending"
+    },
+    {
+      "order": 209,
+      "path": "_reversa_sdd/plataforma-assincrona/reconciliacao-manutencao/tasks.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/reconciliacao-manutencao",
+      "status": "pending"
+    },
+    {
+      "order": 210,
+      "path": "_reversa_sdd/plataforma-assincrona/shutdown-operacao/requirements.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/shutdown-operacao",
+      "status": "pending"
+    },
+    {
+      "order": 211,
+      "path": "_reversa_sdd/plataforma-assincrona/shutdown-operacao/design.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/shutdown-operacao",
+      "status": "pending"
+    },
+    {
+      "order": 212,
+      "path": "_reversa_sdd/plataforma-assincrona/shutdown-operacao/tasks.md",
+      "kind": "canonical",
+      "unit": "plataforma-assincrona/shutdown-operacao",
+      "status": "pending"
+    },
+    {
+      "order": 213,
+      "path": "_reversa_sdd/infraestrutura/requirements.md",
+      "kind": "canonical",
+      "unit": "infraestrutura",
+      "status": "pending"
+    },
+    {
+      "order": 214,
+      "path": "_reversa_sdd/infraestrutura/design.md",
+      "kind": "canonical",
+      "unit": "infraestrutura",
+      "status": "pending"
+    },
+    {
+      "order": 215,
+      "path": "_reversa_sdd/infraestrutura/tasks.md",
+      "kind": "canonical",
+      "unit": "infraestrutura",
+      "status": "pending"
+    },
+    {
+      "order": 216,
+      "path": "_reversa_sdd/infraestrutura/contracts.md",
+      "kind": "optional",
+      "unit": "infraestrutura",
+      "status": "pending"
+    },
+    {
+      "order": 217,
+      "path": "_reversa_sdd/infraestrutura/topologia-docker/requirements.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/topologia-docker",
+      "status": "pending"
+    },
+    {
+      "order": 218,
+      "path": "_reversa_sdd/infraestrutura/topologia-docker/design.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/topologia-docker",
+      "status": "pending"
+    },
+    {
+      "order": 219,
+      "path": "_reversa_sdd/infraestrutura/topologia-docker/tasks.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/topologia-docker",
+      "status": "pending"
+    },
+    {
+      "order": 220,
+      "path": "_reversa_sdd/infraestrutura/proxy-redes/requirements.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/proxy-redes",
+      "status": "pending"
+    },
+    {
+      "order": 221,
+      "path": "_reversa_sdd/infraestrutura/proxy-redes/design.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/proxy-redes",
+      "status": "pending"
+    },
+    {
+      "order": 222,
+      "path": "_reversa_sdd/infraestrutura/proxy-redes/tasks.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/proxy-redes",
+      "status": "pending"
+    },
+    {
+      "order": 223,
+      "path": "_reversa_sdd/infraestrutura/rebuild-deploy/requirements.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/rebuild-deploy",
+      "status": "pending"
+    },
+    {
+      "order": 224,
+      "path": "_reversa_sdd/infraestrutura/rebuild-deploy/design.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/rebuild-deploy",
+      "status": "pending"
+    },
+    {
+      "order": 225,
+      "path": "_reversa_sdd/infraestrutura/rebuild-deploy/tasks.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/rebuild-deploy",
+      "status": "pending"
+    },
+    {
+      "order": 226,
+      "path": "_reversa_sdd/infraestrutura/backup-restore/requirements.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/backup-restore",
+      "status": "pending"
+    },
+    {
+      "order": 227,
+      "path": "_reversa_sdd/infraestrutura/backup-restore/design.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/backup-restore",
+      "status": "pending"
+    },
+    {
+      "order": 228,
+      "path": "_reversa_sdd/infraestrutura/backup-restore/tasks.md",
+      "kind": "canonical",
+      "unit": "infraestrutura/backup-restore",
+      "status": "pending"
+    },
+    {
+      "order": 229,
+      "path": "_reversa_sdd/openapi/bzs-one.yaml",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 230,
+      "path": "_reversa_sdd/user-stories/autenticacao-e-acesso.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 231,
+      "path": "_reversa_sdd/user-stories/crm-e-pipeline.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 232,
+      "path": "_reversa_sdd/user-stories/atendimento-whatsapp.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 233,
+      "path": "_reversa_sdd/user-stories/campanhas.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 234,
+      "path": "_reversa_sdd/user-stories/automacoes-e-chatbots.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 235,
+      "path": "_reversa_sdd/user-stories/follow-ups.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 236,
+      "path": "_reversa_sdd/user-stories/ia-e-conhecimento.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 237,
+      "path": "_reversa_sdd/user-stories/api-e-mcp.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    },
+    {
+      "order": 238,
+      "path": "_reversa_sdd/traceability/code-spec-matrix.md",
+      "kind": "global",
+      "unit": null,
+      "status": "pending"
+    }
+  ]
+}
