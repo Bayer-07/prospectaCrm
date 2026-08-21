@@ -114,10 +114,10 @@
     "auto_continue": true,
     "total_units": 71,
     "total_files": 238,
-    "completed_files": 90,
-    "current_file": "_reversa_sdd/follow-ups/requirements.md",
-    "last_completed_file": "_reversa_sdd/automacoes/executar-acoes/tasks.md",
-    "updated_at": "2026-08-21T15:00:00Z"
+    "completed_files": 171,
+    "current_file": "_reversa_sdd/api-externa-mcp/requirements.md",
+    "last_completed_file": "_reversa_sdd/tempo-real-notificacoes/invalidacao-som/tasks.md",
+    "updated_at": "2026-08-21T15:25:00Z"
   },
   "agents": [
     "reversa",

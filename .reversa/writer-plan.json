@@ -643,567 +643,567 @@
       "path": "_reversa_sdd/follow-ups/requirements.md",
       "kind": "canonical",
       "unit": "follow-ups",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 92,
       "path": "_reversa_sdd/follow-ups/design.md",
       "kind": "canonical",
       "unit": "follow-ups",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 93,
       "path": "_reversa_sdd/follow-ups/tasks.md",
       "kind": "canonical",
       "unit": "follow-ups",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 94,
       "path": "_reversa_sdd/follow-ups/contracts.md",
       "kind": "optional",
       "unit": "follow-ups",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 95,
       "path": "_reversa_sdd/follow-ups/agendar-editar/requirements.md",
       "kind": "canonical",
       "unit": "follow-ups/agendar-editar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 96,
       "path": "_reversa_sdd/follow-ups/agendar-editar/design.md",
       "kind": "canonical",
       "unit": "follow-ups/agendar-editar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 97,
       "path": "_reversa_sdd/follow-ups/agendar-editar/tasks.md",
       "kind": "canonical",
       "unit": "follow-ups/agendar-editar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 98,
       "path": "_reversa_sdd/follow-ups/executar-sequencia/requirements.md",
       "kind": "canonical",
       "unit": "follow-ups/executar-sequencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 99,
       "path": "_reversa_sdd/follow-ups/executar-sequencia/design.md",
       "kind": "canonical",
       "unit": "follow-ups/executar-sequencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 100,
       "path": "_reversa_sdd/follow-ups/executar-sequencia/tasks.md",
       "kind": "canonical",
       "unit": "follow-ups/executar-sequencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 101,
       "path": "_reversa_sdd/follow-ups/interromper-recuperar/requirements.md",
       "kind": "canonical",
       "unit": "follow-ups/interromper-recuperar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 102,
       "path": "_reversa_sdd/follow-ups/interromper-recuperar/design.md",
       "kind": "canonical",
       "unit": "follow-ups/interromper-recuperar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 103,
       "path": "_reversa_sdd/follow-ups/interromper-recuperar/tasks.md",
       "kind": "canonical",
       "unit": "follow-ups/interromper-recuperar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 104,
       "path": "_reversa_sdd/ia-conhecimento/requirements.md",
       "kind": "canonical",
       "unit": "ia-conhecimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 105,
       "path": "_reversa_sdd/ia-conhecimento/design.md",
       "kind": "canonical",
       "unit": "ia-conhecimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 106,
       "path": "_reversa_sdd/ia-conhecimento/tasks.md",
       "kind": "canonical",
       "unit": "ia-conhecimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 107,
       "path": "_reversa_sdd/ia-conhecimento/contracts.md",
       "kind": "optional",
       "unit": "ia-conhecimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 108,
       "path": "_reversa_sdd/ia-conhecimento/configurar-openai/requirements.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/configurar-openai",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 109,
       "path": "_reversa_sdd/ia-conhecimento/configurar-openai/design.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/configurar-openai",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 110,
       "path": "_reversa_sdd/ia-conhecimento/configurar-openai/tasks.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/configurar-openai",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 111,
       "path": "_reversa_sdd/ia-conhecimento/resumir-sugerir/requirements.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/resumir-sugerir",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 112,
       "path": "_reversa_sdd/ia-conhecimento/resumir-sugerir/design.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/resumir-sugerir",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 113,
       "path": "_reversa_sdd/ia-conhecimento/resumir-sugerir/tasks.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/resumir-sugerir",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 114,
       "path": "_reversa_sdd/ia-conhecimento/pre-atendimento/requirements.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/pre-atendimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 115,
       "path": "_reversa_sdd/ia-conhecimento/pre-atendimento/design.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/pre-atendimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 116,
       "path": "_reversa_sdd/ia-conhecimento/pre-atendimento/tasks.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/pre-atendimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 117,
       "path": "_reversa_sdd/ia-conhecimento/rag-documental/requirements.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/rag-documental",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 118,
       "path": "_reversa_sdd/ia-conhecimento/rag-documental/design.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/rag-documental",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 119,
       "path": "_reversa_sdd/ia-conhecimento/rag-documental/tasks.md",
       "kind": "canonical",
       "unit": "ia-conhecimento/rag-documental",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 120,
       "path": "_reversa_sdd/midia-transcricao/requirements.md",
       "kind": "canonical",
       "unit": "midia-transcricao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 121,
       "path": "_reversa_sdd/midia-transcricao/design.md",
       "kind": "canonical",
       "unit": "midia-transcricao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 122,
       "path": "_reversa_sdd/midia-transcricao/tasks.md",
       "kind": "canonical",
       "unit": "midia-transcricao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 123,
       "path": "_reversa_sdd/midia-transcricao/contracts.md",
       "kind": "optional",
       "unit": "midia-transcricao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 124,
       "path": "_reversa_sdd/midia-transcricao/upload-download/requirements.md",
       "kind": "canonical",
       "unit": "midia-transcricao/upload-download",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 125,
       "path": "_reversa_sdd/midia-transcricao/upload-download/design.md",
       "kind": "canonical",
       "unit": "midia-transcricao/upload-download",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 126,
       "path": "_reversa_sdd/midia-transcricao/upload-download/tasks.md",
       "kind": "canonical",
       "unit": "midia-transcricao/upload-download",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 127,
       "path": "_reversa_sdd/midia-transcricao/midia-whatsapp/requirements.md",
       "kind": "canonical",
       "unit": "midia-transcricao/midia-whatsapp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 128,
       "path": "_reversa_sdd/midia-transcricao/midia-whatsapp/design.md",
       "kind": "canonical",
       "unit": "midia-transcricao/midia-whatsapp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 129,
       "path": "_reversa_sdd/midia-transcricao/midia-whatsapp/tasks.md",
       "kind": "canonical",
       "unit": "midia-transcricao/midia-whatsapp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 130,
       "path": "_reversa_sdd/midia-transcricao/transcrever-audio/requirements.md",
       "kind": "canonical",
       "unit": "midia-transcricao/transcrever-audio",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 131,
       "path": "_reversa_sdd/midia-transcricao/transcrever-audio/design.md",
       "kind": "canonical",
       "unit": "midia-transcricao/transcrever-audio",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 132,
       "path": "_reversa_sdd/midia-transcricao/transcrever-audio/tasks.md",
       "kind": "canonical",
       "unit": "midia-transcricao/transcrever-audio",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 133,
       "path": "_reversa_sdd/midia-transcricao/retencao/requirements.md",
       "kind": "canonical",
       "unit": "midia-transcricao/retencao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 134,
       "path": "_reversa_sdd/midia-transcricao/retencao/design.md",
       "kind": "canonical",
       "unit": "midia-transcricao/retencao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 135,
       "path": "_reversa_sdd/midia-transcricao/retencao/tasks.md",
       "kind": "canonical",
       "unit": "midia-transcricao/retencao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 136,
       "path": "_reversa_sdd/relatorios-webhooks/requirements.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 137,
       "path": "_reversa_sdd/relatorios-webhooks/design.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 138,
       "path": "_reversa_sdd/relatorios-webhooks/tasks.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 139,
       "path": "_reversa_sdd/relatorios-webhooks/contracts.md",
       "kind": "optional",
       "unit": "relatorios-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 140,
       "path": "_reversa_sdd/relatorios-webhooks/relatorios-pdf/requirements.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/relatorios-pdf",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 141,
       "path": "_reversa_sdd/relatorios-webhooks/relatorios-pdf/design.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/relatorios-pdf",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 142,
       "path": "_reversa_sdd/relatorios-webhooks/relatorios-pdf/tasks.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/relatorios-pdf",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 143,
       "path": "_reversa_sdd/relatorios-webhooks/configurar-webhooks/requirements.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/configurar-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 144,
       "path": "_reversa_sdd/relatorios-webhooks/configurar-webhooks/design.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/configurar-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 145,
       "path": "_reversa_sdd/relatorios-webhooks/configurar-webhooks/tasks.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/configurar-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 146,
       "path": "_reversa_sdd/relatorios-webhooks/entregar-webhooks/requirements.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/entregar-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 147,
       "path": "_reversa_sdd/relatorios-webhooks/entregar-webhooks/design.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/entregar-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 148,
       "path": "_reversa_sdd/relatorios-webhooks/entregar-webhooks/tasks.md",
       "kind": "canonical",
       "unit": "relatorios-webhooks/entregar-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 149,
       "path": "_reversa_sdd/respostas-rapidas/requirements.md",
       "kind": "canonical",
       "unit": "respostas-rapidas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 150,
       "path": "_reversa_sdd/respostas-rapidas/design.md",
       "kind": "canonical",
       "unit": "respostas-rapidas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 151,
       "path": "_reversa_sdd/respostas-rapidas/tasks.md",
       "kind": "canonical",
       "unit": "respostas-rapidas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 152,
       "path": "_reversa_sdd/respostas-rapidas/contracts.md",
       "kind": "optional",
       "unit": "respostas-rapidas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 153,
       "path": "_reversa_sdd/respostas-rapidas/gerenciar-catalogo/requirements.md",
       "kind": "canonical",
       "unit": "respostas-rapidas/gerenciar-catalogo",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 154,
       "path": "_reversa_sdd/respostas-rapidas/gerenciar-catalogo/design.md",
       "kind": "canonical",
       "unit": "respostas-rapidas/gerenciar-catalogo",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 155,
       "path": "_reversa_sdd/respostas-rapidas/gerenciar-catalogo/tasks.md",
       "kind": "canonical",
       "unit": "respostas-rapidas/gerenciar-catalogo",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 156,
       "path": "_reversa_sdd/respostas-rapidas/inserir-no-composer/requirements.md",
       "kind": "canonical",
       "unit": "respostas-rapidas/inserir-no-composer",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 157,
       "path": "_reversa_sdd/respostas-rapidas/inserir-no-composer/design.md",
       "kind": "canonical",
       "unit": "respostas-rapidas/inserir-no-composer",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 158,
       "path": "_reversa_sdd/respostas-rapidas/inserir-no-composer/tasks.md",
       "kind": "canonical",
       "unit": "respostas-rapidas/inserir-no-composer",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 159,
       "path": "_reversa_sdd/tempo-real-notificacoes/requirements.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 160,
       "path": "_reversa_sdd/tempo-real-notificacoes/design.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 161,
       "path": "_reversa_sdd/tempo-real-notificacoes/tasks.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 162,
       "path": "_reversa_sdd/tempo-real-notificacoes/contracts.md",
       "kind": "optional",
       "unit": "tempo-real-notificacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 163,
       "path": "_reversa_sdd/tempo-real-notificacoes/socket-autenticado/requirements.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/socket-autenticado",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 164,
       "path": "_reversa_sdd/tempo-real-notificacoes/socket-autenticado/design.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/socket-autenticado",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 165,
       "path": "_reversa_sdd/tempo-real-notificacoes/socket-autenticado/tasks.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/socket-autenticado",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 166,
       "path": "_reversa_sdd/tempo-real-notificacoes/notificacoes/requirements.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/notificacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 167,
       "path": "_reversa_sdd/tempo-real-notificacoes/notificacoes/design.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/notificacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 168,
       "path": "_reversa_sdd/tempo-real-notificacoes/notificacoes/tasks.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/notificacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 169,
       "path": "_reversa_sdd/tempo-real-notificacoes/invalidacao-som/requirements.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/invalidacao-som",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 170,
       "path": "_reversa_sdd/tempo-real-notificacoes/invalidacao-som/design.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/invalidacao-som",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 171,
       "path": "_reversa_sdd/tempo-real-notificacoes/invalidacao-som/tasks.md",
       "kind": "canonical",
       "unit": "tempo-real-notificacoes/invalidacao-som",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 172,
