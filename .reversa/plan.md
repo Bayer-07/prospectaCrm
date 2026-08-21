@@ -32,9 +32,9 @@
 - [x] ✅ **Arqueólogo** — Análise do módulo `reports-webhooks`
 - [x] ✅ **Arqueólogo** — Análise do módulo `quick-replies`
 - [x] ✅ **Arqueólogo** — Análise do módulo `realtime-notifications`
-- [ ] **Arqueólogo** — Análise do módulo `external-api-mcp`
-- [ ] **Arqueólogo** — Análise do módulo `web-interface`
-- [ ] **Arqueólogo** — Análise do módulo `async-platform`
+- [x] **Arqueólogo** — Análise do módulo `external-api-mcp`
+- [x] **Arqueólogo** — Análise do módulo `web-interface`
+- [x] **Arqueólogo** — Análise do módulo `async-platform`
 - [ ] **Arqueólogo** — Análise do módulo `infrastructure`
 
 ## Fase 3: Interpretação 🧠

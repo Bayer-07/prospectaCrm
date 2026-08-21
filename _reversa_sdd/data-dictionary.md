@@ -441,3 +441,97 @@ O par organização/atalho é único. O índice organização/título/ID apoia a
 | `userId?` | Sala individual adicional, quando necessário. |
 | `event` | Nome dinâmico: Inbox, tarefas, conexões, IA ou conhecimento. |
 | `payload?` | IDs e indicadores mínimos para invalidação seletiva. |
+
+## API externa e MCP
+
+### `ApiKey`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `organizationId` | UUID | Organização autorizada pela credencial. |
+| `createdById` | UUID | Administrador que emitiu a chave. |
+| `name` | String | Identificação operacional da integração. |
+| `prefix` | String | Trecho não secreto usado para identificação visual. |
+| `keyHash` | SHA-256 único | Única representação persistida do segredo. |
+| `scopes` | JSON | Lista de permissões `recurso:ação`. |
+| `expiresAt` | DateTime? | Expiração opcional. |
+| `lastUsedAt` | DateTime? | Uso atualizado no máximo uma vez a cada cinco minutos. |
+| `revokedAt` | DateTime? | Revogação lógica e imediata. |
+| `createdAt` | DateTime | Emissão da credencial. |
+
+### `IdempotencyRecord`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `organizationId`, `key`, `route` | chave composta única | Uma resposta por operação externa identificada. |
+| `requestHash` | SHA-256 | Detecta reutilização da mesma chave com corpo diferente. |
+| `responseCode` | Int | Status HTTP originalmente devolvido. |
+| `responseBody` | JSON | Resultado reproduzido em tentativas idênticas. |
+| `expiresAt` | DateTime | Retenção de 24 horas e índice de limpeza. |
+| `createdAt` | DateTime | Primeira execução aceita. |
+
+### Contrato de ferramenta MCP (não persistido)
+
+| Campo | Significado |
+| --- | --- |
+| `name` | Uma das 27 operações registráveis. |
+| `inputSchema` | Schema Zod convertido no contrato MCP. |
+| `annotations` | Indica leitura/criação/atualização, idempotência e ausência de destruição. |
+| `content` | Resultado serializado para leitura textual da LLM. |
+| `structuredContent` | Mesmo resultado preservado como objeto estruturado. |
+
+## Interface web
+
+### `UserContext` (estado de sessão no navegador)
+
+| Grupo | Campos |
+| --- | --- |
+| Identidade | `id`, `name`, `email`, `roleKey`, `teamId?`, `profilePhotoAssetId?` |
+| Autorização | `permissions[{ resource, action, scope }]` |
+| Preferências | tema persistido e assinatura de atendimento retornada pela API |
+
+O contexto é obtido novamente de `/auth/me`; o evento local entre abas comunica apenas `login`, `logout` ou `expired`, horário e nonce, sem transportar credenciais.
+
+### `ToastMessage` (efêmero)
+
+| Campo | Significado |
+| --- | --- |
+| `id` | Identificador local único. |
+| `tone` | `success`, `error`, `info` ou `warning`. |
+| `title`, `message` | Conteúdo curto exibido no canto superior direito. |
+| `durationMs` | Tempo ativo, pausado durante hover ou foco. |
+
+### `SearchResult` (calculado)
+
+| Campo | Significado |
+| --- | --- |
+| `id` | ID da entidade de origem. |
+| `type` | `conversation`, `company`, `contact` ou `opportunity`. |
+| `section` | Agrupamento visual. |
+| `title`, `subtitle` | Identificação e contexto do resultado. |
+| `target` | Rota interna de destino. |
+
+## Plataforma assíncrona
+
+### Envelope de job BullMQ (não é fonte de verdade)
+
+| Campo | Significado |
+| --- | --- |
+| `name` | Operação pequena, como enviar mensagem, avançar fluxo ou gerar IA. |
+| `data` | Normalmente apenas o ID persistido necessário para recarregar o domínio. |
+| `jobId` | Identificador determinístico usado para deduplicação/reconciliação. |
+| `delay` | Instante futuro expresso como atraso em milissegundos. |
+| `attempts/backoff` | Política de retry, geralmente exponencial. |
+| `priority` | Prioridade explícita nas gerações de IA. |
+
+Redis retém no máximo 1.000 jobs concluídos e 5.000 falhos por fila. Estados comerciais, mensagens, etapas e diagnósticos permanecem em suas tabelas PostgreSQL correspondentes.
+
+### Lock de sincronização Evolution (efêmero)
+
+| Campo | Significado |
+| --- | --- |
+| chave | `prospecta:evolution-recent-sync-lock`. |
+| valor | PID e timestamp do worker proprietário. |
+| validade | 30 segundos com aquisição `NX`. |
+
+A liberação usa compare-and-delete em Lua para não apagar um lock que já tenha expirado e sido adquirido por outro processo.

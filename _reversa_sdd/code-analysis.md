@@ -486,6 +486,87 @@ Mensagem recebida toca um aviso sintetizado por Web Audio uma única vez por ID.
 
 🟡 **INFERIDO** — a interface escuta `notification.created`, mas não foi encontrado produtor explícito desse nome de evento no código atual. As principais criações ainda chegam à tela por eventos de domínio como `inbox.updated` ou pelo polling de contingência.
 
+## 13. API externa e servidor MCP (`external-api-mcp`)
+
+### Chaves, escopos e superfície pública
+
+Uma chave externa é emitida no formato `pk_<prefixo>_<segredo>`, mas somente seu SHA-256 fica persistido. O valor em claro é devolvido uma única vez; expiração, revogação e último uso permanecem auditáveis. O guard aceita essas credenciais apenas no subconjunto público de empresas, contatos, oportunidades, funis, tarefas, tags, campos personalizados, segmentos e MCP.
+
+- Cada chave possui escopos `recurso:ação`; `*:*` e `recurso:*` ampliam a autorização.
+- O contexto produzido pela chave usa escopo de dados `all`, mas somente para operações explicitamente liberadas pela própria chave.
+- O Swagger externo filtra a documentação para os recursos comerciais úteis e descreve DTOs, exemplos, erros, cursores, `externalId` e idempotência.
+- Criações sensíveis feitas por chave exigem `Idempotency-Key` entre 8 e 160 caracteres. A combinação organização/chave/rota é única por 24 horas; reutilizar a chave com outro corpo retorna conflito.
+- Empresas, contatos e oportunidades aceitam `externalId` para upsert, e listagens usam paginação por cursor.
+
+### Adaptador MCP
+
+O MCP é um processo HTTP separado, stateless, exposto por padrão em `127.0.0.1:3100/mcp`. Antes de criar uma sessão Streamable HTTP, ele valida `Host`, `Origin` e um Bearer `pk_`, consultando `/api/v1/mcp/context` na API principal.
+
+O servidor possui 27 ferramentas potenciais e registra dinamicamente apenas aquelas cobertas pelos escopos da chave. Elas leem, criam e editam empresas, contatos, oportunidades, tarefas, tags, campos personalizados e segmentos; também listam funis, usuários e equipes. Não existe ferramenta de exclusão, arquivamento ou cancelamento.
+
+- Entradas são validadas por schemas Zod e resultados incluem texto JSON e `structuredContent`.
+- Ferramentas de criação aceitam chave idempotente; sem uma chave fornecida, o cliente gera um UUID por chamada.
+- O cliente só aceita caminhos relativos iniciados por `/`, rejeita `..`, aplica timeout padrão de 15 segundos e limita erros devolvidos a 2.000 caracteres.
+- Anotações MCP distinguem leitura, criação e atualização e declaram todas as ferramentas como não destrutivas.
+
+## 14. Interface web (`web-interface`)
+
+### Composição, navegação e autenticação
+
+A SPA usa React 19, Vite, React Router e TanStack Query. Todas as páginas protegidas e o Shell são carregados de forma preguiçosa; o provider de autenticação consulta `/auth/me`, compartilha login/logout/expiração entre abas via `localStorage` e redireciona imediatamente para o login em qualquer `401` fora das rotas públicas.
+
+- O Shell organiza Trabalho, Conversas e Gestão e filtra cada item com as permissões do usuário. Inteligência artificial exige administrador.
+- A ação global `Novo` oferece somente contato, empresa ou oportunidade que o usuário possa criar.
+- `Ctrl + K` abre busca com debounce de 220 ms, navegação por teclado e até cinco resultados por tipo em atendimentos ativos, empresas, contatos e oportunidades.
+- O Inbox usa um layout de altura total próprio; demais páginas compartilham cabeçalho, conteúdo e navegação responsiva.
+- O Vite usa URLs relativas por padrão e proxies locais para API, Swagger e Socket.IO; hosts adicionais são configuráveis por ambiente.
+
+### Estado remoto, feedback e acessibilidade
+
+O cliente HTTP envia cookies e CSRF, transforma falhas em toasts e mantém a URL base configurável. O Query Client usa cache padrão de 20 segundos, uma tentativa de retry e invalidação seletiva pelos eventos em tempo real.
+
+- Toasts têm quatro tons, duração padrão de dois segundos, barra de progresso pausável no hover/foco, deduplicação por dois segundos e limite visual de cinco itens.
+- Componentes comuns encapsulam botões, campos, selects, modais, estados vazios, status e loading. Modais usam `dialog` e backdrop em botão nativo.
+- Tema claro/escuro persiste no navegador e respeita a preferência do sistema na primeira visita.
+- A camada final `apple-ui.css` remapeia tokens históricos para tipografia, cores, materiais, profundidade e movimento consistentes. `prefers-reduced-motion` remove deslocamentos e preserva apenas feedback essencial.
+- O composer, menus, drawers, Kanban, calendário e uploads mantêm interações especializadas sem criar um segundo framework visual.
+
+## 15. Plataforma assíncrona (`async-platform`)
+
+### Filas e isolamento de trabalho
+
+A API persiste o comando de domínio e publica jobs BullMQ; um processo worker separado executa I/O demorado. Redis transporta filas e eventos, enquanto PostgreSQL continua sendo a fonte de verdade de campanhas, mensagens, automações, follow-ups e IA.
+
+| Fila | Concorrência | Papel |
+| --- | ---: | --- |
+| `inbound-webhooks` | 10 | Interpretar eventos e sincronização da Evolution. |
+| `outbound-messages` | 5, limite 20/s | Enviar mensagens e confirmar efeitos posteriores. |
+| `campaigns` | 10 | Distribuir campanhas e destinatários. |
+| `automations` | 10 | Avançar inscrições de workflow. |
+| `chatbots` | 5 | Executar nós, esperas e respostas automáticas. |
+| `external-webhooks` | 5 | Entregar chamadas GET assinadas. |
+| `task-digests` | 1 | Gerar o resumo diário das tarefas. |
+| `transactional-emails` | 3 | Convites, recuperação e avisos internos. |
+| `audio-transcriptions` | 1–3 | Transcrever áudio sem saturar o servidor. |
+| `follow-ups` | 3 | Agendar e avançar sequências persistentes. |
+| `ai-generations` | 1 | Serializar chamadas de LLM. |
+| `ai-knowledge` | 2 | Indexar ou remover documentos do RAG. |
+
+Jobs concluídos e falhos são limitados a 1.000 e 5.000 entradas no Redis. Operações críticas usam IDs determinísticos, tentativa exponencial e validação de estado no banco antes de executar.
+
+### Reconciliação e operação contínua
+
+Ao iniciar, o worker executa manutenção, recupera campanhas ativas, follow-ups, delays de chatbot, gerações de IA e documentos RAG pendentes. Depois mantém reconciliações leves:
+
+- manutenção e campanhas a cada hora;
+- follow-ups e esperas de chatbot a cada minuto;
+- IA e documentos a cada 30 segundos;
+- sincronização incremental da Evolution a cada cinco segundos, protegida por lock Redis `NX` de 30 segundos e liberação compare-and-delete.
+
+O digest diário é agendado para 08:00 em `America/Sao_Paulo` e possui catch-up único se o worker iniciar depois desse horário. Manutenção recalcula aquecimento, remove sessões/idempotências vencidas, aplica retenção de IA e apaga mensagens antigas em lotes limitados.
+
+Eventos concluídos são publicados no canal Redis `prospecta:realtime`, permitindo atualizar só a organização/conversa afetada. `SIGTERM` e `SIGINT` cancelam timers, fecham workers e filas, desconectam Prisma e encerram Redis antes da saída.
+
 ## Pendências desta etapa
 
-🔴 **LACUNA** — os 4 módulos restantes ainda não foram escavados. Este documento será ampliado nos checkpoints seguintes sem substituir as seções confirmadas acima.
+🔴 **LACUNA** — resta escavar somente o módulo `infrastructure`. As demais quinze fronteiras funcionais já estão documentadas.

@@ -28,7 +28,7 @@
       ]
     },
     "archaeologist": {
-      "updated_at": "2026-08-21T13:19:23Z",
+      "updated_at": "2026-08-21T13:33:21Z",
       "modules_analyzed": [
         "identity-access",
         "crm-sales",
@@ -41,12 +41,12 @@
         "media-transcription",
         "reports-webhooks",
         "quick-replies",
-        "realtime-notifications"
-      ],
-      "modules_pending": [
+        "realtime-notifications",
         "external-api-mcp",
         "web-interface",
-        "async-platform",
+        "async-platform"
+      ],
+      "modules_pending": [
         "infrastructure"
       ],
       "files": [
@@ -64,6 +64,9 @@
         "_reversa_sdd/flowcharts/reports-webhooks.md",
         "_reversa_sdd/flowcharts/quick-replies.md",
         "_reversa_sdd/flowcharts/realtime-notifications.md",
+        "_reversa_sdd/flowcharts/external-api-mcp.md",
+        "_reversa_sdd/flowcharts/web-interface.md",
+        "_reversa_sdd/flowcharts/async-platform.md",
         ".reversa/context/modules.json"
       ]
     }
@@ -147,6 +150,9 @@
     "_reversa_sdd\\flowcharts\\media-transcription.md",
     "_reversa_sdd\\flowcharts\\reports-webhooks.md",
     "_reversa_sdd\\flowcharts\\quick-replies.md",
-    "_reversa_sdd\\flowcharts\\realtime-notifications.md"
+    "_reversa_sdd\\flowcharts\\realtime-notifications.md",
+    "_reversa_sdd\\flowcharts\\external-api-mcp.md",
+    "_reversa_sdd\\flowcharts\\web-interface.md",
+    "_reversa_sdd\\flowcharts\\async-platform.md"
   ]
 }

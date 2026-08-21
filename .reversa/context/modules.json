@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T13:19:23Z",
+  "generated_at": "2026-08-21T13:33:21Z",
   "modules": [
     {
       "name": "identity-access",
@@ -394,6 +394,107 @@
       ],
       "dependencies": ["identity-access", "whatsapp-inbox", "crm-sales", "async-platform", "Socket.IO", "Redis Pub/Sub", "React Query"],
       "algorithms": ["autenticação de socket por sessão", "salas por organização/usuário", "coalescência de invalidações", "mesclagem paginada deduplicada", "síntese de aviso Web Audio"],
+      "complexity": "high"
+    },
+    {
+      "name": "external-api-mcp",
+      "path": "apps/api/src/auth; apps/api/src/common; apps/api/src/mcp; apps/api/src/swagger; apps/mcp/src",
+      "purpose": "API comercial autenticada por chaves escopadas e adaptador MCP stateless com operações exclusivamente não destrutivas.",
+      "primary_files": [
+        "apps/api/src/auth/auth.guard.ts",
+        "apps/api/src/common/idempotency.interceptor.ts",
+        "apps/api/src/mcp/mcp.controller.ts",
+        "apps/api/src/swagger/crm-openapi.ts",
+        "apps/mcp/src/server.ts",
+        "apps/mcp/src/tools.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "UsersService.createApiKey", "file": "apps/api/src/users/users.service.ts", "params": ["AuthContext", "name/scopes/expiresAt?"], "returns": "Promise<ApiKeyWithOneTimeToken>", "confidence": "confirmed" },
+        { "name": "AuthGuard.authenticateApiKey", "file": "apps/api/src/auth/auth.guard.ts", "params": ["Bearer token", "request path"], "returns": "Promise<AuthContext|null>", "confidence": "confirmed" },
+        { "name": "IdempotencyInterceptor.intercept", "file": "apps/api/src/common/idempotency.interceptor.ts", "params": ["ExecutionContext", "CallHandler"], "returns": "Observable<unknown>", "confidence": "confirmed" },
+        { "name": "createMcpServer", "file": "apps/mcp/src/server.ts", "params": ["api client", "scopes"], "returns": "McpServer", "confidence": "confirmed" },
+        { "name": "registerBzsTools", "file": "apps/mcp/src/tools.ts", "params": ["McpServer", "BzsApiClient", "scopes"], "returns": "string[]", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "ApiKey", "fields": [{ "name": "keyHash", "type": "SHA-256", "required": true }, { "name": "prefix", "type": "string", "required": true }, { "name": "scopes", "type": "JSON", "required": true }, { "name": "expiresAt", "type": "DateTime?", "required": false }, { "name": "revokedAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" },
+        { "name": "IdempotencyRecord", "fields": [{ "name": "key/route/organizationId", "type": "unique tuple", "required": true }, { "name": "requestHash", "type": "SHA-256", "required": true }, { "name": "responseCode", "type": "int", "required": true }, { "name": "responseBody", "type": "JSON", "required": true }, { "name": "expiresAt", "type": "DateTime", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "A chave em claro é retornada uma única vez; o banco guarda somente SHA-256.", "location": "apps/api/src/users/users.service.ts:457", "confidence": "confirmed" },
+        { "description": "Criação externa sensível exige Idempotency-Key e não permite reutilização com conteúdo diferente.", "location": "apps/api/src/common/idempotency.interceptor.ts:19", "confidence": "confirmed" },
+        { "description": "O MCP registra somente ferramentas cobertas pelos escopos e não oferece exclusão, arquivamento ou cancelamento.", "location": "apps/mcp/src/tools.ts:87", "confidence": "confirmed" }
+      ],
+      "dependencies": ["identity-access", "crm-sales", "async-platform", "PostgreSQL", "Model Context Protocol SDK", "Zod"],
+      "algorithms": ["hash de credencial", "idempotência por hash do corpo", "registro dinâmico por escopo", "paginação por cursor", "upsert por externalId"],
+      "complexity": "high"
+    },
+    {
+      "name": "web-interface",
+      "path": "apps/web/src",
+      "purpose": "SPA responsiva, protegida e orientada a permissões que integra todos os módulos por React Query e Socket.IO.",
+      "primary_files": [
+        "apps/web/src/App.tsx",
+        "apps/web/src/main.tsx",
+        "apps/web/src/components/Shell.tsx",
+        "apps/web/src/components/GlobalSearch.tsx",
+        "apps/web/src/components/ui.tsx",
+        "apps/web/src/lib/api.ts",
+        "apps/web/src/apple-ui.css"
+      ],
+      "functions": [
+        { "name": "AuthProvider", "file": "apps/web/src/App.tsx", "params": ["children"], "returns": "ReactElement", "confidence": "confirmed" },
+        { "name": "Shell", "file": "apps/web/src/components/Shell.tsx", "params": [], "returns": "ReactElement", "confidence": "confirmed" },
+        { "name": "GlobalSearch", "file": "apps/web/src/components/GlobalSearch.tsx", "params": [], "returns": "ReactElement", "confidence": "confirmed" },
+        { "name": "api", "file": "apps/web/src/lib/api.ts", "params": ["path", "RequestInit?"], "returns": "Promise<T>", "confidence": "confirmed" },
+        { "name": "ToastProvider", "file": "apps/web/src/components/ToastProvider.tsx", "params": ["children"], "returns": "ReactElement", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "BrowserAuthEvent", "fields": [{ "name": "type", "type": "login|logout|expired", "required": true }, { "name": "at", "type": "number", "required": true }, { "name": "nonce", "type": "UUID", "required": true }], "confidence": "confirmed" },
+        { "name": "ToastMessage", "fields": [{ "name": "tone", "type": "success|error|info|warning", "required": true }, { "name": "title", "type": "string", "required": true }, { "name": "message", "type": "string", "required": true }, { "name": "durationMs", "type": "number", "required": true }], "confidence": "confirmed" },
+        { "name": "SearchResult", "fields": [{ "name": "type", "type": "conversation|company|contact|opportunity", "required": true }, { "name": "title", "type": "string", "required": true }, { "name": "subtitle", "type": "string", "required": true }, { "name": "target", "type": "route", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Toda resposta 401 fora das rotas públicas expira a autenticação em todas as abas e substitui a página pelo login.", "location": "apps/web/src/lib/auth-session.ts:57", "confidence": "confirmed" },
+        { "description": "Itens de menu e ações globais são filtrados pelas permissões de leitura/escrita do usuário.", "location": "apps/web/src/components/Shell.tsx:210", "confidence": "confirmed" },
+        { "description": "A busca global exige dois caracteres, aplica debounce de 220 ms e consulta somente recursos permitidos.", "location": "apps/web/src/components/GlobalSearch.tsx:117", "confidence": "confirmed" },
+        { "description": "Movimento reduzido remove deslocamentos e mantém feedback de estado.", "location": "apps/web/src/apple-ui.css:1210", "confidence": "confirmed" }
+      ],
+      "dependencies": ["identity-access", "realtime-notifications", "todos os módulos funcionais", "React", "React Router", "TanStack Query", "Socket.IO Client"],
+      "algorithms": ["lazy loading de rotas", "cache e invalidação seletiva", "debounce de busca", "sincronização de autenticação entre abas", "design tokens em cascata"],
+      "complexity": "high"
+    },
+    {
+      "name": "async-platform",
+      "path": "apps/api/src/queue; apps/worker/src",
+      "purpose": "Execução desacoplada, idempotente e recuperável de mensagens, campanhas, automações, e-mails, transcrição, follow-ups e IA.",
+      "primary_files": [
+        "apps/api/src/queue/queue.module.ts",
+        "apps/worker/src/main.ts",
+        "apps/worker/src/maintenance.processor.ts",
+        "apps/worker/src/campaign.processor.ts",
+        "apps/worker/src/follow-up.processor.ts",
+        "apps/worker/src/ai.processor.ts"
+      ],
+      "functions": [
+        { "name": "worker bootstrap", "file": "apps/worker/src/main.ts", "params": ["environment"], "returns": "long-running process", "confidence": "confirmed" },
+        { "name": "runMaintenance", "file": "apps/worker/src/maintenance.processor.ts", "params": ["PrismaClient"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "CampaignProcessor.reconcileActiveCampaigns", "file": "apps/worker/src/campaign.processor.ts", "params": [], "returns": "Promise<reconciliation result>", "confidence": "confirmed" },
+        { "name": "FollowUpProcessor.reconcile", "file": "apps/worker/src/follow-up.processor.ts", "params": ["reference?"], "returns": "Promise<reconciliation result>", "confidence": "confirmed" },
+        { "name": "AiGenerationProcessor.reconcilePending", "file": "apps/worker/src/ai.processor.ts", "params": [], "returns": "Promise<reconciliation result>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "BullMQ Job", "fields": [{ "name": "jobId", "type": "string", "required": true }, { "name": "data", "type": "ID payload", "required": true }, { "name": "attempts/backoff", "type": "job options", "required": false }, { "name": "delay/priority", "type": "job options", "required": false }], "confidence": "confirmed" },
+        { "name": "EvolutionSyncLock", "fields": [{ "name": "key", "type": "Redis string", "required": true }, { "name": "owner", "type": "pid-timestamp", "required": true }, { "name": "ttl", "type": "30s", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "PostgreSQL é a fonte de verdade; jobs recarregam e validam estado antes de produzir efeitos.", "location": "apps/worker/src/main.ts; processors de domínio", "confidence": "confirmed" },
+        { "description": "A saída limita 20 mensagens por segundo e a geração de IA é estritamente serial.", "location": "apps/worker/src/main.ts:56", "confidence": "confirmed" },
+        { "description": "Reconciliações na inicialização e por intervalo recuperam trabalho perdido após reinícios.", "location": "apps/worker/src/main.ts:142", "confidence": "confirmed" },
+        { "description": "Encerramento gracioso fecha timers, workers, filas, banco e Redis.", "location": "apps/worker/src/main.ts:189", "confidence": "confirmed" }
+      ],
+      "dependencies": ["todos os módulos assíncronos", "PostgreSQL", "Redis", "BullMQ", "Socket.IO via Pub/Sub"],
+      "algorithms": ["jobs determinísticos", "retry exponencial", "reconciliação indexada", "scheduler cron com catch-up", "lock Redis compare-and-delete", "shutdown gracioso"],
       "complexity": "high"
     }
   ]
