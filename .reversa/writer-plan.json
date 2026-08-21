@@ -237,406 +237,406 @@
       "path": "_reversa_sdd/whatsapp-inbox/requirements.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 34,
       "path": "_reversa_sdd/whatsapp-inbox/design.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 35,
       "path": "_reversa_sdd/whatsapp-inbox/tasks.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 36,
       "path": "_reversa_sdd/whatsapp-inbox/contracts.md",
       "kind": "optional",
       "unit": "whatsapp-inbox",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 37,
       "path": "_reversa_sdd/whatsapp-inbox/conexoes-evolution/requirements.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/conexoes-evolution",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 38,
       "path": "_reversa_sdd/whatsapp-inbox/conexoes-evolution/design.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/conexoes-evolution",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 39,
       "path": "_reversa_sdd/whatsapp-inbox/conexoes-evolution/tasks.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/conexoes-evolution",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 40,
       "path": "_reversa_sdd/whatsapp-inbox/atendimento-tickets/requirements.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/atendimento-tickets",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 41,
       "path": "_reversa_sdd/whatsapp-inbox/atendimento-tickets/design.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/atendimento-tickets",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 42,
       "path": "_reversa_sdd/whatsapp-inbox/atendimento-tickets/tasks.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/atendimento-tickets",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 43,
       "path": "_reversa_sdd/whatsapp-inbox/mensagens-midias/requirements.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/mensagens-midias",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 44,
       "path": "_reversa_sdd/whatsapp-inbox/mensagens-midias/design.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/mensagens-midias",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 45,
       "path": "_reversa_sdd/whatsapp-inbox/mensagens-midias/tasks.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/mensagens-midias",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 46,
       "path": "_reversa_sdd/whatsapp-inbox/sincronizacao-webhooks/requirements.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/sincronizacao-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 47,
       "path": "_reversa_sdd/whatsapp-inbox/sincronizacao-webhooks/design.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/sincronizacao-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 48,
       "path": "_reversa_sdd/whatsapp-inbox/sincronizacao-webhooks/tasks.md",
       "kind": "canonical",
       "unit": "whatsapp-inbox/sincronizacao-webhooks",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 49,
       "path": "_reversa_sdd/campanhas-email/requirements.md",
       "kind": "canonical",
       "unit": "campanhas-email",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 50,
       "path": "_reversa_sdd/campanhas-email/design.md",
       "kind": "canonical",
       "unit": "campanhas-email",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 51,
       "path": "_reversa_sdd/campanhas-email/tasks.md",
       "kind": "canonical",
       "unit": "campanhas-email",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 52,
       "path": "_reversa_sdd/campanhas-email/contracts.md",
       "kind": "optional",
       "unit": "campanhas-email",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 53,
       "path": "_reversa_sdd/campanhas-email/criar-audiencia/requirements.md",
       "kind": "canonical",
       "unit": "campanhas-email/criar-audiencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 54,
       "path": "_reversa_sdd/campanhas-email/criar-audiencia/design.md",
       "kind": "canonical",
       "unit": "campanhas-email/criar-audiencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 55,
       "path": "_reversa_sdd/campanhas-email/criar-audiencia/tasks.md",
       "kind": "canonical",
       "unit": "campanhas-email/criar-audiencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 56,
       "path": "_reversa_sdd/campanhas-email/executar-whatsapp/requirements.md",
       "kind": "canonical",
       "unit": "campanhas-email/executar-whatsapp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 57,
       "path": "_reversa_sdd/campanhas-email/executar-whatsapp/design.md",
       "kind": "canonical",
       "unit": "campanhas-email/executar-whatsapp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 58,
       "path": "_reversa_sdd/campanhas-email/executar-whatsapp/tasks.md",
       "kind": "canonical",
       "unit": "campanhas-email/executar-whatsapp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 59,
       "path": "_reversa_sdd/campanhas-email/executar-email/requirements.md",
       "kind": "canonical",
       "unit": "campanhas-email/executar-email",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 60,
       "path": "_reversa_sdd/campanhas-email/executar-email/design.md",
       "kind": "canonical",
       "unit": "campanhas-email/executar-email",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 61,
       "path": "_reversa_sdd/campanhas-email/executar-email/tasks.md",
       "kind": "canonical",
       "unit": "campanhas-email/executar-email",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 62,
       "path": "_reversa_sdd/campanhas-email/ciclo-campanha/requirements.md",
       "kind": "canonical",
       "unit": "campanhas-email/ciclo-campanha",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 63,
       "path": "_reversa_sdd/campanhas-email/ciclo-campanha/design.md",
       "kind": "canonical",
       "unit": "campanhas-email/ciclo-campanha",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 64,
       "path": "_reversa_sdd/campanhas-email/ciclo-campanha/tasks.md",
       "kind": "canonical",
       "unit": "campanhas-email/ciclo-campanha",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 65,
       "path": "_reversa_sdd/chatbots/requirements.md",
       "kind": "canonical",
       "unit": "chatbots",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 66,
       "path": "_reversa_sdd/chatbots/design.md",
       "kind": "canonical",
       "unit": "chatbots",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 67,
       "path": "_reversa_sdd/chatbots/tasks.md",
       "kind": "canonical",
       "unit": "chatbots",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 68,
       "path": "_reversa_sdd/chatbots/contracts.md",
       "kind": "optional",
       "unit": "chatbots",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 69,
       "path": "_reversa_sdd/chatbots/modelar-publicar/requirements.md",
       "kind": "canonical",
       "unit": "chatbots/modelar-publicar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 70,
       "path": "_reversa_sdd/chatbots/modelar-publicar/design.md",
       "kind": "canonical",
       "unit": "chatbots/modelar-publicar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 71,
       "path": "_reversa_sdd/chatbots/modelar-publicar/tasks.md",
       "kind": "canonical",
       "unit": "chatbots/modelar-publicar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 72,
       "path": "_reversa_sdd/chatbots/executar-regras/requirements.md",
       "kind": "canonical",
       "unit": "chatbots/executar-regras",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 73,
       "path": "_reversa_sdd/chatbots/executar-regras/design.md",
       "kind": "canonical",
       "unit": "chatbots/executar-regras",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 74,
       "path": "_reversa_sdd/chatbots/executar-regras/tasks.md",
       "kind": "canonical",
       "unit": "chatbots/executar-regras",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 75,
       "path": "_reversa_sdd/chatbots/espera-handoff-ia/requirements.md",
       "kind": "canonical",
       "unit": "chatbots/espera-handoff-ia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 76,
       "path": "_reversa_sdd/chatbots/espera-handoff-ia/design.md",
       "kind": "canonical",
       "unit": "chatbots/espera-handoff-ia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 77,
       "path": "_reversa_sdd/chatbots/espera-handoff-ia/tasks.md",
       "kind": "canonical",
       "unit": "chatbots/espera-handoff-ia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 78,
       "path": "_reversa_sdd/automacoes/requirements.md",
       "kind": "canonical",
       "unit": "automacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 79,
       "path": "_reversa_sdd/automacoes/design.md",
       "kind": "canonical",
       "unit": "automacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 80,
       "path": "_reversa_sdd/automacoes/tasks.md",
       "kind": "canonical",
       "unit": "automacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 81,
       "path": "_reversa_sdd/automacoes/contracts.md",
       "kind": "optional",
       "unit": "automacoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 82,
       "path": "_reversa_sdd/automacoes/modelar-publicar/requirements.md",
       "kind": "canonical",
       "unit": "automacoes/modelar-publicar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 83,
       "path": "_reversa_sdd/automacoes/modelar-publicar/design.md",
       "kind": "canonical",
       "unit": "automacoes/modelar-publicar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 84,
       "path": "_reversa_sdd/automacoes/modelar-publicar/tasks.md",
       "kind": "canonical",
       "unit": "automacoes/modelar-publicar",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 85,
       "path": "_reversa_sdd/automacoes/inscrever-contatos/requirements.md",
       "kind": "canonical",
       "unit": "automacoes/inscrever-contatos",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 86,
       "path": "_reversa_sdd/automacoes/inscrever-contatos/design.md",
       "kind": "canonical",
       "unit": "automacoes/inscrever-contatos",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 87,
       "path": "_reversa_sdd/automacoes/inscrever-contatos/tasks.md",
       "kind": "canonical",
       "unit": "automacoes/inscrever-contatos",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 88,
       "path": "_reversa_sdd/automacoes/executar-acoes/requirements.md",
       "kind": "canonical",
       "unit": "automacoes/executar-acoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 89,
       "path": "_reversa_sdd/automacoes/executar-acoes/design.md",
       "kind": "canonical",
       "unit": "automacoes/executar-acoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 90,
       "path": "_reversa_sdd/automacoes/executar-acoes/tasks.md",
       "kind": "canonical",
       "unit": "automacoes/executar-acoes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 91,
