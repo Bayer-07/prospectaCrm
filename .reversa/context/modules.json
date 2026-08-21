@@ -1,0 +1,200 @@
+{
+  "generated_at": "2026-08-21T12:41:30Z",
+  "modules": [
+    {
+      "name": "identity-access",
+      "path": "apps/api/src/auth; apps/api/src/users",
+      "purpose": "Autenticação, sessões, CSRF, usuários, papéis, permissões, convites, recuperação e chaves de API.",
+      "primary_files": [
+        "apps/api/src/auth/auth.service.ts",
+        "apps/api/src/auth/auth.guard.ts",
+        "apps/api/src/auth/session-token.service.ts",
+        "apps/api/src/users/users.service.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "AuthService.login", "file": "apps/api/src/auth/auth.service.ts", "params": ["email: string", "password: string", "metadata"], "returns": "Promise<{ token, csrfToken, expiresAt }>", "confidence": "confirmed" },
+        { "name": "AuthGuard.canActivate", "file": "apps/api/src/auth/auth.guard.ts", "params": ["ExecutionContext"], "returns": "Promise<boolean>", "confidence": "confirmed" },
+        { "name": "AuthService.requestPasswordReset", "file": "apps/api/src/auth/auth.service.ts", "params": ["email: string", "metadata"], "returns": "Promise<{ accepted: true }>", "confidence": "confirmed" },
+        { "name": "UsersService.createInvite", "file": "apps/api/src/users/users.service.ts", "params": ["AuthContext", "name/email/role/team"], "returns": "Promise<invite result>", "confidence": "confirmed" },
+        { "name": "UsersService.updateRolePermissions", "file": "apps/api/src/users/users.service.ts", "params": ["AuthContext", "roleId", "permissions"], "returns": "Promise<Role>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "User", "fields": [{ "name": "id", "type": "UUID", "required": true }, { "name": "organizationId", "type": "UUID", "required": true }, { "name": "roleId", "type": "UUID", "required": true }, { "name": "teamId", "type": "UUID?", "required": false }, { "name": "name", "type": "string", "required": true }, { "name": "email", "type": "string", "required": true }, { "name": "passwordHash", "type": "string?", "required": false }, { "name": "status", "type": "UserStatus", "required": true }], "confidence": "confirmed" },
+        { "name": "Session", "fields": [{ "name": "tokenHash", "type": "string", "required": true }, { "name": "csrfHash", "type": "string", "required": true }, { "name": "expiresAt", "type": "DateTime", "required": true }], "confidence": "confirmed" },
+        { "name": "RolePermission", "fields": [{ "name": "resource", "type": "string", "required": true }, { "name": "action", "type": "string", "required": true }, { "name": "scope", "type": "DataScope", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Cinco falhas de login bloqueiam a chave IP/e-mail por 15 minutos.", "location": "apps/api/src/auth/auth.service.ts:41", "confidence": "confirmed" },
+        { "description": "Sessões de login expiram em sete dias e mutações por cookie exigem CSRF.", "location": "apps/api/src/auth/auth.service.ts:80; apps/api/src/auth/auth.guard.ts", "confidence": "confirmed" },
+        { "description": "A organização deve manter pelo menos um administrador ativo.", "location": "apps/api/src/users/users.service.ts:493", "confidence": "confirmed" }
+      ],
+      "dependencies": ["database", "transactional-email", "media"],
+      "algorithms": ["rate limit em memória com poda limitada", "JWT EdDSA e hashes SHA-256", "RBAC com wildcard e escopo de dados"],
+      "complexity": "high"
+    },
+    {
+      "name": "crm-sales",
+      "path": "apps/api/src/crm; apps/web/src/pages/Companies.tsx; Contacts.tsx; Pipeline.tsx; Tasks.tsx",
+      "purpose": "Gestão do ciclo comercial, cadastros, pipeline, tarefas, extensões e importação.",
+      "primary_files": [
+        "apps/api/src/crm/crm.service.ts",
+        "apps/api/src/crm/crm.controller.ts",
+        "packages/contracts/src/index.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "CrmService.createCompany", "file": "apps/api/src/crm/crm.service.ts", "params": ["AuthContext", "unknown"], "returns": "Promise<Company>", "confidence": "confirmed" },
+        { "name": "CrmService.createContact", "file": "apps/api/src/crm/crm.service.ts", "params": ["AuthContext", "unknown"], "returns": "Promise<Contact>", "confidence": "confirmed" },
+        { "name": "CrmService.moveOpportunity", "file": "apps/api/src/crm/crm.service.ts", "params": ["AuthContext", "opportunityId", "stageId", "reason?"], "returns": "Promise<Opportunity>", "confidence": "confirmed" },
+        { "name": "CrmService.importCsv", "file": "apps/api/src/crm/crm.service.ts", "params": ["AuthContext", "CsvImportInput"], "returns": "Promise<CsvImportResult[]>", "confidence": "confirmed" },
+        { "name": "CompanyLogoLookupService.lookup", "file": "apps/api/src/crm/company-logo-lookup.service.ts", "params": ["domain"], "returns": "Promise<logo|null>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "Company", "fields": [{ "name": "name", "type": "string", "required": true }, { "name": "cnpj", "type": "string?", "required": false }, { "name": "domain", "type": "string?", "required": false }, { "name": "ownerId", "type": "UUID?", "required": false }, { "name": "archivedAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" },
+        { "name": "Contact", "fields": [{ "name": "name", "type": "string", "required": true }, { "name": "phone", "type": "string?", "required": false }, { "name": "phoneKey", "type": "string?", "required": false }, { "name": "email", "type": "string?", "required": false }, { "name": "campaignsBlocked", "type": "boolean", "required": true }], "confidence": "confirmed" },
+        { "name": "Opportunity", "fields": [{ "name": "stageId", "type": "UUID", "required": true }, { "name": "status", "type": "OpportunityStatus", "required": true }, { "name": "valueCents", "type": "int", "required": true }, { "name": "proposalUrl", "type": "string?", "required": false }], "confidence": "confirmed" },
+        { "name": "Task", "fields": [{ "name": "title", "type": "string", "required": true }, { "name": "dueAt", "type": "DateTime", "required": true }, { "name": "status", "type": "TaskStatus", "required": true }, { "name": "assigneeId", "type": "UUID?", "required": false }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Empresa ativa não pode duplicar CNPJ ou domínio na organização.", "location": "apps/api/src/crm/crm.service.ts:207", "confidence": "confirmed" },
+        { "description": "Contato ativo não pode duplicar a chave canônica do telefone.", "location": "apps/api/src/crm/crm.service.ts:326", "confidence": "confirmed" },
+        { "description": "Etapas ganhas e perdidas determinam o estado da oportunidade.", "location": "packages/contracts/src/index.ts:296", "confidence": "confirmed" }
+      ],
+      "dependencies": ["identity-access", "media-transcription", "follow-ups", "reports-webhooks"],
+      "algorithms": ["paginação por cursor", "detecção de delimitador CSV", "normalização canônica de CNPJ e telefone", "proteção SSRF para logo/preview"],
+      "complexity": "high"
+    },
+    {
+      "name": "whatsapp-inbox",
+      "path": "apps/api/src/integrations; apps/worker/src/inbound.processor.ts; apps/worker/src/outbound.processor.ts; apps/web/src/pages/Inbox.tsx",
+      "purpose": "Conexões Evolution, tickets, mensagens, mídias e sincronização do atendimento WhatsApp.",
+      "primary_files": [
+        "apps/api/src/integrations/evolution.service.ts",
+        "apps/worker/src/inbound.processor.ts",
+        "apps/worker/src/outbound.processor.ts",
+        "apps/worker/src/evolution-client.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "EvolutionService.conversationMessages", "file": "apps/api/src/integrations/evolution.service.ts", "params": ["AuthContext", "conversationId", "cursor/limit"], "returns": "Promise<MessagePage>", "confidence": "confirmed" },
+        { "name": "EvolutionService.setConversationStatus", "file": "apps/api/src/integrations/evolution.service.ts", "params": ["AuthContext", "id", "OPEN|CLOSED"], "returns": "Promise<Conversation>", "confidence": "confirmed" },
+        { "name": "EvolutionService.sendMessage", "file": "apps/api/src/integrations/evolution.service.ts", "params": ["AuthContext", "conversationId", "message input"], "returns": "Promise<Message>", "confidence": "confirmed" },
+        { "name": "InboundProcessor.process", "file": "apps/worker/src/inbound.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<RealtimeEvent|void>", "confidence": "confirmed" },
+        { "name": "OutboundProcessor.process", "file": "apps/worker/src/outbound.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<send result|void>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "WhatsappInstance", "fields": [{ "name": "instanceKey", "type": "string", "required": true }, { "name": "phone", "type": "string?", "required": false }, { "name": "status", "type": "InstanceStatus", "required": true }, { "name": "archivedAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" },
+        { "name": "Conversation", "fields": [{ "name": "instanceId", "type": "UUID", "required": true }, { "name": "contactId", "type": "UUID", "required": true }, { "name": "assigneeId", "type": "UUID?", "required": false }, { "name": "remoteJid", "type": "string", "required": true }, { "name": "status", "type": "ConversationStatus", "required": true }, { "name": "unreadCount", "type": "int", "required": true }], "confidence": "confirmed" },
+        { "name": "Message", "fields": [{ "name": "providerMessageId", "type": "string", "required": true }, { "name": "direction", "type": "MessageDirection", "required": true }, { "name": "type", "type": "string", "required": true }, { "name": "text", "type": "string?", "required": false }, { "name": "status", "type": "MessageStatus", "required": true }, { "name": "payload", "type": "JSON", "required": true }], "confidence": "confirmed" },
+        { "name": "InboundWebhookEvent", "fields": [{ "name": "provider", "type": "string", "required": true }, { "name": "instanceKey", "type": "string", "required": true }, { "name": "eventKey", "type": "string", "required": true }, { "name": "eventType", "type": "string", "required": true }, { "name": "status", "type": "string", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Mensagem de cliente em conversa encerrada cria novo atendimento WAITING sem responsável.", "location": "apps/worker/src/inbound.processor.ts", "confidence": "confirmed" },
+        { "description": "Mensagem manual exige conversa aberta e atribuída.", "location": "apps/api/src/integrations/evolution.service.ts:1182", "confidence": "confirmed" },
+        { "description": "Eventos e mensagens possuem chaves únicas para processamento idempotente.", "location": "packages/database/prisma/schema.prisma", "confidence": "confirmed" }
+      ],
+      "dependencies": ["crm-sales", "identity-access", "async-platform", "media-transcription", "realtime-notifications", "Evolution API"],
+      "algorithms": ["reconciliação adaptativa de mensagens recentes", "avanço monotônico de status", "reconciliação LID/JID", "merge cronológico paginado"],
+      "complexity": "very-high"
+    },
+    {
+      "name": "campaigns-email",
+      "path": "apps/api/src/campaigns; apps/api/src/email; apps/worker/src/campaign.processor.ts; apps/worker/src/gmail-campaign-client.ts; apps/web/src/pages/Campaigns.tsx; apps/web/src/pages/Email.tsx",
+      "purpose": "Campanhas de WhatsApp e e-mail, audiências, CSV, pré-validação, cadência, entrega e métricas.",
+      "primary_files": [
+        "apps/api/src/campaigns/campaigns.service.ts",
+        "apps/api/src/campaigns/campaign-csv.ts",
+        "apps/worker/src/campaign.processor.ts",
+        "apps/worker/src/gmail-campaign-client.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "CampaignsService.create", "file": "apps/api/src/campaigns/campaigns.service.ts", "params": ["AuthContext", "CreateCampaignInput"], "returns": "Promise<Campaign>", "confidence": "confirmed" },
+        { "name": "CampaignsService.preflight", "file": "apps/api/src/campaigns/campaigns.service.ts", "params": ["AuthContext", "campaignId"], "returns": "Promise<PreflightSummary>", "confidence": "confirmed" },
+        { "name": "CampaignsService.schedule", "file": "apps/api/src/campaigns/campaigns.service.ts", "params": ["AuthContext", "campaignId", "scheduledAt?"], "returns": "Promise<CampaignDetail>", "confidence": "confirmed" },
+        { "name": "CampaignProcessor.process", "file": "apps/worker/src/campaign.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<void|result>", "confidence": "confirmed" },
+        { "name": "GmailCampaignClient.send", "file": "apps/worker/src/gmail-campaign-client.ts", "params": ["GmailCampaignSendInput"], "returns": "Promise<{ id, message }>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "Campaign", "fields": [{ "name": "channel", "type": "ChannelType", "required": true }, { "name": "status", "type": "CampaignStatus", "required": true }, { "name": "scheduledAt", "type": "DateTime?", "required": false }, { "name": "stats", "type": "JSON", "required": true }, { "name": "archivedAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" },
+        { "name": "CampaignRecipient", "fields": [{ "name": "campaignId", "type": "UUID", "required": true }, { "name": "contactId", "type": "UUID", "required": true }, { "name": "status", "type": "MessageStatus", "required": true }, { "name": "messages", "type": "JSON", "required": true }, { "name": "exclusionReason", "type": "string?", "required": false }], "confidence": "confirmed" },
+        { "name": "CampaignBubble", "fields": [{ "name": "position", "type": "int", "required": true }, { "name": "type", "type": "string", "required": true }, { "name": "content", "type": "string", "required": true }, { "name": "mediaKey", "type": "string?", "required": false }], "confidence": "confirmed" },
+        { "name": "EmailDeliveryEvent", "fields": [{ "name": "providerEventId", "type": "string", "required": true }, { "name": "eventType", "type": "string", "required": true }, { "name": "payload", "type": "JSON", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Contato bloqueado para campanhas ou suprimido no canal nunca é enviado.", "location": "apps/api/src/campaigns/campaigns.service.ts:484; apps/worker/src/campaign.processor.ts", "confidence": "confirmed" },
+        { "description": "Mensagens personalizadas do CSV substituem as bolhas gerais para o destinatário.", "location": "apps/worker/src/campaign.processor.ts:30", "confidence": "confirmed" },
+        { "description": "Campanha conclui quando não resta destinatário PENDING ou QUEUED, incluindo ignorados como processados.", "location": "apps/worker/src/campaign.processor.ts:66; apps/worker/src/campaign.processor.ts:441", "confidence": "confirmed" }
+      ],
+      "dependencies": ["crm-sales", "whatsapp-inbox", "async-platform", "Evolution API", "Gmail SMTP", "Mailgun"],
+      "algorithms": ["inserção em lotes de 1000", "seleção por busca no servidor", "cadência aleatória entre bolhas/contatos/lotes", "reconciliador de campanhas órfãs"],
+      "complexity": "very-high"
+    },
+    {
+      "name": "chatbots",
+      "path": "apps/api/src/chatbots; apps/worker/src/chatbot.processor.ts; apps/worker/src/chatbot-response-provider.ts; apps/web/src/pages/Chatbots.tsx",
+      "purpose": "Atendimento automático visual por regras ou OpenAI, com sessões versionadas, esperas e transferência humana.",
+      "primary_files": [
+        "apps/api/src/chatbots/chatbots.service.ts",
+        "apps/worker/src/chatbot.processor.ts",
+        "apps/worker/src/chatbot-response-provider.ts",
+        "apps/web/src/pages/Chatbots.tsx",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "ChatbotsService.publish", "file": "apps/api/src/chatbots/chatbots.service.ts", "params": ["AuthContext", "chatbotId"], "returns": "Promise<ChatbotDetail>", "confidence": "confirmed" },
+        { "name": "ChatbotsService.validateShape", "file": "apps/api/src/chatbots/chatbots.service.ts", "params": ["ChatbotGraph", "strict"], "returns": "void", "confidence": "confirmed" },
+        { "name": "ChatbotProcessor.process", "file": "apps/worker/src/chatbot.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<RealtimeEvent|void>", "confidence": "confirmed" },
+        { "name": "ChatbotProcessor.reconcileDelays", "file": "apps/worker/src/chatbot.processor.ts", "params": ["reference?"], "returns": "Promise<{ scheduled }>", "confidence": "confirmed" },
+        { "name": "RulesResponseProvider.matches", "file": "apps/worker/src/chatbot-response-provider.ts", "params": ["node data", "context"], "returns": "boolean", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "Chatbot", "fields": [{ "name": "instanceId", "type": "UUID", "required": true }, { "name": "status", "type": "WorkflowStatus", "required": true }, { "name": "responseProvider", "type": "string", "required": true }, { "name": "publishedVersion", "type": "int?", "required": false }], "confidence": "confirmed" },
+        { "name": "ChatbotVersion", "fields": [{ "name": "version", "type": "int", "required": true }, { "name": "graph", "type": "JSON", "required": true }, { "name": "publishedAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" },
+        { "name": "ChatbotSession", "fields": [{ "name": "conversationId", "type": "UUID", "required": true }, { "name": "status", "type": "ChatbotSessionStatus", "required": true }, { "name": "currentNodeId", "type": "string?", "required": false }, { "name": "wakeAt", "type": "DateTime?", "required": false }, { "name": "context", "type": "JSON", "required": true }], "confidence": "confirmed" },
+        { "name": "ChatbotStepExecution", "fields": [{ "name": "nodeId", "type": "string", "required": true }, { "name": "inboundMessageId", "type": "UUID", "required": true }, { "name": "status", "type": "string", "required": true }, { "name": "output", "type": "JSON", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Somente um chatbot publicado pode atender cada instância.", "location": "apps/api/src/chatbots/chatbots.service.ts:202", "confidence": "confirmed" },
+        { "description": "Ciclos precisam atravessar pergunta, espera ou IA para impedir loop síncrono.", "location": "apps/api/src/chatbots/chatbots.service.ts:100", "confidence": "confirmed" },
+        { "description": "Conversa atribuída, encerrada ou com consentimento revogado não recebe resposta automática.", "location": "apps/worker/src/chatbot.processor.ts:60", "confidence": "confirmed" }
+      ],
+      "dependencies": ["whatsapp-inbox", "ai-knowledge", "async-platform", "realtime-notifications"],
+      "algorithms": ["travessia de alcance do grafo", "detecção de ciclo sem fronteira de pausa", "idempotência por sessão/nó/mensagem", "reconciliação de waits persistidos"],
+      "complexity": "very-high"
+    },
+    {
+      "name": "workflows",
+      "path": "apps/api/src/workflows; apps/worker/src/workflow.processor.ts; apps/web/src/pages/Automations.tsx",
+      "purpose": "Automações versionadas de WhatsApp e CRM executadas em jobs pequenos por contato inscrito.",
+      "primary_files": [
+        "apps/api/src/workflows/workflows.service.ts",
+        "apps/worker/src/workflow.processor.ts",
+        "apps/web/src/pages/Automations.tsx",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "WorkflowsService.publish", "file": "apps/api/src/workflows/workflows.service.ts", "params": ["AuthContext", "workflowId"], "returns": "Promise<WorkflowDetail>", "confidence": "confirmed" },
+        { "name": "WorkflowsService.enroll", "file": "apps/api/src/workflows/workflows.service.ts", "params": ["AuthContext", "workflowId", "contactIds", "source?"], "returns": "Promise<EnrollmentSummary>", "confidence": "confirmed" },
+        { "name": "WorkflowsService.validateShape", "file": "apps/api/src/workflows/workflows.service.ts", "params": ["WorkflowGraph", "strict"], "returns": "void", "confidence": "confirmed" },
+        { "name": "WorkflowProcessor.process", "file": "apps/worker/src/workflow.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<RealtimeEvent|void>", "confidence": "confirmed" },
+        { "name": "WorkflowProcessor.executeNode", "file": "apps/worker/src/workflow.processor.ts", "params": ["enrollment", "node"], "returns": "Promise<sourceHandle|void>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "Workflow", "fields": [{ "name": "status", "type": "WorkflowStatus", "required": true }, { "name": "publishedVersion", "type": "int?", "required": false }, { "name": "reentryMode", "type": "string", "required": true }, { "name": "reentryCooldownHours", "type": "int?", "required": false }], "confidence": "confirmed" },
+        { "name": "WorkflowVersion", "fields": [{ "name": "version", "type": "int", "required": true }, { "name": "graph", "type": "JSON", "required": true }, { "name": "publishedAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" },
+        { "name": "WorkflowEnrollment", "fields": [{ "name": "contactId", "type": "UUID", "required": true }, { "name": "status", "type": "EnrollmentStatus", "required": true }, { "name": "currentNodeId", "type": "string?", "required": false }, { "name": "wakeAt", "type": "DateTime?", "required": false }, { "name": "context", "type": "JSON", "required": true }], "confidence": "confirmed" },
+        { "name": "WorkflowStepExecution", "fields": [{ "name": "nodeId", "type": "string", "required": true }, { "name": "status", "type": "string", "required": true }, { "name": "input", "type": "JSON", "required": true }, { "name": "output", "type": "JSON", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Workflows publicados são DAGs; ciclos não são aceitos na v1.", "location": "apps/api/src/workflows/workflows.service.ts:34", "confidence": "confirmed" },
+        { "description": "Início manual pela conversa sempre cria nova inscrição para o contato daquela conversa.", "location": "apps/api/src/workflows/workflows.service.ts:124", "confidence": "confirmed" },
+        { "description": "Consentimento desconhecido só é tolerado no envio iniciado manualmente pela conversa; revogação e supressão sempre bloqueiam.", "location": "apps/worker/src/workflow.processor.ts:52", "confidence": "confirmed" }
+      ],
+      "dependencies": ["crm-sales", "whatsapp-inbox", "async-platform", "realtime-notifications", "follow-ups"],
+      "algorithms": ["validação de DAG por DFS", "inscrição em lotes de 500", "um nó por job", "interpretação de caminho aninhado em condições"],
+      "complexity": "very-high"
+    }
+  ]
+}

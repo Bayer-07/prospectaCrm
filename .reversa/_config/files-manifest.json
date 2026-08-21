@@ -1,0 +1,22 @@
+{
+  "AGENTS.md": "7aa3a3c1399e95b89da90c25018bb76da9ea77010e23c977bf7e212bc68ce43f",
+  ".reversa\\templates\\actions-template.md": "21f16e3efb770045abf43495a7758d6857145a7397cbeb19545b1efd90cb236a",
+  ".reversa\\templates\\principles-template.md": "1023f43e20ae0480d8c90798aecc4e8f4eaaf6b874282810d438f3bc0242de1a",
+  ".reversa\\templates\\quality-template.md": "8d78b394de327e35c5404385bfe7a2dddba8c34e1d648dfa36a91395eb5893f1",
+  ".reversa\\templates\\requirements-template.md": "f232bbfe6945cc96ca5e202b2c104d3377ba5073962595f5aa743959b5a5cda6",
+  ".reversa\\templates\\roadmap-template.md": "583c4aacc45dd86ba0f86c0d3a1c73747ab30b45de9ca96e3e7f7befea2a43fe",
+  ".reversa\\scripts\\sh\\bind-to-extraction.sh": "99c746a4e5dcb6227a66b0c9b025222daadb720ca39883a07cb90fcaac31a512",
+  ".reversa\\scripts\\sh\\prepare-roadmap.sh": "c1ea6541058e54a9107551f67939a73642ce12db2fe986d0afe082bd444b843e",
+  ".reversa\\scripts\\sh\\verify-prerequisites.sh": "3ebd7aeb66e2af40d2b571c608cac4fb57076a54ff5f153880b325ec82a62cee",
+  ".reversa\\scripts\\ps\\bind-to-extraction.ps1": "5be9d6dd72f2149ce9ebe70d9affa0da95d98238bca614dfb49156b6306ee656",
+  ".reversa\\scripts\\ps\\prepare-roadmap.ps1": "232ec8003966d908078527e5712083d1b61a3941f3149c32acaa0c4861a69b04",
+  ".reversa\\scripts\\ps\\verify-prerequisites.ps1": "b457451fc06500a3e1b43ed953371b546cde1c56aefe8a771bfaeb60f8e0619e",
+  ".reversa\\hooks.yml": "0d8652e1b7c890a5dc33b2e703724809824133969b98f11812897067fa65788a",
+  ".reversa\\setup.json": "73741572d2d193f592ea76794f3025061d17b8f3b5f24c20697a82fa272c759f",
+  ".reversa\\state.json": "3d2ef9f503c27810a6230afb18c912379005548f22e2c425521cb41ff006d26f",
+  ".reversa\\config.toml": "35a2ddff096185ee3e34608516d7da3bfd00a5b33c73fda0ea72b5536ef30397",
+  ".reversa\\config.user.toml": "59a1a98ae308ad6799e831e51fad9cc2af8941ef3cc08712c361544224ef5561",
+  ".reversa\\plan.md": "059f3ff046d69d3798652b898752e7d8b1de45af84b68ab0a812223ca7bee688",
+  ".reversa\\version": "9791de07407d3e04c6a281df16825ff53cea246f5d2bf0bf07750e8b11fd44a2",
+  ".reversa\\_config\\manifest.yaml": "b4f729284d1abca61dba6b8a0f46b690e5f6958afcc16ac1bacb0d3ee832f750"
+}

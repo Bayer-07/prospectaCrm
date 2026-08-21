@@ -1,0 +1,140 @@
+{
+  "version": "1.2.58",
+  "project": "BZS One",
+  "user_name": "Gabriel",
+  "chat_language": "pt-br",
+  "doc_language": "Português",
+  "answer_mode": "chat",
+  "doc_level": "completo",
+  "output_folder": "_reversa_sdd",
+  "forward_folder": "_reversa_forward",
+  "phase": "escavacao",
+  "completed": [
+    "reconhecimento"
+  ],
+  "pending": [
+    "escavacao",
+    "interpretacao",
+    "geracao",
+    "revisao"
+  ],
+  "checkpoints": {
+    "scout": {
+      "completed_at": "2026-08-21T12:25:32Z",
+      "files": [
+        "_reversa_sdd/inventory.md",
+        "_reversa_sdd/dependencies.md",
+        ".reversa/context/surface.json"
+      ]
+    },
+    "archaeologist": {
+      "updated_at": "2026-08-21T12:46:16Z",
+      "modules_analyzed": [
+        "identity-access",
+        "crm-sales",
+        "whatsapp-inbox",
+        "campaigns-email",
+        "chatbots",
+        "workflows"
+      ],
+      "modules_pending": [
+        "follow-ups",
+        "ai-knowledge",
+        "media-transcription",
+        "reports-webhooks",
+        "quick-replies",
+        "realtime-notifications",
+        "external-api-mcp",
+        "web-interface",
+        "async-platform",
+        "infrastructure"
+      ],
+      "files": [
+        "_reversa_sdd/code-analysis.md",
+        "_reversa_sdd/data-dictionary.md",
+        "_reversa_sdd/flowcharts/identity-access.md",
+        "_reversa_sdd/flowcharts/crm-sales.md",
+        "_reversa_sdd/flowcharts/whatsapp-inbox.md",
+        "_reversa_sdd/flowcharts/campaigns-email.md",
+        "_reversa_sdd/flowcharts/chatbots.md",
+        "_reversa_sdd/flowcharts/workflows.md",
+        ".reversa/context/modules.json"
+      ]
+    }
+  },
+  "engines": [
+    "codex"
+  ],
+  "agents": [
+    "reversa",
+    "reversa-autonomous",
+    "reversa-scout",
+    "reversa-archaeologist",
+    "reversa-detective",
+    "reversa-architect",
+    "reversa-writer",
+    "reversa-reviewer",
+    "reversa-visor",
+    "reversa-data-master",
+    "reversa-design-system",
+    "reversa-agents-help",
+    "reversa-reconstructor",
+    "reversa-debugger",
+    "reversa-debugger-fix",
+    "reversa-debugger-debate",
+    "reversa-depth-inspection",
+    "reversa-debugger-graph"
+  ],
+  "created_files": [
+    ".agents\\skills\\reversa",
+    ".agents\\skills\\reversa-autonomous",
+    ".agents\\skills\\reversa-scout",
+    ".agents\\skills\\reversa-archaeologist",
+    ".agents\\skills\\reversa-detective",
+    ".agents\\skills\\reversa-architect",
+    ".agents\\skills\\reversa-writer",
+    ".agents\\skills\\reversa-reviewer",
+    ".agents\\skills\\reversa-visor",
+    ".agents\\skills\\reversa-data-master",
+    ".agents\\skills\\reversa-design-system",
+    ".agents\\skills\\reversa-agents-help",
+    ".agents\\skills\\reversa-reconstructor",
+    ".agents\\skills\\reversa-debugger",
+    ".agents\\skills\\reversa-debugger-fix",
+    ".agents\\skills\\reversa-debugger-debate",
+    ".agents\\skills\\reversa-depth-inspection",
+    ".agents\\skills\\reversa-debugger-graph",
+    "AGENTS.md",
+    ".reversa\\templates\\actions-template.md",
+    ".reversa\\templates\\principles-template.md",
+    ".reversa\\templates\\quality-template.md",
+    ".reversa\\templates\\requirements-template.md",
+    ".reversa\\templates\\roadmap-template.md",
+    ".reversa\\scripts\\sh\\bind-to-extraction.sh",
+    ".reversa\\scripts\\sh\\prepare-roadmap.sh",
+    ".reversa\\scripts\\sh\\verify-prerequisites.sh",
+    ".reversa\\scripts\\ps\\bind-to-extraction.ps1",
+    ".reversa\\scripts\\ps\\prepare-roadmap.ps1",
+    ".reversa\\scripts\\ps\\verify-prerequisites.ps1",
+    ".reversa\\hooks.yml",
+    ".reversa\\setup.json",
+    ".reversa\\state.json",
+    ".reversa\\config.toml",
+    ".reversa\\config.user.toml",
+    ".reversa\\plan.md",
+    ".reversa\\version",
+    ".reversa\\_config\\manifest.yaml",
+    "_reversa_sdd\\inventory.md",
+    "_reversa_sdd\\dependencies.md",
+    ".reversa\\context\\surface.json",
+    "_reversa_sdd\\code-analysis.md",
+    "_reversa_sdd\\data-dictionary.md",
+    "_reversa_sdd\\flowcharts\\identity-access.md",
+    "_reversa_sdd\\flowcharts\\crm-sales.md",
+    "_reversa_sdd\\flowcharts\\whatsapp-inbox.md",
+    "_reversa_sdd\\flowcharts\\campaigns-email.md",
+    "_reversa_sdd\\flowcharts\\chatbots.md",
+    "_reversa_sdd\\flowcharts\\workflows.md",
+    ".reversa\\context\\modules.json"
+  ]
+}

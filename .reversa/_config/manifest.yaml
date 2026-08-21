@@ -1,0 +1,27 @@
+installation:
+  version: 1.2.58
+  installDate: 2026-08-21T12:13:16.127Z
+  lastUpdated: 2026-08-21T12:13:16.127Z
+
+engines:
+  - codex
+
+agents:
+  - reversa
+  - reversa-autonomous
+  - reversa-scout
+  - reversa-archaeologist
+  - reversa-detective
+  - reversa-architect
+  - reversa-writer
+  - reversa-reviewer
+  - reversa-visor
+  - reversa-data-master
+  - reversa-design-system
+  - reversa-agents-help
+  - reversa-reconstructor
+  - reversa-debugger
+  - reversa-debugger-fix
+  - reversa-debugger-debate
+  - reversa-depth-inspection
+  - reversa-debugger-graph

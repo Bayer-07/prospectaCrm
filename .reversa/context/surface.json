@@ -1,0 +1,139 @@
+{
+  "generated_at": "2026-08-21T12:25:32Z",
+  "project_root": "C:/Users/gabri/OneDrive/Documentos/Sistema de Prospecção e CRM",
+  "languages": [
+    { "name": "TypeScript", "extensions": [".ts", ".tsx"], "file_count": 245 },
+    { "name": "SQL", "extensions": [".sql"], "file_count": 35 },
+    { "name": "JSON", "extensions": [".json"], "file_count": 19 },
+    { "name": "Markdown", "extensions": [".md"], "file_count": 8 },
+    { "name": "CSS", "extensions": [".css"], "file_count": 4 },
+    { "name": "YAML", "extensions": [".yaml", ".yml"], "file_count": 4 },
+    { "name": "Shell", "extensions": [".sh"], "file_count": 2 },
+    { "name": "Prisma Schema", "extensions": [".prisma"], "file_count": 1 },
+    { "name": "HTML", "extensions": [".html"], "file_count": 1 }
+  ],
+  "primary_language": "TypeScript",
+  "frameworks": [
+    { "name": "NestJS", "version": "^11.1.0", "source": "apps/api/package.json" },
+    { "name": "React", "version": "^19.1.0", "source": "apps/web/package.json" },
+    { "name": "Vite", "version": "^7.0.0", "source": "apps/web/package.json" },
+    { "name": "Prisma", "version": "^6.11.0", "source": "packages/database/package.json" },
+    { "name": "BullMQ", "version": "^5.56.0", "source": "apps/worker/package.json" },
+    { "name": "Socket.IO", "version": "^4.8.0", "source": "apps/api/package.json" },
+    { "name": "Hono", "version": "^4.11.4", "source": "apps/mcp/package.json" },
+    { "name": "Vitest", "version": "^3.2.0", "source": "workspace package.json files" }
+  ],
+  "package_manager": "pnpm@11.9.0",
+  "entry_points": [
+    { "path": "apps/api/src/main.ts", "type": "api_entry" },
+    { "path": "apps/web/src/main.tsx", "type": "web_entry" },
+    { "path": "apps/web/src/App.tsx", "type": "web_router" },
+    { "path": "apps/worker/src/main.ts", "type": "worker_entry" },
+    { "path": "apps/mcp/src/main.ts", "type": "mcp_entry" },
+    { "path": "packages/database/src/index.ts", "type": "database_client_entry" },
+    { "path": "packages/contracts/src/index.ts", "type": "contracts_entry" }
+  ],
+  "config_files": [
+    ".env.example",
+    "package.json",
+    "pnpm-workspace.yaml",
+    "pnpm-lock.yaml",
+    "tsconfig.base.json",
+    "docker-compose.yml",
+    "docker-compose.dev.yml",
+    "apps/web/vite.config.ts",
+    "apps/web/nginx.conf",
+    "infra/Caddyfile",
+    ".sonarcloud.properties"
+  ],
+  "ci_cd": [],
+  "docker": {
+    "dockerfiles": [
+      "apps/api/Dockerfile",
+      "apps/web/Dockerfile",
+      "apps/worker/Dockerfile",
+      "apps/mcp/Dockerfile",
+      "infra/evolution/Dockerfile"
+    ],
+    "compose": ["docker-compose.yml", "docker-compose.dev.yml"],
+    "services": [
+      "caddy", "web", "api", "mcp", "worker", "transcription", "postgres", "redis", "minio",
+      "evolution-volume-init", "evolution", "evolution-minio", "evolution-postgres", "evolution-redis"
+    ]
+  },
+  "database_hints": [
+    { "path": "packages/database/prisma/schema.prisma", "type": "prisma_schema" },
+    { "path": "packages/database/prisma/migrations/", "type": "migrations_dir" },
+    { "path": "packages/database/prisma/seed.ts", "type": "seed" },
+    { "path": "packages/database/prisma/setup-homologation.ts", "type": "homologation_setup" }
+  ],
+  "test_framework": "Vitest",
+  "test_file_count": 78,
+  "modules": [
+    "identity-access",
+    "crm-sales",
+    "whatsapp-inbox",
+    "campaigns-email",
+    "chatbots",
+    "workflows",
+    "follow-ups",
+    "ai-knowledge",
+    "media-transcription",
+    "reports-webhooks",
+    "quick-replies",
+    "realtime-notifications",
+    "external-api-mcp",
+    "web-interface",
+    "async-platform",
+    "infrastructure"
+  ],
+  "external_integrations": [
+    { "name": "Evolution API", "evidence": ["apps/api/src/integrations/evolution.service.ts"] },
+    { "name": "MinIO/S3", "evidence": ["apps/api/src/media/media.service.ts", "apps/worker/src/storage.ts"] },
+    { "name": "OpenAI Responses and File Search", "evidence": ["apps/worker/src/openai-client.ts", "apps/worker/src/openai-knowledge-client.ts"] },
+    { "name": "Mailgun", "evidence": ["apps/worker/src/mailgun-client.ts", "apps/api/src/email/mailgun-webhook.controller.ts"] },
+    { "name": "Gmail SMTP", "evidence": ["apps/worker/src/gmail-campaign-client.ts"] },
+    { "name": "Speaches", "evidence": ["apps/worker/src/transcription-client.ts"] },
+    { "name": "BrasilAPI", "evidence": ["apps/api/src/crm/company-cnpj-lookup.service.ts"] },
+    { "name": "Model Context Protocol", "evidence": ["apps/mcp/src/server.ts"] }
+  ],
+  "total_files": 338,
+  "organization_suggestion": {
+    "granularity": "hybrid",
+    "rationale": "O monorepo combina módulos de domínio, controladores REST, processadores assíncronos e páginas orientadas a casos de uso com peso semelhante.",
+    "signals": [
+      {
+        "type": "top_level_domain_folders",
+        "evidence": [
+          "apps/api/src/auth/",
+          "apps/api/src/crm/",
+          "apps/api/src/campaigns/",
+          "apps/api/src/chatbots/",
+          "apps/api/src/workflows/",
+          "apps/api/src/follow-ups/",
+          "apps/api/src/ai/"
+        ]
+      },
+      {
+        "type": "controller_routes",
+        "evidence": [
+          "apps/api/src/crm/crm.controller.ts",
+          "apps/api/src/integrations/integrations.controller.ts",
+          "apps/api/src/campaigns/campaigns.controller.ts",
+          "apps/api/src/workflows/workflows.controller.ts"
+        ]
+      },
+      {
+        "type": "use_case_surfaces",
+        "evidence": [
+          "apps/web/src/pages/Inbox.tsx",
+          "apps/web/src/pages/Pipeline.tsx",
+          "apps/web/src/pages/Tasks.tsx",
+          "apps/worker/src/campaign.processor.ts",
+          "apps/worker/src/chatbot.processor.ts"
+        ]
+      }
+    ],
+    "features": []
+  }
+}
