@@ -1210,399 +1210,399 @@
       "path": "_reversa_sdd/api-externa-mcp/requirements.md",
       "kind": "canonical",
       "unit": "api-externa-mcp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 173,
       "path": "_reversa_sdd/api-externa-mcp/design.md",
       "kind": "canonical",
       "unit": "api-externa-mcp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 174,
       "path": "_reversa_sdd/api-externa-mcp/tasks.md",
       "kind": "canonical",
       "unit": "api-externa-mcp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 175,
       "path": "_reversa_sdd/api-externa-mcp/contracts.md",
       "kind": "optional",
       "unit": "api-externa-mcp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 176,
       "path": "_reversa_sdd/api-externa-mcp/chaves-idempotencia/requirements.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/chaves-idempotencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 177,
       "path": "_reversa_sdd/api-externa-mcp/chaves-idempotencia/design.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/chaves-idempotencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 178,
       "path": "_reversa_sdd/api-externa-mcp/chaves-idempotencia/tasks.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/chaves-idempotencia",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 179,
       "path": "_reversa_sdd/api-externa-mcp/api-publica-swagger/requirements.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/api-publica-swagger",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 180,
       "path": "_reversa_sdd/api-externa-mcp/api-publica-swagger/design.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/api-publica-swagger",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 181,
       "path": "_reversa_sdd/api-externa-mcp/api-publica-swagger/tasks.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/api-publica-swagger",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 182,
       "path": "_reversa_sdd/api-externa-mcp/servidor-mcp/requirements.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/servidor-mcp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 183,
       "path": "_reversa_sdd/api-externa-mcp/servidor-mcp/design.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/servidor-mcp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 184,
       "path": "_reversa_sdd/api-externa-mcp/servidor-mcp/tasks.md",
       "kind": "canonical",
       "unit": "api-externa-mcp/servidor-mcp",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 185,
       "path": "_reversa_sdd/interface-web/requirements.md",
       "kind": "canonical",
       "unit": "interface-web",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 186,
       "path": "_reversa_sdd/interface-web/design.md",
       "kind": "canonical",
       "unit": "interface-web",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 187,
       "path": "_reversa_sdd/interface-web/tasks.md",
       "kind": "canonical",
       "unit": "interface-web",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 188,
       "path": "_reversa_sdd/interface-web/autenticacao-navegacao/requirements.md",
       "kind": "canonical",
       "unit": "interface-web/autenticacao-navegacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 189,
       "path": "_reversa_sdd/interface-web/autenticacao-navegacao/design.md",
       "kind": "canonical",
       "unit": "interface-web/autenticacao-navegacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 190,
       "path": "_reversa_sdd/interface-web/autenticacao-navegacao/tasks.md",
       "kind": "canonical",
       "unit": "interface-web/autenticacao-navegacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 191,
       "path": "_reversa_sdd/interface-web/busca-feedback/requirements.md",
       "kind": "canonical",
       "unit": "interface-web/busca-feedback",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 192,
       "path": "_reversa_sdd/interface-web/busca-feedback/design.md",
       "kind": "canonical",
       "unit": "interface-web/busca-feedback",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 193,
       "path": "_reversa_sdd/interface-web/busca-feedback/tasks.md",
       "kind": "canonical",
       "unit": "interface-web/busca-feedback",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 194,
       "path": "_reversa_sdd/interface-web/interacoes-complexas/requirements.md",
       "kind": "canonical",
       "unit": "interface-web/interacoes-complexas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 195,
       "path": "_reversa_sdd/interface-web/interacoes-complexas/design.md",
       "kind": "canonical",
       "unit": "interface-web/interacoes-complexas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 196,
       "path": "_reversa_sdd/interface-web/interacoes-complexas/tasks.md",
       "kind": "canonical",
       "unit": "interface-web/interacoes-complexas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 197,
       "path": "_reversa_sdd/interface-web/tema-movimento/requirements.md",
       "kind": "canonical",
       "unit": "interface-web/tema-movimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 198,
       "path": "_reversa_sdd/interface-web/tema-movimento/design.md",
       "kind": "canonical",
       "unit": "interface-web/tema-movimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 199,
       "path": "_reversa_sdd/interface-web/tema-movimento/tasks.md",
       "kind": "canonical",
       "unit": "interface-web/tema-movimento",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 200,
       "path": "_reversa_sdd/plataforma-assincrona/requirements.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 201,
       "path": "_reversa_sdd/plataforma-assincrona/design.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 202,
       "path": "_reversa_sdd/plataforma-assincrona/tasks.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 203,
       "path": "_reversa_sdd/plataforma-assincrona/contracts.md",
       "kind": "optional",
       "unit": "plataforma-assincrona",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 204,
       "path": "_reversa_sdd/plataforma-assincrona/filas-workers/requirements.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/filas-workers",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 205,
       "path": "_reversa_sdd/plataforma-assincrona/filas-workers/design.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/filas-workers",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 206,
       "path": "_reversa_sdd/plataforma-assincrona/filas-workers/tasks.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/filas-workers",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 207,
       "path": "_reversa_sdd/plataforma-assincrona/reconciliacao-manutencao/requirements.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/reconciliacao-manutencao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 208,
       "path": "_reversa_sdd/plataforma-assincrona/reconciliacao-manutencao/design.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/reconciliacao-manutencao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 209,
       "path": "_reversa_sdd/plataforma-assincrona/reconciliacao-manutencao/tasks.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/reconciliacao-manutencao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 210,
       "path": "_reversa_sdd/plataforma-assincrona/shutdown-operacao/requirements.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/shutdown-operacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 211,
       "path": "_reversa_sdd/plataforma-assincrona/shutdown-operacao/design.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/shutdown-operacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 212,
       "path": "_reversa_sdd/plataforma-assincrona/shutdown-operacao/tasks.md",
       "kind": "canonical",
       "unit": "plataforma-assincrona/shutdown-operacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 213,
       "path": "_reversa_sdd/infraestrutura/requirements.md",
       "kind": "canonical",
       "unit": "infraestrutura",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 214,
       "path": "_reversa_sdd/infraestrutura/design.md",
       "kind": "canonical",
       "unit": "infraestrutura",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 215,
       "path": "_reversa_sdd/infraestrutura/tasks.md",
       "kind": "canonical",
       "unit": "infraestrutura",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 216,
       "path": "_reversa_sdd/infraestrutura/contracts.md",
       "kind": "optional",
       "unit": "infraestrutura",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 217,
       "path": "_reversa_sdd/infraestrutura/topologia-docker/requirements.md",
       "kind": "canonical",
       "unit": "infraestrutura/topologia-docker",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 218,
       "path": "_reversa_sdd/infraestrutura/topologia-docker/design.md",
       "kind": "canonical",
       "unit": "infraestrutura/topologia-docker",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 219,
       "path": "_reversa_sdd/infraestrutura/topologia-docker/tasks.md",
       "kind": "canonical",
       "unit": "infraestrutura/topologia-docker",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 220,
       "path": "_reversa_sdd/infraestrutura/proxy-redes/requirements.md",
       "kind": "canonical",
       "unit": "infraestrutura/proxy-redes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 221,
       "path": "_reversa_sdd/infraestrutura/proxy-redes/design.md",
       "kind": "canonical",
       "unit": "infraestrutura/proxy-redes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 222,
       "path": "_reversa_sdd/infraestrutura/proxy-redes/tasks.md",
       "kind": "canonical",
       "unit": "infraestrutura/proxy-redes",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 223,
       "path": "_reversa_sdd/infraestrutura/rebuild-deploy/requirements.md",
       "kind": "canonical",
       "unit": "infraestrutura/rebuild-deploy",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 224,
       "path": "_reversa_sdd/infraestrutura/rebuild-deploy/design.md",
       "kind": "canonical",
       "unit": "infraestrutura/rebuild-deploy",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 225,
       "path": "_reversa_sdd/infraestrutura/rebuild-deploy/tasks.md",
       "kind": "canonical",
       "unit": "infraestrutura/rebuild-deploy",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 226,
       "path": "_reversa_sdd/infraestrutura/backup-restore/requirements.md",
       "kind": "canonical",
       "unit": "infraestrutura/backup-restore",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 227,
       "path": "_reversa_sdd/infraestrutura/backup-restore/design.md",
       "kind": "canonical",
       "unit": "infraestrutura/backup-restore",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 228,
       "path": "_reversa_sdd/infraestrutura/backup-restore/tasks.md",
       "kind": "canonical",
       "unit": "infraestrutura/backup-restore",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 229,
