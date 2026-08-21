@@ -3,7 +3,7 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { aiSuggestionDisposition } from '../lib/ai-suggestion';
@@ -234,6 +234,7 @@ function InboxFilterPanel(props: InboxFilterPanelProps) {
 
 type InboxConversationListProps = Readonly<{
   conversations: Conversation[];
+  loading: boolean;
   selectedId: string;
   activeFilterCount: number;
   onSelect(id: string): void;
@@ -242,6 +243,9 @@ type InboxConversationListProps = Readonly<{
 }>;
 
 function InboxConversationList(props: InboxConversationListProps) {
+  if (props.loading) {
+    return <div className="conversation-list-loading" role="status"><LoaderCircle className="spin" size={20} /><span>Carregando tickets…</span></div>;
+  }
   if (!props.conversations.length) {
     const description = props.activeFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.';
     return <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{description}</span>{props.activeFilterCount > 0 && <button type="button" onClick={props.onClearFilters}>Limpar filtros</button>}</div>;
@@ -268,6 +272,7 @@ type InboxSidebarProps = Readonly<{
   filterOptions?: ConversationFilterOptions;
   filterOptionsLoading: boolean;
   filterOptionsError: boolean;
+  conversationsLoading: boolean;
   conversations: Conversation[];
   selectedId: string;
   onToggleAll(): void;
@@ -298,7 +303,7 @@ function InboxSidebar(props: InboxSidebarProps) {
       <button type="button" className={props.activeFilterCount ? 'active' : ''} onClick={props.onToggleFilterPanel} aria-label="Filtrar conversas" aria-expanded={props.filterPanelOpen} title={props.activeFilterCount ? `${props.activeFilterCount} filtro(s) ativo(s)` : 'Filtrar conversas'}><Filter size={14} />{props.activeFilterCount > 0 && <b>{props.activeFilterCount}</b>}</button>
       {props.filterPanelOpen && <InboxFilterPanel draft={props.draftFilters} activeCount={props.activeFilterCount} invalidDateRange={props.invalidDateRange} options={props.filterOptions} optionsLoading={props.filterOptionsLoading} optionsError={props.filterOptionsError} onChange={props.onDraftFilterChange} onClose={props.onCloseFilterPanel} onClear={props.onClearFilters} onApply={props.onApplyFilters} />}
     </div>
-    <div className="conversation-list"><InboxConversationList conversations={props.conversations} selectedId={props.selectedId} activeFilterCount={props.activeFilterCount} onSelect={props.onSelectConversation} onContextMenu={props.onContextMenu} onClearFilters={props.onClearFilters} /></div>
+    <div className="conversation-list" aria-busy={props.conversationsLoading}><InboxConversationList conversations={props.conversations} loading={props.conversationsLoading} selectedId={props.selectedId} activeFilterCount={props.activeFilterCount} onSelect={props.onSelectConversation} onContextMenu={props.onContextMenu} onClearFilters={props.onClearFilters} /></div>
   </aside>;
 }
 
@@ -544,7 +549,6 @@ export function InboxPage() {
       left: Math.max(8, Math.min(pointerX, window.innerWidth - width - 8)),
     });
   };
-  if (conversations.isLoading) return <PageLoading />;
   const emptyText = inboxEmptyText(filter);
   const loadOlderMessages = async () => {
     const result = await history.fetchNextPage();
@@ -603,6 +607,7 @@ export function InboxPage() {
       filterOptions={filterOptions.data?.data}
       filterOptionsLoading={filterOptions.isLoading}
       filterOptionsError={filterOptions.isError}
+      conversationsLoading={conversations.isLoading}
       conversations={shown}
       selectedId={selectedId}
       onToggleAll={toggleAll}
