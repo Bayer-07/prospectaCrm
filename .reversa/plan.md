@@ -26,9 +26,9 @@
 - [x] ✅ **Arqueólogo** — Análise do módulo `campaigns-email`
 - [x] ✅ **Arqueólogo** — Análise do módulo `chatbots`
 - [x] ✅ **Arqueólogo** — Análise do módulo `workflows`
-- [ ] **Arqueólogo** — Análise do módulo `follow-ups`
-- [ ] **Arqueólogo** — Análise do módulo `ai-knowledge`
-- [ ] **Arqueólogo** — Análise do módulo `media-transcription`
+- [x] ✅ **Arqueólogo** — Análise do módulo `follow-ups`
+- [x] ✅ **Arqueólogo** — Análise do módulo `ai-knowledge`
+- [x] ✅ **Arqueólogo** — Análise do módulo `media-transcription`
 - [ ] **Arqueólogo** — Análise do módulo `reports-webhooks`
 - [ ] **Arqueólogo** — Análise do módulo `quick-replies`
 - [ ] **Arqueólogo** — Análise do módulo `realtime-notifications`

@@ -301,6 +301,121 @@ As automações executam jornadas orientadas a contato com ações de WhatsApp e
 - Criar tarefa escolhe usuário iniciador, administrador ou responsável do contato; notificação usa responsável/iniciador configurado.
 - Execuções iniciadas pelo chat registram início, conclusão, interrupção ou falha como eventos internos e publicam atualização do Inbox.
 
+## 7. Follow-ups automáticos (`follow-ups`)
+
+### Agendamento e edição
+
+O módulo agenda uma ação futura para uma conversa e cria, na mesma transação, uma tarefa de calendário intitulada `Follow-up · <contato>`. A conversa precisa estar atribuída, e o usuário precisa possuir escrita em conversas e tarefas; o modo automação exige ainda escrita em workflows.
+
+- `MESSAGE_SEQUENCE` aceita de 1 a 20 etapas com texto, imagem ou documento. A primeira etapa usa o horário do follow-up e as posteriores guardam atraso próprio entre 0 e 31.536.000 segundos.
+- `WORKFLOW` fixa a versão publicada no momento do agendamento. Alterações futuras no workflow não afetam o follow-up.
+- Uma restrição parcial no PostgreSQL impede dois follow-ups `SCHEDULED` ou `RUNNING` na mesma conversa, inclusive sob concorrência.
+- Apenas follow-up `SCHEDULED` pode ser editado. A edição incrementa `revision`, substitui as etapas e cria outro job determinístico; jobs da revisão anterior se tornam inofensivos.
+- Arrastar a tarefa no calendário altera `scheduledAt`, incrementa a revisão e reagenda o disparo real. Concluir ou cancelar manualmente a tarefa cancela o follow-up após confirmação.
+
+### Execução persistente
+
+1. A API persiste follow-up, tarefa, etapas, evento interno e auditoria antes de enfileirar.
+2. O worker recarrega o banco e valida estado, revisão, etapa e horário; o Redis não é a fonte de verdade.
+3. Se a conversa estiver encerrada ou aguardando, ela é reaberta e atribuída ao responsável preservado antes do envio.
+4. A etapa muda atomicamente de `PENDING` para `QUEUED`, cria uma `Message` com identificador determinístico e entra na fila de saída.
+5. Somente a confirmação de envio da etapa atual agenda a próxima, usando seu `delaySeconds`.
+6. A última etapa conclui follow-up e tarefa. No modo workflow, a tarefa termina quando a inscrição na versão fixada é criada.
+
+O reconciliador roda na inicialização e a cada minuto, consultando índices de estado/horário e recuperando até 1.000 follow-ups ou etapas relevantes nas próximas 24 horas. A fila usa jobs pequenos, remove históricos antigos do Redis e mantém o histórico comercial no PostgreSQL.
+
+### Interrupções, falhas e regras comerciais
+
+- Resposta do cliente antes do início cancela follow-up e tarefa, gera log/notificação e solicita e-mail ao responsável.
+- Resposta durante a sequência marca `INTERRUPTED`, cancela somente etapas restantes e conclui a tarefa sem e-mail.
+- Instância desconectada é tentada novamente a cada minuto dentro da tolerância de 30 minutos. Depois desse prazo, o follow-up falha, as etapas posteriores são canceladas e a tarefa permanece aberta e vencida.
+- Consentimento revogado ou supressão de WhatsApp bloqueiam o envio. `campaignsBlocked` não se aplica a follow-up individual.
+- Variáveis e assinatura do responsável atual são resolvidas no instante de cada envio.
+- Transferir a conversa atualiza o responsável do follow-up e da tarefa; ficar temporariamente sem atendente preserva o último responsável.
+
+## 8. Inteligência artificial e base de conhecimento (`ai-knowledge`)
+
+### Configuração e segurança
+
+A organização pode habilitar a OpenAI, selecionar um modelo de uma lista curada, definir instruções globais e uma mensagem de fallback. A configuração é exclusiva de administradores e depende também de `AI_ASSISTANT_ENABLED=true` no servidor.
+
+- A chave pode vir da organização ou de `OPENAI_API_KEY`; a credencial da organização tem precedência.
+- A chave persistida é criptografada e a API devolve somente origem e quatro últimos caracteres.
+- Ativação sem chave é recusada. Remover a única chave é bloqueado enquanto existirem documentos na base, pois eles ainda precisam ser excluídos remotamente.
+- A integração usa a Responses API com `store: false`, saída JSON Schema estrita, limite de tempo e `file_search` opcional.
+- Prompts tratam mensagens e documentos como dados não confiáveis, instruem contra prompt injection e proíbem inventar preços, prazos e compromissos.
+- Uma regra obrigatória força português do Brasil; detector heurístico de inglês repete a geração uma vez e falha caso o segundo resultado continue em inglês.
+
+### Gerações manuais e persistência
+
+`ConversationAiGeneration` representa resumo, sugestão, resposta automática ou teste administrativo. A API calcula uma chave SHA-256 com tipo, conversa, escopo, limites de mensagem e responsável; duplo clique e retry reutilizam o mesmo registro.
+
+- Resumo atual começa no último evento `started`/`reopened`; resumo completo usa toda a conversa.
+- Conversas longas são lidas em páginas de 500, transformadas em timeline com eventos internos, divididas em blocos de até 9.000 caracteres e consolidadas hierarquicamente.
+- Sugestão usa o último resumo válido, contato/empresa e até 12 mensagens recentes. Ela se torna `STALE` se mensagem ou responsável mudar durante a geração.
+- Áudio sem transcrição coloca a geração em `WAITING_INPUT`, agenda transcrição e tenta retomar a cada cinco segundos, por até 20 ciclos.
+- No navegador, a sugestão só entra automaticamente se o composer continuar vazio, sem anexo e na mesma revisão. Caso contrário, aparece como proposta com botão `Inserir`.
+- O worker executa uma geração por vez, priorizando chatbot, sugestão, resumo e teste. Gerações `RUNNING` abandonadas por cinco minutos voltam a `PENDING`; o reconciliador roda a cada 30 segundos.
+
+### Pré-atendimento por IA
+
+O bloco `ai_conversation` opera apenas em conversa sem atendente e mantém a sessão esperando novas mensagens enquanto a decisão for `continue`.
+
+1. Carrega contato, empresa, sessão, últimas 12 mensagens e base vetorial pronta.
+2. Mídia sem legenda provoca fallback e handoff; áudio aguarda transcrição.
+3. O modelo retorna mensagem, ação, confiança e proposta opcional em JSON validado.
+4. Pedido de handoff, confiança abaixo do mínimo ou limite de 1–20 interações força a transferência.
+5. A resposta automática é registrada como `Message QUEUED` com identificador `ai:<generationId>` e enviada pela fila normal.
+6. Assumir a conversa antes ou durante a geração cancela a resposta. Em falha, o fallback é tentado, mas o handoff acontece mesmo se seu envio falhar.
+
+Propostas de nome, e-mail, cargo, empresa e nota de qualificação só são criadas no handoff. Um usuário com escrita em contatos escolhe campos individualmente; empresa exige correspondência exata única ou seleção explícita, e nunca é criada automaticamente.
+
+### RAG documental
+
+- A interface aceita arrastar múltiplos PDF, Word, PPTX, TXT, Markdown, HTML ou JSON, até 25 MB cada.
+- O arquivo entra primeiro no armazenamento interno e depois em `AiKnowledgeDocument(INDEXING)`.
+- O worker cria um Vector Store por organização, envia o arquivo à OpenAI, anexa com chunking automático e consulta o estado a cada três segundos por até cinco minutos.
+- Apenas quando existe documento `READY` o `openAiVectorStoreId` é enviado nas sugestões e no chatbot. Resumos não usam file search.
+- As fontes recuperadas são guardadas junto ao resultado da geração.
+- Exclusão é assíncrona: marca `DELETING`, remove arquivo remoto e original interno e só então exclui os registros. Falhas ficam diagnosticadas e podem ser reprocessadas.
+
+## 9. Mídias e transcrição (`media-transcription`)
+
+### Upload, isolamento e URLs assinadas
+
+O backend mantém metadados no PostgreSQL e objetos em armazenamento compatível com S3/MinIO. O navegador nunca recebe credenciais: solicita uma URL `PUT` válida por 10 minutos, envia o arquivo diretamente e usa uma URL `GET` de 15 minutos para visualização ou download.
+
+- Upload geral aceita imagens JPG/PNG/WebP/ICO, áudio OGG/MP3/MP4/WebM, vídeo MP4, PDF, Office e texto compatíveis, com limite confirmado de 25 MB.
+- Foto de usuário e logo de empresa aceitam imagens compatíveis até 5 MB. Resposta rápida, proposta e documento de IA possuem listas próprias mais restritas.
+- A chave começa pelo `organizationId`, data e UUID; o nome é normalizado e limitado. Toda leitura, confirmação ou exclusão valida o prefixo da organização.
+- Antes de vincular uma mídia privilegiada, a API executa `HEAD` no objeto e confere tamanho e MIME declarados. Um asset já associado a outro domínio não pode ser reutilizado.
+- `S3_SECRET_KEY` é obrigatória e não possui fallback conhecido. Endpoints interno, público e de entrega são separados para permitir que API, navegador e container da Evolution alcancem o mesmo objeto com rotas apropriadas.
+- Na inicialização a API verifica/cria o bucket. Em produção, falha ao preparar o armazenamento impede o serviço de fingir disponibilidade.
+
+### Mensagens recebidas e enviadas
+
+Mídias recebidas são obtidas em base64 pela Evolution, verificadas antes e depois da decodificação contra 25 MB, gravadas no armazenamento interno e ligadas à `Message` por `MediaAsset`. A concorrência desse trabalho pesado é limitada a 1 por padrão e no máximo 2.
+
+No envio, imagem/vídeo/documento recebem URL temporária alcançável pela Evolution. Áudio é lido com limite de 25 MB e enviado em base64 para o endpoint específico `sendWhatsAppAudio`; texto junto de mídia vira caption. O asset precisa pertencer à mesma organização da conversa.
+
+A interface busca a URL apenas quando renderiza a mídia, mantém cache menor que sua validade, usa carregamento preguiçoso de imagens e abre visualizador local. Downloads pedem `Content-Disposition: attachment`; exibição usa `inline`.
+
+### Transcrição de áudio
+
+1. Usuário visível para a conversa solicita `POST /conversations/:id/messages/:messageId/transcription`.
+2. A API confirma que a mensagem ou seu anexo é áudio. Resultado já concluído é reutilizado; processamento com menos de 10 minutos não é duplicado.
+3. Um `updateMany` reserva atomicamente a mensagem como `PROCESSING` e enfileira job com três tentativas e backoff exponencial.
+4. O worker lê o objeto com limite configurável entre 1 e 100 MB, padrão 25 MB, e envia multipart para uma API compatível com OpenAI.
+5. O padrão local é Speaches com `Systran/faster-whisper-small`, idioma `pt`, timeout de 120 segundos e concorrência 1–3.
+6. Se o provedor local responder que o modelo não está instalado, um único download concorrente é iniciado e a transcrição é repetida. Para endpoint oficial da OpenAI, a chave pode reutilizar `OPENAI_API_KEY`.
+7. Sucesso persiste texto, provedor/modelo e data; falha terminal guarda erro limitado. Ambos publicam `inbox.updated` para atualizar apenas a conversa afetada.
+
+Transcrições também são dependência da IA e do PDF do atendimento. A IA estaciona em `WAITING_INPUT`; o PDF solicita transcrição dos áudios ainda pendentes antes de montar o documento.
+
+### Retenção e limpeza
+
+Manutenção horária remove mensagens além de `messageRetentionMonths` em lotes de 1.000, no máximo 10 lotes por execução. Os objetos S3 são excluídos antes dos registros; se a remoção física falhar, o lote do banco é preservado para evitar órfãos silenciosos. Assets vinculados a usuário, empresa, resposta rápida, oportunidade ou RAG só podem ser removidos por seus fluxos proprietários.
+
 ## Pendências desta etapa
 
-🔴 **LACUNA** — os 10 módulos restantes ainda não foram escavados. Este documento será ampliado nos checkpoints seguintes sem substituir as seções confirmadas acima.
+🔴 **LACUNA** — os 7 módulos restantes ainda não foram escavados. Este documento será ampliado nos checkpoints seguintes sem substituir as seções confirmadas acima.

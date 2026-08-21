@@ -265,3 +265,98 @@ Número único dentro do workflow, grafo JSON, publicação e criação. Também
 ### `WorkflowStepExecution`
 
 Registro de cada passagem por nó, com estado, input/output, erro, início e conclusão. Diferentemente do chatbot, múltiplas passagens não possuem uma restrição única composta.
+
+## Follow-ups automáticos
+
+### `ConversationFollowUp`
+
+| Grupo | Campos |
+| --- | --- |
+| Vínculos | `organizationId`, `conversationId`, `taskId`, `createdById`, `responsibleId` |
+| Ação | `mode=MESSAGE_SEQUENCE|WORKFLOW`, `workflowVersionId?`, `workflowEnrollmentId?` |
+| Estado | `status=SCHEDULED`, `scheduledAt`, `revision=1` |
+| Resultado | `startedAt?`, `completedAt?`, `cancelledAt?`, `cancellationReason?`, `failureReason?` |
+| Ciclo | `createdAt`, `updatedAt` |
+
+`taskId` e `workflowEnrollmentId` são únicos. Índices cobrem estado/horário por organização e responsável. Uma migração adiciona índice parcial único por conversa quando o estado é `SCHEDULED` ou `RUNNING`.
+
+### `ConversationFollowUpStep`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `followUpId`, `position` | UUID, Int | Ordem única dentro da sequência. |
+| `messageId` | UUID? único | Mensagem efetivamente criada para a etapa. |
+| `text` | String? | Texto editável e sujeito a variáveis. |
+| `messageType` | `text` | Texto, imagem ou documento. |
+| `mediaKey`, `mediaName`, `mediaType` | String? | Referência segura e metadados do anexo. |
+| `delaySeconds` | `0` | Espera após a etapa anterior. |
+| `status` | `PENDING` | `PENDING`, `QUEUED`, `SENT`, `CANCELLED`, `FAILED`. |
+| `scheduledAt`, `sentAt`, `failureReason` | opcionais | Execução e diagnóstico. |
+
+Índices suportam busca por sequência/estado/posição e reconciliação global por estado/horário.
+
+## Inteligência artificial e RAG
+
+### `OrganizationAiSettings`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `organizationId` | UUID, chave primária | Uma configuração por organização. |
+| `enabled` | `false` | Liberação administrativa dos recursos de IA. |
+| `globalInstructions` | `""` | Regras gerais agregadas ao system prompt. |
+| `fallbackMessage` | texto padrão | Mensagem antes do handoff por indisponibilidade. |
+| `model` | `gpt-5.6-luna` | Modelo escolhido na lista curada. |
+| `openAiApiKeyEncrypted` | String? | Chave da organização cifrada no backend. |
+| `openAiApiKeyLastFour` | String? | Indicador seguro exibido na configuração. |
+| `openAiVectorStoreId` | String? | Índice vetorial remoto compartilhado pela organização. |
+| `updatedById`, timestamps | opcionais/ciclo | Auditoria administrativa. |
+
+### `AiKnowledgeDocument`
+
+Documento único por `mediaAssetId`, com organização, criador, estado `INDEXING|READY|FAILED|DELETING`, IDs do arquivo e vínculo vetorial na OpenAI, erro, data de indexação e timestamps. Índices cobrem listagem por organização/estado e recuperação de processamento abandonado.
+
+### `ConversationAiGeneration`
+
+| Grupo | Campos |
+| --- | --- |
+| Origem | `organizationId`, `conversationId?`, `requestedById?`, `chatbotSessionId?` |
+| Tipo/estado | `type`, `status=PENDING`, `scope?` |
+| Idempotência | `deduplicationKey` único, primeira/última mensagem de origem |
+| Processamento | `input`, `result`, `progress`, `model`, `error` |
+| Métricas | tokens de entrada/saída e duração total em ms |
+| Ciclo | criação, atualização e conclusão |
+
+Tipos: `SUMMARY`, `REPLY_SUGGESTION`, `CHATBOT_REPLY`, `CONFIG_TEST`. Estados: `PENDING`, `WAITING_INPUT`, `RUNNING`, `COMPLETED`, `FAILED`, `CANCELLED`, `STALE`.
+
+### `ConversationAiProposal`
+
+Proposta única por geração, ligada a conversa e contato. `changes` mantém campos sugeridos; `appliedFields` registra aplicação parcial; estados são `PENDING`, `PARTIALLY_APPLIED`, `APPLIED` e `DISMISSED`, com usuário/data da decisão.
+
+## Mídias e transcrição
+
+### `MediaAsset`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `id` | UUID | Identificador usado para pedir URL temporária. |
+| `messageId` | UUID? | Mensagem proprietária quando é anexo de conversa. |
+| `key` | String única | Caminho privado no bucket, prefixado pela organização. |
+| `filename` | String | Nome original para exibição/download. |
+| `contentType` | String | MIME validado no upload e na confirmação. |
+| `sizeBytes` | Int | Tamanho declarado e posteriormente confirmado. |
+| `expiresAt` | DateTime? | Campo opcional para ciclo temporário. |
+| `createdAt` | DateTime | Criação do registro. |
+
+Relações 1:1 opcionais e exclusivas: foto de usuário, logo de empresa, resposta rápida, proposta de oportunidade e documento da base de IA. Relação N:1 opcional com mensagem.
+
+### Campos de transcrição em `Message`
+
+| Campo | Significado |
+| --- | --- |
+| `transcriptionStatus` | Estado textual: ausente/`PROCESSING`/`COMPLETED`/`FAILED`. |
+| `transcriptionText` | Texto final persistido e reutilizado. |
+| `transcriptionError` | Diagnóstico terminal limitado. |
+| `transcriptionProvider` | Host do provedor e modelo usado. |
+| `transcribedAt` | Data de conclusão. |
+
+Não há tabela separada de transcrição: a reserva idempotente e o resultado vivem na própria mensagem.

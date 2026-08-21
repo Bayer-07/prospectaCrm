@@ -28,19 +28,19 @@
       ]
     },
     "archaeologist": {
-      "updated_at": "2026-08-21T12:46:16Z",
+      "updated_at": "2026-08-21T12:59:56Z",
       "modules_analyzed": [
         "identity-access",
         "crm-sales",
         "whatsapp-inbox",
         "campaigns-email",
         "chatbots",
-        "workflows"
-      ],
-      "modules_pending": [
+        "workflows",
         "follow-ups",
         "ai-knowledge",
-        "media-transcription",
+        "media-transcription"
+      ],
+      "modules_pending": [
         "reports-webhooks",
         "quick-replies",
         "realtime-notifications",
@@ -58,6 +58,9 @@
         "_reversa_sdd/flowcharts/campaigns-email.md",
         "_reversa_sdd/flowcharts/chatbots.md",
         "_reversa_sdd/flowcharts/workflows.md",
+        "_reversa_sdd/flowcharts/follow-ups.md",
+        "_reversa_sdd/flowcharts/ai-knowledge.md",
+        "_reversa_sdd/flowcharts/media-transcription.md",
         ".reversa/context/modules.json"
       ]
     }
@@ -135,6 +138,9 @@
     "_reversa_sdd\\flowcharts\\campaigns-email.md",
     "_reversa_sdd\\flowcharts\\chatbots.md",
     "_reversa_sdd\\flowcharts\\workflows.md",
-    ".reversa\\context\\modules.json"
+    ".reversa\\context\\modules.json",
+    "_reversa_sdd\\flowcharts\\follow-ups.md",
+    "_reversa_sdd\\flowcharts\\ai-knowledge.md",
+    "_reversa_sdd\\flowcharts\\media-transcription.md"
   ]
 }

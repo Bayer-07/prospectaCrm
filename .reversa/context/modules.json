@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T12:41:30Z",
+  "generated_at": "2026-08-21T12:59:56Z",
   "modules": [
     {
       "name": "identity-access",
@@ -195,6 +195,107 @@
       "dependencies": ["crm-sales", "whatsapp-inbox", "async-platform", "realtime-notifications", "follow-ups"],
       "algorithms": ["validação de DAG por DFS", "inscrição em lotes de 500", "um nó por job", "interpretação de caminho aninhado em condições"],
       "complexity": "very-high"
+    },
+    {
+      "name": "follow-ups",
+      "path": "apps/api/src/follow-ups; apps/worker/src/follow-up.processor.ts; apps/web/src/components/FollowUpModal.tsx",
+      "purpose": "Agendamento persistente de sequências de mensagens ou automações, vinculado a tarefas e conversas.",
+      "primary_files": [
+        "apps/api/src/follow-ups/follow-ups.service.ts",
+        "apps/api/src/follow-ups/follow-ups.controller.ts",
+        "apps/worker/src/follow-up.processor.ts",
+        "apps/web/src/components/FollowUpModal.tsx",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "FollowUpsService.create", "file": "apps/api/src/follow-ups/follow-ups.service.ts", "params": ["AuthContext", "conversationId", "FollowUpInput"], "returns": "Promise<ConversationFollowUp>", "confidence": "confirmed" },
+        { "name": "FollowUpsService.update", "file": "apps/api/src/follow-ups/follow-ups.service.ts", "params": ["AuthContext", "conversationId", "followUpId", "FollowUpInput"], "returns": "Promise<ConversationFollowUp>", "confidence": "confirmed" },
+        { "name": "FollowUpsService.rescheduleFromTask", "file": "apps/api/src/follow-ups/follow-ups.service.ts", "params": ["AuthContext", "taskId", "dueAt"], "returns": "Promise<void|FollowUp>", "confidence": "confirmed" },
+        { "name": "FollowUpProcessor.process", "file": "apps/worker/src/follow-up.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<result|void>", "confidence": "confirmed" },
+        { "name": "FollowUpProcessor.reconcile", "file": "apps/worker/src/follow-up.processor.ts", "params": ["reference?"], "returns": "Promise<{ scheduled }>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "ConversationFollowUp", "fields": [{ "name": "conversationId", "type": "UUID", "required": true }, { "name": "taskId", "type": "UUID", "required": true }, { "name": "mode", "type": "FollowUpMode", "required": true }, { "name": "status", "type": "FollowUpStatus", "required": true }, { "name": "scheduledAt", "type": "DateTime", "required": true }, { "name": "revision", "type": "int", "required": true }], "confidence": "confirmed" },
+        { "name": "ConversationFollowUpStep", "fields": [{ "name": "position", "type": "int", "required": true }, { "name": "text", "type": "string?", "required": false }, { "name": "mediaKey", "type": "string?", "required": false }, { "name": "delaySeconds", "type": "int", "required": true }, { "name": "status", "type": "FollowUpStepStatus", "required": true }, { "name": "messageId", "type": "UUID?", "required": false }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Existe no máximo um follow-up SCHEDULED ou RUNNING por conversa.", "location": "packages/database/prisma/migrations/20260813143000_conversation_follow_ups/migration.sql:50", "confidence": "confirmed" },
+        { "description": "A próxima mensagem só é agendada após o envio bem-sucedido da etapa anterior.", "location": "apps/worker/src/outbound.processor.ts", "confidence": "confirmed" },
+        { "description": "Resposta antes do início cancela; resposta durante a sequência interrompe apenas as etapas restantes.", "location": "apps/worker/src/inbound.processor.ts", "confidence": "confirmed" }
+      ],
+      "dependencies": ["whatsapp-inbox", "crm-sales", "workflows", "async-platform", "realtime-notifications", "media-transcription"],
+      "algorithms": ["jobs determinísticos por revisão", "claim atômico de etapa", "reconciliação por estado e horário", "tolerância de atraso de 30 minutos"],
+      "complexity": "high"
+    },
+    {
+      "name": "ai-knowledge",
+      "path": "apps/api/src/ai; apps/worker/src/ai.processor.ts; apps/worker/src/ai-knowledge.processor.ts; apps/web/src/pages/Settings.tsx; apps/web/src/pages/Inbox.tsx",
+      "purpose": "Resumos, sugestões, pré-atendimento estruturado e contexto documental via OpenAI Responses API e file search.",
+      "primary_files": [
+        "apps/api/src/ai/ai.service.ts",
+        "apps/worker/src/ai.processor.ts",
+        "apps/worker/src/openai-client.ts",
+        "apps/worker/src/ai-knowledge.processor.ts",
+        "apps/worker/src/openai-knowledge-client.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "AiService.createGeneration", "file": "apps/api/src/ai/ai.service.ts", "params": ["AuthContext", "conversationId", "type/scope"], "returns": "Promise<ConversationAiGeneration>", "confidence": "confirmed" },
+        { "name": "AiService.updateProposal", "file": "apps/api/src/ai/ai.service.ts", "params": ["AuthContext", "conversationId", "proposalId", "action/fields"], "returns": "Promise<ConversationAiProposal>", "confidence": "confirmed" },
+        { "name": "AiGenerationProcessor.process", "file": "apps/worker/src/ai.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<RealtimeEvent|result|void>", "confidence": "confirmed" },
+        { "name": "AiGenerationProcessor.reconcilePending", "file": "apps/worker/src/ai.processor.ts", "params": [], "returns": "Promise<{ scheduled }>", "confidence": "confirmed" },
+        { "name": "AiKnowledgeProcessor.process", "file": "apps/worker/src/ai-knowledge.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<RealtimeEvent|void>", "confidence": "confirmed" },
+        { "name": "OpenAiClient.generate", "file": "apps/worker/src/openai-client.ts", "params": ["GenerateOptions"], "returns": "Promise<AiResult<T>>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "OrganizationAiSettings", "fields": [{ "name": "enabled", "type": "boolean", "required": true }, { "name": "model", "type": "string", "required": true }, { "name": "openAiApiKeyEncrypted", "type": "string?", "required": false }, { "name": "openAiVectorStoreId", "type": "string?", "required": false }], "confidence": "confirmed" },
+        { "name": "AiKnowledgeDocument", "fields": [{ "name": "mediaAssetId", "type": "UUID", "required": true }, { "name": "status", "type": "AiKnowledgeDocumentStatus", "required": true }, { "name": "openAiFileId", "type": "string?", "required": false }, { "name": "openAiVectorFileId", "type": "string?", "required": false }], "confidence": "confirmed" },
+        { "name": "ConversationAiGeneration", "fields": [{ "name": "type", "type": "AiGenerationType", "required": true }, { "name": "status", "type": "AiGenerationStatus", "required": true }, { "name": "deduplicationKey", "type": "string", "required": true }, { "name": "input", "type": "JSON", "required": true }, { "name": "result", "type": "JSON?", "required": false }, { "name": "progress", "type": "int", "required": true }], "confidence": "confirmed" },
+        { "name": "ConversationAiProposal", "fields": [{ "name": "generationId", "type": "UUID", "required": true }, { "name": "status", "type": "AiProposalStatus", "required": true }, { "name": "changes", "type": "JSON", "required": true }, { "name": "appliedFields", "type": "JSON", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Sugestão manual nunca sobrescreve composer alterado ou com anexo.", "location": "apps/web/src/lib/ai-suggestion.ts", "confidence": "confirmed" },
+        { "description": "Assumir a conversa cancela a geração automática e impede envio posterior da IA.", "location": "apps/worker/src/ai.processor.ts:323", "confidence": "confirmed" },
+        { "description": "Empresas sugeridas nunca são criadas automaticamente; exigem correspondência exata única ou seleção humana.", "location": "apps/api/src/ai/ai.service.ts:337", "confidence": "confirmed" },
+        { "description": "Somente documentos READY habilitam file search para sugestão e chatbot.", "location": "apps/worker/src/ai.processor.ts:383", "confidence": "confirmed" }
+      ],
+      "dependencies": ["whatsapp-inbox", "chatbots", "media-transcription", "async-platform", "realtime-notifications", "OpenAI Responses API", "OpenAI Vector Stores"],
+      "algorithms": ["deduplicação SHA-256 por contexto", "resumo hierárquico em blocos", "detecção e regeneração de saída inglesa", "reconciliação de gerações abandonadas", "polling assíncrono de indexação vetorial"],
+      "complexity": "very-high"
+    },
+    {
+      "name": "media-transcription",
+      "path": "apps/api/src/media; apps/api/src/integrations/transcriptions.service.ts; apps/worker/src/storage.ts; apps/worker/src/audio-transcription.processor.ts",
+      "purpose": "Upload privado, entrega temporária, vínculo de arquivos, ingestão de mídias WhatsApp e transcrição persistente de áudios.",
+      "primary_files": [
+        "apps/api/src/media/media.service.ts",
+        "apps/api/src/integrations/transcriptions.service.ts",
+        "apps/worker/src/storage.ts",
+        "apps/worker/src/audio-transcription.processor.ts",
+        "apps/worker/src/transcription-client.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "MediaService.createUpload", "file": "apps/api/src/media/media.service.ts", "params": ["AuthContext", "filename/contentType/sizeBytes"], "returns": "Promise<{ id, key, uploadUrl, expiresAt }>", "confidence": "confirmed" },
+        { "name": "MediaService.downloadUrl", "file": "apps/api/src/media/media.service.ts", "params": ["AuthContext", "assetId", "attachment"], "returns": "Promise<{ url, expiresAt, filename, contentType }>", "confidence": "confirmed" },
+        { "name": "TranscriptionsService.request", "file": "apps/api/src/integrations/transcriptions.service.ts", "params": ["AuthContext", "conversationId", "messageId"], "returns": "Promise<TranscriptionState>", "confidence": "confirmed" },
+        { "name": "AudioTranscriptionProcessor.process", "file": "apps/worker/src/audio-transcription.processor.ts", "params": ["BullMQ Job"], "returns": "Promise<RealtimeEvent|void>", "confidence": "confirmed" },
+        { "name": "TranscriptionClient.transcribe", "file": "apps/worker/src/transcription-client.ts", "params": ["body/filename/contentType"], "returns": "Promise<{ text, provider }>", "confidence": "confirmed" },
+        { "name": "storeInboundMedia", "file": "apps/worker/src/storage.ts", "params": ["organizationId/filename/contentType/body"], "returns": "Promise<key>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "MediaAsset", "fields": [{ "name": "key", "type": "string", "required": true }, { "name": "filename", "type": "string", "required": true }, { "name": "contentType", "type": "string", "required": true }, { "name": "sizeBytes", "type": "int", "required": true }, { "name": "messageId", "type": "UUID?", "required": false }], "confidence": "confirmed" },
+        { "name": "Message transcription fields", "fields": [{ "name": "transcriptionStatus", "type": "string?", "required": false }, { "name": "transcriptionText", "type": "string?", "required": false }, { "name": "transcriptionError", "type": "string?", "required": false }, { "name": "transcriptionProvider", "type": "string?", "required": false }, { "name": "transcribedAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Todo asset acessível deve ter chave prefixada pela organização autenticada.", "location": "apps/api/src/media/media.service.ts:105", "confidence": "confirmed" },
+        { "description": "Upload geral e mídia WhatsApp são limitados a 25 MB; fotos e logos a 5 MB.", "location": "apps/api/src/media/media.service.ts:16", "confidence": "confirmed" },
+        { "description": "Transcrição concluída é reutilizada e PROCESSING com menos de 10 minutos não é reenfileirado.", "location": "apps/api/src/integrations/transcriptions.service.ts:30", "confidence": "confirmed" },
+        { "description": "A limpeza exclui objetos antes das mensagens para não deixar mídia órfã silenciosamente.", "location": "apps/worker/src/maintenance.processor.ts:49", "confidence": "confirmed" }
+      ],
+      "dependencies": ["whatsapp-inbox", "ai-knowledge", "async-platform", "MinIO/S3", "Evolution API", "Speaches/OpenAI-compatible transcription"],
+      "algorithms": ["URLs pré-assinadas com endpoints separados", "reserva atômica de transcrição", "download único de modelo local", "semáforo de ingestão de mídia", "retenção em lotes de 1000"],
+      "complexity": "high"
     }
   ]
 }
