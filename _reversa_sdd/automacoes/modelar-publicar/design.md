@@ -29,4 +29,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/workflows/workflows.service.ts`, `apps/web/src/pages/WorkflowBuilder.tsx`. **[CONFIRMADO]**
+`apps/api/src/workflows/workflows.service.ts`, `apps/web/src/pages/Automations.tsx`. **[CONFIRMADO]**

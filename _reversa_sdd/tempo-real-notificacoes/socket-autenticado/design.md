@@ -23,4 +23,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/realtime/realtime.gateway.ts`, `apps/web/src/providers/RealtimeProvider.tsx`. **[CONFIRMADO]**
+`apps/api/src/realtime/realtime.gateway.ts`, `apps/web/src/lib/realtime.ts`. **[CONFIRMADO]**

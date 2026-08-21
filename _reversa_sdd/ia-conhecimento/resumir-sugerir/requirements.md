@@ -33,4 +33,4 @@ Cenário: fluxo principal de resumir e sugerir resposta
 
 ## Rastreabilidade
 
-`apps/api/src/ai/ai.service.ts`, `apps/worker/src/ai-generation.processor.ts`, `apps/web/src/pages/Inbox.tsx`. **[CONFIRMADO]**
+`apps/api/src/ai/ai.service.ts`, `apps/worker/src/ai.processor.ts`, `apps/web/src/pages/Inbox.tsx`. **[CONFIRMADO]**

@@ -50,4 +50,4 @@ Cenário: executar campanhas de whatsapp e e-mail sem duplicidade
 
 ## Rastreabilidade
 
-`apps/api/src/campaigns/campaigns.controller.ts`, `apps/api/src/campaigns/campaigns.service.ts`, `apps/worker/src/campaign.processor.ts`, `apps/worker/src/email-campaign.processor.ts`, `apps/web/src/pages/Campaigns.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**
+`apps/api/src/campaigns/campaigns.controller.ts`, `apps/api/src/campaigns/campaigns.service.ts`, `apps/worker/src/campaign.processor.ts`, `apps/worker/src/gmail-campaign-client.ts`, `apps/web/src/pages/Campaigns.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**

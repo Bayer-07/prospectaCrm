@@ -112,6 +112,6 @@ sequenceDiagram
 
 - `apps/api/src/auth/auth.controller.ts`, `auth.service.ts`, `auth.guard.ts`, `auth-cache.service.ts`, `auth-cookies.ts`. **[CONFIRMADO]**
 - `apps/api/src/users/users.controller.ts`, `users.service.ts`. **[CONFIRMADO]**
-- `apps/api/src/common/csrf.guard.ts`, `idempotency.interceptor.ts`. **[CONFIRMADO]**
+- `apps/api/src/auth/auth.guard.ts` para CSRF e `apps/api/src/common/idempotency.interceptor.ts`. **[CONFIRMADO]**
 - `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**
 - ADR 003 em `_reversa_sdd/adrs/003-autenticacao-propria-rbac-e-api-keys.md`. **[CONFIRMADO]**

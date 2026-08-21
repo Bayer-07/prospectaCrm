@@ -52,4 +52,4 @@ Cenário: sessão expirada
 
 ## Rastreabilidade
 
-`apps/api/src/auth/auth.controller.ts`, `auth.service.ts`, `auth.guard.ts`, `auth-cookies.ts`, `auth-cache.service.ts`; `apps/web/src/auth/**` e `apps/web/src/pages/Login.tsx`. **[CONFIRMADO]**
+`apps/api/src/auth/auth.controller.ts`, `auth.service.ts`, `auth.guard.ts`, `auth-cookies.ts`, `auth-cache.service.ts`; `apps/web/src/pages/Auth.tsx`, `apps/web/src/App.tsx` e `apps/web/src/lib/api.ts`. **[CONFIRMADO]**

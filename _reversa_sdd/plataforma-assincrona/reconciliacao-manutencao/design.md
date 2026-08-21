@@ -21,4 +21,4 @@ flowchart LR
 
 ## Referências
 
-`apps/worker/src/maintenance.processor.ts`, `apps/worker/src/follow-up-reconciler.ts`. **[CONFIRMADO]**
+`apps/worker/src/maintenance.processor.ts`, `apps/worker/src/follow-up.processor.ts`, `apps/worker/src/main.ts`. **[CONFIRMADO]**

@@ -33,4 +33,4 @@ Cenário: fluxo principal de filas e workers
 
 ## Rastreabilidade
 
-`apps/worker/src/main.ts`, `apps/worker/src/queue.ts`, `apps/api/src/queue/queue.service.ts`. **[CONFIRMADO]**
+`apps/worker/src/main.ts`, `apps/api/src/queue/queue.module.ts`. **[CONFIRMADO]**

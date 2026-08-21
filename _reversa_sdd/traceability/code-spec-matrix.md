@@ -8,7 +8,7 @@ Relacionar cada fronteira principal do código legado às especificações recon
 
 | Código legado | Especificação canônica | Casos de uso cobertos | Testes/evidência | Confiança |
 |---|---|---|---|---|
-| `apps/api/src/auth/**`, `apps/api/src/users/**`, `apps/web/src/auth/**` | `_reversa_sdd/identidade-acesso/` | login, sessões, usuários, papéis, convites, recuperação, chaves | `apps/api/src/auth/*.test.ts`, `apps/api/src/users/*.test.ts` | **[CONFIRMADO]** |
+| `apps/api/src/auth/**`, `apps/api/src/users/**`, `apps/web/src/pages/Auth.tsx`, `apps/web/src/lib/api.ts` | `_reversa_sdd/identidade-acesso/` | login, sessões, usuários, papéis, convites, recuperação, chaves | `apps/api/src/auth/*.test.ts`, `apps/api/src/users/*.test.ts` | **[CONFIRMADO]** |
 | `apps/api/src/crm/**`, páginas `Companies`, `Contacts`, `Pipeline`, `Tasks` | `_reversa_sdd/crm-vendas/` | empresas/contatos, oportunidades, tarefas, importação/segmentos | `apps/api/src/crm/*.test.ts`, testes web correspondentes | **[CONFIRMADO]** |
 | `apps/api/src/integrations/**`, `apps/worker/src/inbound.processor.ts`, `Inbox.tsx` | `_reversa_sdd/whatsapp-inbox/` | conexões, tickets, mensagens/mídias, webhooks | testes Evolution, inbound e Inbox | **[CONFIRMADO]** |
 | `apps/api/src/campaigns/**`, processors de campanha/e-mail | `_reversa_sdd/campanhas-email/` | audiência, WhatsApp, e-mail, ciclo | `campaign.processor.test.ts`, testes de campaigns | **[CONFIRMADO]** |
@@ -47,7 +47,7 @@ Relacionar cada fronteira principal do código legado às especificações recon
 ## Regra de manutenção
 
 1. Localizar nesta matriz o módulo tocado pelo código. **[INFERIDO]**
-2. Atualizar primeiro requisitos/design/contratos afetados e registrar incerteza como **[A VALIDAR]**. **[INFERIDO]**
+2. Atualizar primeiro requisitos/design/contratos afetados e registrar incerteza com a marcação `[A VALIDAR]`. **[INFERIDO]**
 3. Implementar e validar pelas tarefas do caso de uso. **[INFERIDO]**
 4. Atualizar ERD/OpenAPI/ADR quando a alteração atravessar uma dessas fronteiras. **[INFERIDO]**
 5. Não considerar concluído sem teste ou evidência explicitamente ligada ao requisito. **[INFERIDO]**

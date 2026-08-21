@@ -23,4 +23,4 @@ flowchart LR
 
 ## Referências
 
-`apps/worker/src/ai-generation.processor.ts`, `apps/worker/src/chatbot.processor.ts`, `apps/api/src/ai`. **[CONFIRMADO]**
+`apps/worker/src/ai.processor.ts`, `apps/worker/src/chatbot.processor.ts`, `apps/api/src/ai`. **[CONFIRMADO]**

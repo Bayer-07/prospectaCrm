@@ -27,6 +27,11 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/OwnerFilter'
+        - $ref: '#/components/parameters/TeamFilter'
+        - $ref: '#/components/parameters/SectorFilter'
+        - $ref: '#/components/parameters/SizeFilter'
+        - $ref: '#/components/parameters/HasContacts'
       responses:
         '200':
           description: Página de empresas [CONFIRMADO]
@@ -87,7 +92,11 @@ paths:
       tags: [Empresas]
       summary: Desativar empresa
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200':
+          description: Empresa arquivada [CONFIRMADO]
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/CompanyResponse' }
   /contacts:
     get:
       tags: [Contatos]
@@ -96,6 +105,14 @@ paths:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
         - $ref: '#/components/parameters/Search'
+        - $ref: '#/components/parameters/ConsentFilter'
+        - $ref: '#/components/parameters/EmailOnly'
+        - $ref: '#/components/parameters/OwnerFilter'
+        - $ref: '#/components/parameters/TeamFilter'
+        - $ref: '#/components/parameters/TagFilter'
+        - $ref: '#/components/parameters/CompanyFilter'
+        - $ref: '#/components/parameters/HasPhone'
+        - $ref: '#/components/parameters/HasEmail'
       responses:
         '200':
           description: Página de contatos [CONFIRMADO]
@@ -156,7 +173,11 @@ paths:
       tags: [Contatos]
       summary: Desativar contato
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200':
+          description: Contato arquivado [CONFIRMADO]
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/ContactResponse' }
   /opportunities:
     get:
       tags: [Oportunidades]
@@ -164,6 +185,7 @@ paths:
       parameters:
         - $ref: '#/components/parameters/Limit'
         - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Search'
       responses:
         '200':
           description: Página de oportunidades [CONFIRMADO]
@@ -222,14 +244,19 @@ paths:
       tags: [Oportunidades]
       summary: Desativar oportunidade
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200':
+          description: Oportunidade arquivada [CONFIRMADO]
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/OpportunityResponse' }
   /tasks:
     get:
       tags: [Tarefas]
       summary: Listar tarefas
       parameters:
-        - $ref: '#/components/parameters/Limit'
-        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/From'
+        - $ref: '#/components/parameters/To'
+        - $ref: '#/components/parameters/TaskStatus'
       responses:
         '200':
           description: Página de tarefas [CONFIRMADO]
@@ -278,7 +305,11 @@ paths:
       tags: [Tarefas]
       summary: Excluir ou cancelar tarefa
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200':
+          description: Tarefa cancelada [CONFIRMADO]
+          content:
+            application/json:
+              schema: { $ref: '#/components/schemas/TaskResponse' }
   /tasks/{id}/complete:
     patch:
       tags: [Tarefas]
@@ -332,7 +363,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/TagInput'
+              $ref: '#/components/schemas/TagPatch'
       responses:
         '200':
           description: Tag atualizada [CONFIRMADO]
@@ -344,11 +375,13 @@ paths:
       tags: [Tags]
       summary: Excluir tag
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200': { $ref: '#/components/responses/Deleted' }
   /custom-fields:
     get:
       tags: [Campos personalizados]
       summary: Listar campos personalizados
+      parameters:
+        - $ref: '#/components/parameters/EntityType'
       responses:
         '200':
           description: Campos disponíveis [CONFIRMADO]
@@ -385,7 +418,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/CustomFieldInput'
+              $ref: '#/components/schemas/CustomFieldPatch'
       responses:
         '200':
           description: Campo atualizado [CONFIRMADO]
@@ -397,7 +430,7 @@ paths:
       tags: [Campos personalizados]
       summary: Excluir campo personalizado
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200': { $ref: '#/components/responses/Deleted' }
   /segments:
     get:
       tags: [Segmentos]
@@ -438,7 +471,7 @@ paths:
         content:
           application/json:
             schema:
-              $ref: '#/components/schemas/SegmentInput'
+              $ref: '#/components/schemas/SegmentPatch'
       responses:
         '200':
           description: Segmento atualizado [CONFIRMADO]
@@ -450,7 +483,7 @@ paths:
       tags: [Segmentos]
       summary: Excluir segmento
       responses:
-        '200': { $ref: '#/components/responses/Success' }
+        '200': { $ref: '#/components/responses/Deleted' }
 components:
   securitySchemes:
     api-key:
@@ -476,25 +509,85 @@ components:
       name: search
       in: query
       schema: { type: string, maxLength: 200 }
+    OwnerFilter:
+      name: ownerId
+      in: query
+      description: UUID do responsável ou `none` para registros sem responsável.
+      schema: { type: string }
+    TeamFilter:
+      name: teamId
+      in: query
+      description: UUID da equipe ou `none` para registros sem equipe.
+      schema: { type: string }
+    SectorFilter:
+      name: sector
+      in: query
+      schema: { type: string, maxLength: 100 }
+    SizeFilter:
+      name: size
+      in: query
+      schema: { type: string, maxLength: 60 }
+    HasContacts:
+      name: hasContacts
+      in: query
+      schema: { type: boolean }
+    ConsentFilter:
+      name: consent
+      in: query
+      schema: { type: string, enum: [unknown, granted, revoked] }
+    EmailOnly:
+      name: emailOnly
+      in: query
+      deprecated: true
+      description: Compatibilidade; prefira `hasEmail=true`.
+      schema: { type: boolean }
+    TagFilter:
+      name: tagId
+      in: query
+      schema: { type: string, format: uuid }
+    CompanyFilter:
+      name: company
+      in: query
+      description: Texto contido no nome da empresa principal.
+      schema: { type: string, maxLength: 160 }
+    HasPhone:
+      name: hasPhone
+      in: query
+      schema: { type: boolean }
+    HasEmail:
+      name: hasEmail
+      in: query
+      schema: { type: boolean }
+    From:
+      name: from
+      in: query
+      description: Início inclusivo do período.
+      schema: { type: string, format: date-time }
+    To:
+      name: to
+      in: query
+      description: Fim exclusivo do período.
+      schema: { type: string, format: date-time }
+    TaskStatus:
+      name: status
+      in: query
+      schema: { type: string, enum: [OPEN, COMPLETED, CANCELLED, ALL] }
+    EntityType:
+      name: entityType
+      in: query
+      schema: { type: string, enum: [company, contact, opportunity] }
     IdempotencyKey:
       name: Idempotency-Key
       in: header
       required: true
       schema: { type: string, minLength: 8, maxLength: 200 }
   responses:
-    Success:
-      description: Operação concluída [CONFIRMADO]
+    Deleted:
+      description: Registro excluído [CONFIRMADO]
       content:
         application/json:
           schema:
-            type: object
-            required: [data]
-            properties:
-              data:
-                type: object
-                required: [success]
-                properties:
-                  success: { type: boolean, example: true }
+            $ref: '#/components/schemas/DeletedResponse'
     NotFound:
       description: Registro inexistente ou fora do escopo [CONFIRMADO]
       content:
@@ -521,17 +614,21 @@ components:
       additionalProperties: true
     Company:
       type: object
-      required: [id, name, createdAt, updatedAt]
+      required: [id, organizationId, name, address, customFields, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
         externalId: { type: string, nullable: true }
         cnpj: { type: string, nullable: true, example: '29277764000100' }
         name: { type: string }
         domain: { type: string, nullable: true }
-        industry: { type: string, nullable: true }
+        legalName: { type: string, nullable: true }
+        sector: { type: string, nullable: true }
         size: { type: string, nullable: true }
+        phone: { type: string, nullable: true }
         linkedinUrl: { type: string, format: uri, nullable: true }
-        address: { type: object, nullable: true, additionalProperties: true }
+        logoId: { type: string, format: uuid, nullable: true }
+        address: { type: object, additionalProperties: true }
         ownerId: { type: string, format: uuid, nullable: true }
         teamId: { type: string, format: uuid, nullable: true }
         customFields: { $ref: '#/components/schemas/CustomValues' }
@@ -545,30 +642,50 @@ components:
         cnpj: { type: string }
         name: { type: string }
         domain: { type: string }
-        industry: { type: string }
+        legalName: { type: string }
+        sector: { type: string }
         size: { type: string }
+        phone: { type: string }
         linkedinUrl: { type: string, format: uri }
         address: { type: object, additionalProperties: true }
         ownerId: { type: string, format: uuid }
         teamId: { type: string, format: uuid }
-        tagIds: { type: array, items: { type: string, format: uuid } }
         customFields: { $ref: '#/components/schemas/CustomValues' }
     CompanyPatch:
-      allOf:
-        - $ref: '#/components/schemas/CompanyInput'
+      type: object
+      description: Todos os atributos são opcionais; os omitidos permanecem inalterados. [CONFIRMADO]
+      properties:
+        externalId: { type: string }
+        name: { type: string }
+        legalName: { type: string }
+        cnpj: { type: string }
+        domain: { type: string }
+        linkedinUrl: { type: string, format: uri, nullable: true }
+        sector: { type: string }
+        size: { type: string }
+        phone: { type: string }
+        address: { type: object, additionalProperties: true }
+        ownerId: { type: string, format: uuid, nullable: true }
+        teamId: { type: string, format: uuid, nullable: true }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
     Contact:
       type: object
-      required: [id, name, campaignsBlocked, createdAt, updatedAt]
+      required: [id, organizationId, name, consentStatus, campaignsBlocked, customFields, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
         externalId: { type: string, nullable: true }
         name: { type: string }
         jobTitle: { type: string, nullable: true }
         email: { type: string, format: email, nullable: true }
         phone: { type: string, pattern: '^\\+[1-9][0-9]{7,14}$', nullable: true }
-        companyId: { type: string, format: uuid, nullable: true }
+        primaryCompanyId: { type: string, format: uuid, nullable: true }
         ownerId: { type: string, format: uuid, nullable: true }
+        teamId: { type: string, format: uuid, nullable: true }
         source: { type: string, nullable: true }
+        consentStatus: { type: string, enum: [UNKNOWN, GRANTED, REVOKED] }
+        consentSource: { type: string, nullable: true }
+        consentEvidence: { type: string, nullable: true }
         campaignsBlocked: { type: boolean }
         customFields: { $ref: '#/components/schemas/CustomValues' }
         createdAt: { type: string, format: date-time }
@@ -584,122 +701,225 @@ components:
         phone: { type: string, pattern: '^\\+[1-9][0-9]{7,14}$' }
         companyId: { type: string, format: uuid }
         ownerId: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
         source: { type: string }
+        consentStatus: { type: string, enum: [unknown, granted, revoked], default: unknown }
+        consentSource: { type: string }
+        consentEvidence: { type: string }
         campaignsBlocked: { type: boolean, default: false }
         customFields: { $ref: '#/components/schemas/CustomValues' }
     ContactPatch:
-      allOf:
-        - $ref: '#/components/schemas/ContactInput'
+      type: object
+      description: 'Todos os atributos são opcionais; `companyId: null` remove a empresa principal. [CONFIRMADO]'
+      properties:
+        externalId: { type: string }
+        name: { type: string }
+        jobTitle: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string, pattern: '^\\+[1-9][0-9]{7,14}$' }
+        companyId: { type: string, format: uuid, nullable: true }
+        ownerId: { type: string, format: uuid, nullable: true }
+        teamId: { type: string, format: uuid, nullable: true }
+        source: { type: string }
+        consentStatus: { type: string, enum: [unknown, granted, revoked] }
+        consentSource: { type: string }
+        consentEvidence: { type: string }
+        campaignsBlocked: { type: boolean }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
     Opportunity:
       type: object
-      required: [id, pipelineId, stageId, valueCents, createdAt, updatedAt]
+      required: [id, organizationId, title, pipelineId, stageId, status, valueCents, currency, probability, customFields, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
         externalId: { type: string, nullable: true }
+        title: { type: string }
         companyId: { type: string, format: uuid, nullable: true }
         pipelineId: { type: string, format: uuid }
         stageId: { type: string, format: uuid }
+        status: { type: string, enum: [OPEN, WON, LOST] }
         valueCents: { type: integer, minimum: 0 }
+        currency: { type: string, example: BRL }
         probability: { type: integer, minimum: 0, maximum: 100 }
         expectedCloseAt: { type: string, format: date-time, nullable: true }
         ownerId: { type: string, format: uuid, nullable: true }
+        teamId: { type: string, format: uuid, nullable: true }
         source: { type: string, nullable: true }
-        lostReason: { type: string, nullable: true }
-        contactIds: { type: array, items: { type: string, format: uuid } }
+        lossReason: { type: string, nullable: true }
+        wonAt: { type: string, format: date-time, nullable: true }
+        lostAt: { type: string, format: date-time, nullable: true }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
+        archivedAt: { type: string, format: date-time, nullable: true }
         createdAt: { type: string, format: date-time }
         updatedAt: { type: string, format: date-time }
     OpportunityInput:
       type: object
-      required: [pipelineId, stageId]
+      required: [title, pipelineId, stageId]
       properties:
         externalId: { type: string }
+        title: { type: string }
         companyId: { type: string, format: uuid }
-        contactIds: { type: array, items: { type: string, format: uuid } }
+        contactId: { type: string, format: uuid }
         pipelineId: { type: string, format: uuid }
         stageId: { type: string, format: uuid }
         valueCents: { type: integer, minimum: 0, default: 0 }
         probability: { type: integer, minimum: 0, maximum: 100 }
         expectedCloseAt: { type: string, format: date-time }
         ownerId: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
         source: { type: string }
-        lostReason: { type: string }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
     OpportunityPatch:
-      allOf:
-        - $ref: '#/components/schemas/OpportunityInput'
+      type: object
+      description: Todos os atributos são opcionais; etapa deve pertencer ao funil atual ou enviado. [CONFIRMADO]
+      properties:
+        externalId: { type: string }
+        title: { type: string }
+        companyId: { type: string, format: uuid, nullable: true }
+        contactId: { type: string, format: uuid, nullable: true }
+        pipelineId: { type: string, format: uuid }
+        stageId: { type: string, format: uuid }
+        valueCents: { type: integer, minimum: 0 }
+        probability: { type: integer, minimum: 0, maximum: 100 }
+        expectedCloseAt: { type: string, format: date-time, nullable: true }
+        ownerId: { type: string, format: uuid, nullable: true }
+        teamId: { type: string, format: uuid, nullable: true }
+        source: { type: string }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
     Task:
       type: object
-      required: [id, title, status, startsAt, endsAt, assigneeId]
+      required: [id, organizationId, createdById, title, status, dueAt, priority, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
+        teamId: { type: string, format: uuid, nullable: true }
+        createdById: { type: string, format: uuid }
         title: { type: string }
         description: { type: string, nullable: true }
         status: { type: string, enum: [OPEN, COMPLETED, CANCELLED] }
-        startsAt: { type: string, format: date-time }
-        endsAt: { type: string, format: date-time }
-        assigneeId: { type: string, format: uuid }
+        dueAt: { type: string, format: date-time }
+        priority: { type: string, enum: [LOW, MEDIUM, HIGH] }
+        assigneeId: { type: string, format: uuid, nullable: true }
         contactId: { type: string, format: uuid, nullable: true }
         companyId: { type: string, format: uuid, nullable: true }
         opportunityId: { type: string, format: uuid, nullable: true }
+        completedAt: { type: string, format: date-time, nullable: true }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     TaskInput:
       type: object
-      required: [title, startsAt, endsAt, assigneeId]
+      required: [title, dueAt]
       properties:
         title: { type: string }
         description: { type: string }
-        startsAt: { type: string, format: date-time }
-        endsAt: { type: string, format: date-time }
+        dueAt: { type: string, format: date-time }
+        priority: { type: string, enum: [low, medium, high], default: medium }
         assigneeId: { type: string, format: uuid }
         contactId: { type: string, format: uuid }
         companyId: { type: string, format: uuid }
         opportunityId: { type: string, format: uuid }
     TaskPatch:
-      allOf:
-        - $ref: '#/components/schemas/TaskInput'
+      type: object
+      description: Todos os atributos são opcionais. [CONFIRMADO]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        dueAt: { type: string, format: date-time }
+        priority: { type: string, enum: [low, medium, high] }
+        assigneeId: { type: string, format: uuid, nullable: true }
+        contactId: { type: string, format: uuid, nullable: true }
+        companyId: { type: string, format: uuid, nullable: true }
+        opportunityId: { type: string, format: uuid, nullable: true }
     Tag:
       type: object
-      required: [id, name]
+      required: [id, organizationId, name, color]
       properties:
         id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
         name: { type: string }
-        color: { type: string, nullable: true }
+        color: { type: string }
     TagInput:
       type: object
       required: [name]
       properties:
         name: { type: string }
         color: { type: string }
+    TagPatch:
+      type: object
+      description: Todos os atributos são opcionais. [CONFIRMADO]
+      properties:
+        name: { type: string }
+        color: { type: string }
     CustomField:
       type: object
-      required: [id, name, entityType, fieldType]
+      required: [id, organizationId, entityType, key, label, fieldType, options, required, position]
       properties:
         id: { type: string, format: uuid }
-        name: { type: string }
-        entityType: { type: string, enum: [COMPANY, CONTACT, OPPORTUNITY] }
-        fieldType: { type: string, enum: [TEXT, NUMBER, DATE, BOOLEAN, SELECT] }
-        options: { type: array, items: { type: string } }
+        organizationId: { type: string, format: uuid }
+        entityType: { type: string, enum: [company, contact, opportunity] }
+        key: { type: string }
+        label: { type: string }
+        fieldType: { type: string, enum: [text, number, date, boolean, select, multiselect] }
+        options: { type: array, items: {} }
+        required: { type: boolean }
+        position: { type: integer }
     CustomFieldInput:
       type: object
-      required: [name, entityType, fieldType]
+      required: [entityType, key, label, fieldType]
       properties:
-        name: { type: string }
-        entityType: { type: string }
-        fieldType: { type: string }
+        entityType: { type: string, enum: [company, contact, opportunity] }
+        key: { type: string, pattern: '^[a-z][a-z0-9_]{1,40}$' }
+        label: { type: string }
+        fieldType: { type: string, enum: [text, number, date, boolean, select, multiselect] }
         options: { type: array, items: { type: string } }
+        required: { type: boolean, default: false }
+        position: { type: integer, default: 0 }
+    CustomFieldPatch:
+      type: object
+      description: A chave e o tipo técnico não podem ser alterados. [CONFIRMADO]
+      properties:
+        label: { type: string }
+        options: { type: array, items: {} }
+        required: { type: boolean }
+        position: { type: integer }
     Segment:
       type: object
-      required: [id, name, filters]
+      required: [id, organizationId, name, isDynamic, filters, createdAt, updatedAt]
       properties:
         id: { type: string, format: uuid }
+        organizationId: { type: string, format: uuid }
         name: { type: string }
         filters: { type: object, additionalProperties: true }
-        staticContactIds: { type: array, items: { type: string, format: uuid } }
+        description: { type: string, nullable: true }
+        isDynamic: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
     SegmentInput:
       type: object
       required: [name]
       properties:
         name: { type: string }
         filters: { type: object, additionalProperties: true }
-        staticContactIds: { type: array, items: { type: string, format: uuid } }
+        description: { type: string }
+        contactIds: { type: array, items: { type: string, format: uuid } }
+    SegmentPatch:
+      type: object
+      description: Todos os atributos são opcionais. [CONFIRMADO]
+      properties:
+        name: { type: string }
+        filters: { type: object, additionalProperties: true }
+        description: { type: string }
+        contactIds: { type: array, items: { type: string, format: uuid } }
+    Deleted:
+      type: object
+      required: [deleted]
+      properties:
+        deleted: { type: boolean, example: true }
+    DeletedResponse:
+      type: object
+      required: [data]
+      properties:
+        data: { $ref: '#/components/schemas/Deleted' }
     CompanyResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Company' } } }
     ContactResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Contact' } } }
     OpportunityResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Opportunity' } } }
@@ -710,7 +930,7 @@ components:
     CompanyListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Company' } } } }] }
     ContactListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Contact' } } } }] }
     OpportunityListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Opportunity' } } } }] }
-    TaskListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Task' } } } }] }
+    TaskListResponse: { type: object, properties: { data: { type: array, maxItems: 2000, items: { $ref: '#/components/schemas/Task' } } } }
     TagListResponse: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Tag' } } } }
     CustomFieldListResponse: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/CustomField' } } } }
     SegmentListResponse: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Segment' } } } }

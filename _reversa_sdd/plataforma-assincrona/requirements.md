@@ -49,4 +49,4 @@ Cenário: operar plataforma assíncrona com configuração válida
 
 ## Rastreabilidade
 
-`apps/worker/src/main.ts`, `apps/worker/src/queue.ts`, `apps/worker/src/redis.ts`, `apps/worker/src/maintenance.processor.ts`, `apps/api/src/queue/queue.service.ts`, `docker-compose.yml`. **[CONFIRMADO]**
+`apps/worker/src/main.ts`, `apps/worker/src/maintenance.processor.ts`, `apps/api/src/queue/queue.module.ts`, `docker-compose.yml`. **[CONFIRMADO]**

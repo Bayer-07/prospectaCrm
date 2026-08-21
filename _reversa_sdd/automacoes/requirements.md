@@ -49,4 +49,4 @@ Cenário: executar automações sem duplicidade
 
 ## Rastreabilidade
 
-`apps/api/src/workflows/workflows.controller.ts`, `apps/api/src/workflows/workflows.service.ts`, `apps/worker/src/workflow.processor.ts`, `apps/web/src/pages/Workflows.tsx`, `apps/web/src/pages/WorkflowBuilder.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**
+`apps/api/src/workflows/workflows.controller.ts`, `apps/api/src/workflows/workflows.service.ts`, `apps/worker/src/workflow.processor.ts`, `apps/web/src/pages/Automations.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**

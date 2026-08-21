@@ -8,16 +8,15 @@
   "doc_level": "completo",
   "output_folder": "_reversa_sdd",
   "forward_folder": "_reversa_forward",
-  "phase": "revisao",
+  "phase": "concluido",
   "completed": [
     "reconhecimento",
     "escavacao",
     "interpretacao",
-    "geracao"
-  ],
-  "pending": [
+    "geracao",
     "revisao"
   ],
+  "pending": [],
   "checkpoints": {
     "scout": {
       "completed_at": "2026-08-21T12:25:32Z",
@@ -122,6 +121,22 @@
         "_reversa_sdd/user-stories/ia-e-conhecimento.md",
         "_reversa_sdd/user-stories/api-e-mcp.md",
         "_reversa_sdd/traceability/code-spec-matrix.md"
+      ]
+    },
+    "reviewer": {
+      "completed_at": "2026-08-21T14:35:53Z",
+      "units_reviewed": 71,
+      "files_reviewed": 238,
+      "cross_review": false,
+      "reclassifications": 0,
+      "factual_correction_groups": 2,
+      "questions": 7,
+      "gaps": 39,
+      "confidence_percent": 79.3,
+      "files": [
+        "_reversa_sdd/confidence-report.md",
+        "_reversa_sdd/questions.md",
+        "_reversa_sdd/gaps.md"
       ]
     }
   },
@@ -236,6 +251,9 @@
     "_reversa_sdd\\c4-containers.md",
     "_reversa_sdd\\c4-components.md",
     "_reversa_sdd\\erd-complete.md",
-    "_reversa_sdd\\traceability\\spec-impact-matrix.md"
+    "_reversa_sdd\\traceability\\spec-impact-matrix.md",
+    "_reversa_sdd\\confidence-report.md",
+    "_reversa_sdd\\questions.md",
+    "_reversa_sdd\\gaps.md"
   ]
 }

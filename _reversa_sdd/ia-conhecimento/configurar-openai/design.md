@@ -23,4 +23,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/ai/ai.controller.ts`, `apps/api/src/ai/ai.service.ts`, `apps/web/src/pages/AiSettings.tsx`. **[CONFIRMADO]**
+`apps/api/src/ai/ai.controller.ts`, `apps/api/src/ai/ai.service.ts`, `apps/web/src/pages/Settings.tsx`. **[CONFIRMADO]**

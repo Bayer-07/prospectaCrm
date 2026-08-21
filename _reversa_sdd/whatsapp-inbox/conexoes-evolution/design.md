@@ -29,4 +29,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/integrations/integrations.controller.ts`, `apps/api/src/integrations/evolution.service.ts`, `apps/web/src/pages/Connections.tsx`. **[CONFIRMADO]**
+`apps/api/src/integrations/integrations.controller.ts`, `apps/api/src/integrations/evolution.service.ts`, `apps/web/src/pages/Settings.tsx`. **[CONFIRMADO]**

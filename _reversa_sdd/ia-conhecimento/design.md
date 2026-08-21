@@ -46,4 +46,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/ai/ai.controller.ts`, `apps/api/src/ai/ai.service.ts`, `apps/worker/src/ai-generation.processor.ts`, `apps/worker/src/openai-client.ts`, `apps/web/src/pages/AiSettings.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**
+`apps/api/src/ai/ai.controller.ts`, `apps/api/src/ai/ai.service.ts`, `apps/worker/src/ai.processor.ts`, `apps/worker/src/openai-client.ts`, `apps/web/src/pages/Settings.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**

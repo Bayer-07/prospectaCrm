@@ -33,4 +33,4 @@ Cenário: fluxo principal de modelar e publicar chatbot
 
 ## Rastreabilidade
 
-`apps/api/src/chatbots/chatbots.service.ts`, `apps/web/src/pages/ChatbotBuilder.tsx`. **[CONFIRMADO]**
+`apps/api/src/chatbots/chatbots.service.ts`, `apps/web/src/pages/Chatbots.tsx`. **[CONFIRMADO]**

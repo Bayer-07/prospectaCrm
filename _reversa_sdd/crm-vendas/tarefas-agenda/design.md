@@ -29,4 +29,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/crm/crm.controller.ts`, `apps/api/src/crm/crm.service.ts`, `apps/web/src/pages/Tasks.tsx`, `apps/worker/src/daily-tasks.processor.ts`. **[CONFIRMADO]**
+`apps/api/src/crm/crm.controller.ts`, `apps/api/src/crm/crm.service.ts`, `apps/web/src/pages/Tasks.tsx`, `apps/worker/src/task-digest.processor.ts`. **[CONFIRMADO]**

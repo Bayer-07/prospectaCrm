@@ -45,4 +45,4 @@ Mudanças de usuário e permissão geram auditoria com ator, entidade e metadado
 
 ## Referências
 
-`apps/api/src/users/users.controller.ts`, `users.service.ts`, `apps/api/src/auth/permission.guard.ts`, `permission.decorator.ts`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**
+`apps/api/src/users/users.controller.ts`, `apps/api/src/users/users.service.ts`, `apps/api/src/auth/auth.guard.ts`, `apps/api/src/auth/permission.decorator.ts`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**

@@ -29,4 +29,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/chatbots/chatbots.service.ts`, `apps/web/src/pages/ChatbotBuilder.tsx`. **[CONFIRMADO]**
+`apps/api/src/chatbots/chatbots.service.ts`, `apps/web/src/pages/Chatbots.tsx`. **[CONFIRMADO]**

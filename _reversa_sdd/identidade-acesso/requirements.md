@@ -96,8 +96,8 @@ Funcionalidade: recuperar acesso sem enumerar contas
 
 ## Rastreabilidade
 
-- API: `apps/api/src/auth/**`, `apps/api/src/users/**`, `apps/api/src/common/csrf.guard.ts`, `apps/api/src/common/idempotency.interceptor.ts`. **[CONFIRMADO]**
-- Contratos: `packages/contracts/src/auth.ts`, permissões referenciadas em `packages/contracts/src/index.ts`. **[CONFIRMADO]**
+- API: `apps/api/src/auth/**`, `apps/api/src/users/**`, com CSRF validado em `apps/api/src/auth/auth.guard.ts`, e `apps/api/src/common/idempotency.interceptor.ts`. **[CONFIRMADO]**
+- Contratos e permissões: `packages/contracts/src/index.ts`. **[CONFIRMADO]**
 - Persistência: modelos `User`, `Role`, `Permission`, `RolePermission`, `Session`, `Invite`, `PasswordResetToken`, `ApiKey` e `AuditLog` em `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**
-- Interface: `apps/web/src/auth/**`, `apps/web/src/pages/Login.tsx`, `apps/web/src/pages/Users.tsx` e páginas de perfil/configuração relacionadas. **[CONFIRMADO]**
+- Interface: `apps/web/src/pages/Auth.tsx`, `apps/web/src/App.tsx`, `apps/web/src/lib/api.ts`, `apps/web/src/pages/Users.tsx` e páginas de perfil/configuração relacionadas. **[CONFIRMADO]**
 - Testes: arquivos `*.test.ts` em `apps/api/src/auth` e `apps/api/src/users`, além dos testes da interface de autenticação. **[CONFIRMADO]**

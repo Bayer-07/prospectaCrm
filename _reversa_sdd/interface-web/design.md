@@ -40,4 +40,4 @@ flowchart LR
 
 ## Referências
 
-`apps/web/src/App.tsx`, `apps/web/src/components/AppShell.tsx`, `apps/web/src/api/client.ts`, `apps/web/src/styles.css`, `apps/web/src/interface-v2.css`, `apps/web/src/apple-ui.css`. **[CONFIRMADO]**
+`apps/web/src/App.tsx`, `apps/web/src/components/Shell.tsx`, `apps/web/src/lib/api.ts`, `apps/web/src/styles.css`, `apps/web/src/interface-v2.css`, `apps/web/src/apple-ui.css`. **[CONFIRMADO]**

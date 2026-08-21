@@ -49,4 +49,4 @@ Cenário: executar chatbots sem duplicidade
 
 ## Rastreabilidade
 
-`apps/api/src/chatbots/chatbots.controller.ts`, `apps/api/src/chatbots/chatbots.service.ts`, `apps/worker/src/chatbot.processor.ts`, `apps/web/src/pages/Chatbots.tsx`, `apps/web/src/pages/ChatbotBuilder.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**
+`apps/api/src/chatbots/chatbots.controller.ts`, `apps/api/src/chatbots/chatbots.service.ts`, `apps/worker/src/chatbot.processor.ts`, `apps/web/src/pages/Chatbots.tsx`, `packages/database/prisma/schema.prisma`. **[CONFIRMADO]**

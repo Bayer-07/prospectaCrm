@@ -11,7 +11,7 @@
 
 ### Contratos e banco
 
-- [ ] Reconstruir os schemas de entrada e saída de autenticação a partir de `packages/contracts/src/auth.ts`; concluído quando payloads inválidos são rejeitados sem alcançar os serviços. **[CONFIRMADO]**
+- [ ] Reconstruir os schemas de entrada e saída de autenticação a partir de `packages/contracts/src/index.ts`; concluído quando payloads inválidos são rejeitados sem alcançar os serviços. **[CONFIRMADO]**
 - [ ] Reconstruir os modelos e índices de identidade a partir de `packages/database/prisma/schema.prisma`; concluído quando unicidade, expiração e relações históricas passam nos testes de integração. **[CONFIRMADO]**
 - [ ] Preservar desativação lógica de usuário e vínculos históricos; concluído quando exclusão não remove auditoria, conversas ou atividades relacionadas. **[CONFIRMADO]**
 

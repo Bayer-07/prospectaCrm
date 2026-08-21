@@ -58,4 +58,4 @@ stateDiagram-v2
 
 ## Referências
 
-`apps/api/src/auth/auth.controller.ts`, `auth.service.ts`, `auth.guard.ts`, `auth-cache.service.ts`, `auth-cookies.ts`, `apps/api/src/common/csrf.guard.ts`. **[CONFIRMADO]**
+`apps/api/src/auth/auth.controller.ts`, `auth.service.ts`, `auth.guard.ts`, `auth-cache.service.ts` e `auth-cookies.ts`; a validação CSRF está no próprio `auth.guard.ts`. **[CONFIRMADO]**

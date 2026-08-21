@@ -48,16 +48,16 @@
 
 ## Fase 4: Geração 📝
 
-- [ ] **Redator** — Specs SDD por componente
-- [ ] **Redator** — OpenAPI (se aplicável)
-- [ ] **Redator** — User Stories (se aplicável)
-- [ ] **Redator** — Code/Spec Matrix
+- [x] ✅ **Redator** — Specs SDD por componente
+- [x] ✅ **Redator** — OpenAPI (se aplicável)
+- [x] ✅ **Redator** — User Stories (se aplicável)
+- [x] ✅ **Redator** — Code/Spec Matrix
 
 ## Fase 5: Revisão ✅
 
-- [ ] **Revisor** — Revisão cruzada de specs
-- [ ] **Revisor** — Resolução de lacunas com o usuário
-- [ ] **Revisor** — Relatório de confiança final
+- [x] ✅ **Revisor** — Revisão completa das specs; revisão cruzada externa indisponível neste ambiente
+- [x] ✅ **Revisor** — Lacunas catalogadas e perguntas preparadas para validação posterior
+- [x] ✅ **Revisor** — Relatório de confiança final
 
 ---
 

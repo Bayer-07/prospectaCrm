@@ -23,4 +23,4 @@ flowchart LR
 
 ## Referências
 
-`apps/api/src/notifications/notifications.service.ts`, `apps/web/src/components/AppShell.tsx`. **[CONFIRMADO]**
+`apps/api/src/reports/reports.service.ts`, `apps/web/src/components/Shell.tsx`. **[CONFIRMADO]**

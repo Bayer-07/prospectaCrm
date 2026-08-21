@@ -33,4 +33,4 @@ Cenário: fluxo principal de modelar e publicar automação
 
 ## Rastreabilidade
 
-`apps/api/src/workflows/workflows.service.ts`, `apps/web/src/pages/WorkflowBuilder.tsx`. **[CONFIRMADO]**
+`apps/api/src/workflows/workflows.service.ts`, `apps/web/src/pages/Automations.tsx`. **[CONFIRMADO]**

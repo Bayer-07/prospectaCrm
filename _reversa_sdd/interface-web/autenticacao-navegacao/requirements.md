@@ -33,4 +33,4 @@ Cenário: fluxo principal de autenticação e navegação
 
 ## Rastreabilidade
 
-`apps/web/src/App.tsx`, `apps/web/src/components/AppShell.tsx`, `apps/web/src/auth`. **[CONFIRMADO]**
+`apps/web/src/App.tsx`, `apps/web/src/components/Shell.tsx`, `apps/web/src/pages/Auth.tsx`, `apps/web/src/lib/api.ts`. **[CONFIRMADO]**

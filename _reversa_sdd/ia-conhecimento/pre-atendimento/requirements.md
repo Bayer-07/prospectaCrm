@@ -33,4 +33,4 @@ Cenário: fluxo principal de pré-atendimento por ia
 
 ## Rastreabilidade
 
-`apps/worker/src/ai-generation.processor.ts`, `apps/worker/src/chatbot.processor.ts`, `apps/api/src/ai`. **[CONFIRMADO]**
+`apps/worker/src/ai.processor.ts`, `apps/worker/src/chatbot.processor.ts`, `apps/api/src/ai`. **[CONFIRMADO]**

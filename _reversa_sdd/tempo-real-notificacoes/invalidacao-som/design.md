@@ -23,4 +23,4 @@ flowchart LR
 
 ## Referências
 
-`apps/web/src/providers/RealtimeProvider.tsx`, `apps/web/src/pages/Inbox.tsx`. **[CONFIRMADO]**
+`apps/web/src/lib/realtime.ts`, `apps/web/src/pages/Inbox.tsx`. **[CONFIRMADO]**

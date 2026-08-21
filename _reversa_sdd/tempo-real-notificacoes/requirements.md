@@ -49,4 +49,4 @@ Cenário: executar tempo real e notificações em segundo plano
 
 ## Rastreabilidade
 
-`apps/api/src/realtime/realtime.gateway.ts`, `apps/api/src/notifications/notifications.controller.ts`, `apps/api/src/notifications/notifications.service.ts`, `apps/web/src/providers/RealtimeProvider.tsx`, `apps/web/src/components/AppShell.tsx`. **[CONFIRMADO]**
+`apps/api/src/realtime/realtime.gateway.ts`, `apps/api/src/reports/reports.controller.ts`, `apps/api/src/reports/reports.service.ts`, `apps/web/src/lib/realtime.ts`, `apps/web/src/components/Shell.tsx`. **[CONFIRMADO]**

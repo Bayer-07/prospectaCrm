@@ -33,4 +33,4 @@ Cenário: fluxo principal de executar campanha de e-mail
 
 ## Rastreabilidade
 
-`apps/worker/src/email-campaign.processor.ts`, `apps/api/src/email`, `apps/web/src/pages/EmailCampaigns.tsx`. **[CONFIRMADO]**
+`apps/worker/src/campaign.processor.ts`, `apps/worker/src/gmail-campaign-client.ts`, `apps/api/src/email`, `apps/web/src/pages/Email.tsx`. **[CONFIRMADO]**
