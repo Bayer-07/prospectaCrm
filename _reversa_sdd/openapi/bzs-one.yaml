@@ -1,0 +1,720 @@
+openapi: 3.0.3
+info:
+  title: BZS One — API pública reconstruída
+  version: 1.0.0
+  description: >-
+    Subconjunto público confirmado pelo filtro de Swagger da API. Autenticação por
+    chave `pk_`, datas ISO-8601 UTC, telefones E.164 e paginação por cursor. [CONFIRMADO]
+servers:
+  - url: /api/v1
+    description: Mesma origem da aplicação [CONFIRMADO]
+security:
+  - api-key: []
+tags:
+  - name: Empresas
+  - name: Contatos
+  - name: Oportunidades
+  - name: Tarefas
+  - name: Tags
+  - name: Campos personalizados
+  - name: Segmentos
+paths:
+  /companies:
+    get:
+      tags: [Empresas]
+      summary: Listar empresas
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200':
+          description: Página de empresas [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyListResponse'
+    post:
+      tags: [Empresas]
+      summary: Criar ou fazer upsert de empresa
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyInput'
+      responses:
+        '201':
+          description: Empresa criada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyResponse'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /companies/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Empresas]
+      summary: Consultar empresa
+      responses:
+        '200':
+          description: Empresa visível à chave [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyResponse'
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Empresas]
+      summary: Atualizar empresa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CompanyPatch'
+      responses:
+        '200':
+          description: Empresa atualizada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CompanyResponse'
+    delete:
+      tags: [Empresas]
+      summary: Desativar empresa
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /contacts:
+    get:
+      tags: [Contatos]
+      summary: Listar contatos
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+        - $ref: '#/components/parameters/Search'
+      responses:
+        '200':
+          description: Página de contatos [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactListResponse'
+    post:
+      tags: [Contatos]
+      summary: Criar ou fazer upsert de contato
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactInput'
+      responses:
+        '201':
+          description: Contato criado [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '409': { $ref: '#/components/responses/Conflict' }
+  /contacts/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Contatos]
+      summary: Consultar contato
+      responses:
+        '200':
+          description: Contato visível à chave [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+        '404': { $ref: '#/components/responses/NotFound' }
+    patch:
+      tags: [Contatos]
+      summary: Atualizar contato
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/ContactPatch'
+      responses:
+        '200':
+          description: Contato atualizado [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ContactResponse'
+    delete:
+      tags: [Contatos]
+      summary: Desativar contato
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /opportunities:
+    get:
+      tags: [Oportunidades]
+      summary: Listar oportunidades
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de oportunidades [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpportunityListResponse'
+    post:
+      tags: [Oportunidades]
+      summary: Criar oportunidade
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpportunityInput'
+      responses:
+        '201':
+          description: Oportunidade criada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpportunityResponse'
+  /opportunities/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    get:
+      tags: [Oportunidades]
+      summary: Consultar oportunidade
+      responses:
+        '200':
+          description: Oportunidade visível à chave [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpportunityResponse'
+    patch:
+      tags: [Oportunidades]
+      summary: Atualizar oportunidade
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/OpportunityPatch'
+      responses:
+        '200':
+          description: Oportunidade atualizada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpportunityResponse'
+    delete:
+      tags: [Oportunidades]
+      summary: Desativar oportunidade
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /tasks:
+    get:
+      tags: [Tarefas]
+      summary: Listar tarefas
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Cursor'
+      responses:
+        '200':
+          description: Página de tarefas [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskListResponse'
+    post:
+      tags: [Tarefas]
+      summary: Criar tarefa
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskInput'
+      responses:
+        '201':
+          description: Tarefa criada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+  /tasks/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Tarefas]
+      summary: Atualizar tarefa
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TaskPatch'
+      responses:
+        '200':
+          description: Tarefa atualizada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+    delete:
+      tags: [Tarefas]
+      summary: Excluir ou cancelar tarefa
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /tasks/{id}/complete:
+    patch:
+      tags: [Tarefas]
+      summary: Concluir tarefa
+      parameters:
+        - $ref: '#/components/parameters/Id'
+      responses:
+        '200':
+          description: Tarefa concluída [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TaskResponse'
+  /tags:
+    get:
+      tags: [Tags]
+      summary: Listar tags
+      responses:
+        '200':
+          description: Tags visíveis [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagListResponse'
+    post:
+      tags: [Tags]
+      summary: Criar tag
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagInput'
+      responses:
+        '201':
+          description: Tag criada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagResponse'
+  /tags/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Tags]
+      summary: Atualizar tag
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/TagInput'
+      responses:
+        '200':
+          description: Tag atualizada [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TagResponse'
+    delete:
+      tags: [Tags]
+      summary: Excluir tag
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /custom-fields:
+    get:
+      tags: [Campos personalizados]
+      summary: Listar campos personalizados
+      responses:
+        '200':
+          description: Campos disponíveis [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomFieldListResponse'
+    post:
+      tags: [Campos personalizados]
+      summary: Criar campo personalizado
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomFieldInput'
+      responses:
+        '201':
+          description: Campo criado [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomFieldResponse'
+  /custom-fields/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Campos personalizados]
+      summary: Atualizar campo personalizado
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CustomFieldInput'
+      responses:
+        '200':
+          description: Campo atualizado [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CustomFieldResponse'
+    delete:
+      tags: [Campos personalizados]
+      summary: Excluir campo personalizado
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+  /segments:
+    get:
+      tags: [Segmentos]
+      summary: Listar segmentos salvos
+      responses:
+        '200':
+          description: Segmentos visíveis [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SegmentListResponse'
+    post:
+      tags: [Segmentos]
+      summary: Criar segmento
+      parameters:
+        - $ref: '#/components/parameters/IdempotencyKey'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SegmentInput'
+      responses:
+        '201':
+          description: Segmento criado [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SegmentResponse'
+  /segments/{id}:
+    parameters:
+      - $ref: '#/components/parameters/Id'
+    patch:
+      tags: [Segmentos]
+      summary: Atualizar segmento
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SegmentInput'
+      responses:
+        '200':
+          description: Segmento atualizado [CONFIRMADO]
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SegmentResponse'
+    delete:
+      tags: [Segmentos]
+      summary: Excluir segmento
+      responses:
+        '200': { $ref: '#/components/responses/Success' }
+components:
+  securitySchemes:
+    api-key:
+      type: http
+      scheme: bearer
+      bearerFormat: pk_
+      description: Chave criada na área de integrações [CONFIRMADO]
+  parameters:
+    Id:
+      name: id
+      in: path
+      required: true
+      schema: { type: string, format: uuid }
+    Limit:
+      name: limit
+      in: query
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+    Cursor:
+      name: cursor
+      in: query
+      schema: { type: string }
+    Search:
+      name: search
+      in: query
+      schema: { type: string, maxLength: 200 }
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema: { type: string, minLength: 8, maxLength: 200 }
+  responses:
+    Success:
+      description: Operação concluída [CONFIRMADO]
+      content:
+        application/json:
+          schema:
+            type: object
+            required: [data]
+            properties:
+              data:
+                type: object
+                required: [success]
+                properties:
+                  success: { type: boolean, example: true }
+    NotFound:
+      description: Registro inexistente ou fora do escopo [CONFIRMADO]
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+    Conflict:
+      description: Conflito de unicidade ou idempotência [CONFIRMADO]
+      content:
+        application/json:
+          schema: { $ref: '#/components/schemas/Error' }
+  schemas:
+    PageMeta:
+      type: object
+      properties:
+        nextCursor: { type: string, nullable: true }
+    Error:
+      type: object
+      properties:
+        statusCode: { type: integer }
+        message: { oneOf: [{ type: string }, { type: array, items: { type: string } }] }
+        error: { type: string }
+    CustomValues:
+      type: object
+      additionalProperties: true
+    Company:
+      type: object
+      required: [id, name, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        externalId: { type: string, nullable: true }
+        cnpj: { type: string, nullable: true, example: '29277764000100' }
+        name: { type: string }
+        domain: { type: string, nullable: true }
+        industry: { type: string, nullable: true }
+        size: { type: string, nullable: true }
+        linkedinUrl: { type: string, format: uri, nullable: true }
+        address: { type: object, nullable: true, additionalProperties: true }
+        ownerId: { type: string, format: uuid, nullable: true }
+        teamId: { type: string, format: uuid, nullable: true }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    CompanyInput:
+      type: object
+      required: [name]
+      properties:
+        externalId: { type: string }
+        cnpj: { type: string }
+        name: { type: string }
+        domain: { type: string }
+        industry: { type: string }
+        size: { type: string }
+        linkedinUrl: { type: string, format: uri }
+        address: { type: object, additionalProperties: true }
+        ownerId: { type: string, format: uuid }
+        teamId: { type: string, format: uuid }
+        tagIds: { type: array, items: { type: string, format: uuid } }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
+    CompanyPatch:
+      allOf:
+        - $ref: '#/components/schemas/CompanyInput'
+    Contact:
+      type: object
+      required: [id, name, campaignsBlocked, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        externalId: { type: string, nullable: true }
+        name: { type: string }
+        jobTitle: { type: string, nullable: true }
+        email: { type: string, format: email, nullable: true }
+        phone: { type: string, pattern: '^\\+[1-9][0-9]{7,14}$', nullable: true }
+        companyId: { type: string, format: uuid, nullable: true }
+        ownerId: { type: string, format: uuid, nullable: true }
+        source: { type: string, nullable: true }
+        campaignsBlocked: { type: boolean }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    ContactInput:
+      type: object
+      required: [name]
+      properties:
+        externalId: { type: string }
+        name: { type: string }
+        jobTitle: { type: string }
+        email: { type: string, format: email }
+        phone: { type: string, pattern: '^\\+[1-9][0-9]{7,14}$' }
+        companyId: { type: string, format: uuid }
+        ownerId: { type: string, format: uuid }
+        source: { type: string }
+        campaignsBlocked: { type: boolean, default: false }
+        customFields: { $ref: '#/components/schemas/CustomValues' }
+    ContactPatch:
+      allOf:
+        - $ref: '#/components/schemas/ContactInput'
+    Opportunity:
+      type: object
+      required: [id, pipelineId, stageId, valueCents, createdAt, updatedAt]
+      properties:
+        id: { type: string, format: uuid }
+        externalId: { type: string, nullable: true }
+        companyId: { type: string, format: uuid, nullable: true }
+        pipelineId: { type: string, format: uuid }
+        stageId: { type: string, format: uuid }
+        valueCents: { type: integer, minimum: 0 }
+        probability: { type: integer, minimum: 0, maximum: 100 }
+        expectedCloseAt: { type: string, format: date-time, nullable: true }
+        ownerId: { type: string, format: uuid, nullable: true }
+        source: { type: string, nullable: true }
+        lostReason: { type: string, nullable: true }
+        contactIds: { type: array, items: { type: string, format: uuid } }
+        createdAt: { type: string, format: date-time }
+        updatedAt: { type: string, format: date-time }
+    OpportunityInput:
+      type: object
+      required: [pipelineId, stageId]
+      properties:
+        externalId: { type: string }
+        companyId: { type: string, format: uuid }
+        contactIds: { type: array, items: { type: string, format: uuid } }
+        pipelineId: { type: string, format: uuid }
+        stageId: { type: string, format: uuid }
+        valueCents: { type: integer, minimum: 0, default: 0 }
+        probability: { type: integer, minimum: 0, maximum: 100 }
+        expectedCloseAt: { type: string, format: date-time }
+        ownerId: { type: string, format: uuid }
+        source: { type: string }
+        lostReason: { type: string }
+    OpportunityPatch:
+      allOf:
+        - $ref: '#/components/schemas/OpportunityInput'
+    Task:
+      type: object
+      required: [id, title, status, startsAt, endsAt, assigneeId]
+      properties:
+        id: { type: string, format: uuid }
+        title: { type: string }
+        description: { type: string, nullable: true }
+        status: { type: string, enum: [OPEN, COMPLETED, CANCELLED] }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        assigneeId: { type: string, format: uuid }
+        contactId: { type: string, format: uuid, nullable: true }
+        companyId: { type: string, format: uuid, nullable: true }
+        opportunityId: { type: string, format: uuid, nullable: true }
+    TaskInput:
+      type: object
+      required: [title, startsAt, endsAt, assigneeId]
+      properties:
+        title: { type: string }
+        description: { type: string }
+        startsAt: { type: string, format: date-time }
+        endsAt: { type: string, format: date-time }
+        assigneeId: { type: string, format: uuid }
+        contactId: { type: string, format: uuid }
+        companyId: { type: string, format: uuid }
+        opportunityId: { type: string, format: uuid }
+    TaskPatch:
+      allOf:
+        - $ref: '#/components/schemas/TaskInput'
+    Tag:
+      type: object
+      required: [id, name]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        color: { type: string, nullable: true }
+    TagInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        color: { type: string }
+    CustomField:
+      type: object
+      required: [id, name, entityType, fieldType]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        entityType: { type: string, enum: [COMPANY, CONTACT, OPPORTUNITY] }
+        fieldType: { type: string, enum: [TEXT, NUMBER, DATE, BOOLEAN, SELECT] }
+        options: { type: array, items: { type: string } }
+    CustomFieldInput:
+      type: object
+      required: [name, entityType, fieldType]
+      properties:
+        name: { type: string }
+        entityType: { type: string }
+        fieldType: { type: string }
+        options: { type: array, items: { type: string } }
+    Segment:
+      type: object
+      required: [id, name, filters]
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        filters: { type: object, additionalProperties: true }
+        staticContactIds: { type: array, items: { type: string, format: uuid } }
+    SegmentInput:
+      type: object
+      required: [name]
+      properties:
+        name: { type: string }
+        filters: { type: object, additionalProperties: true }
+        staticContactIds: { type: array, items: { type: string, format: uuid } }
+    CompanyResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Company' } } }
+    ContactResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Contact' } } }
+    OpportunityResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Opportunity' } } }
+    TaskResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Task' } } }
+    TagResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Tag' } } }
+    CustomFieldResponse: { type: object, properties: { data: { $ref: '#/components/schemas/CustomField' } } }
+    SegmentResponse: { type: object, properties: { data: { $ref: '#/components/schemas/Segment' } } }
+    CompanyListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Company' } } } }] }
+    ContactListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Contact' } } } }] }
+    OpportunityListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Opportunity' } } } }] }
+    TaskListResponse: { allOf: [{ $ref: '#/components/schemas/PageMetaEnvelope' }, { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Task' } } } }] }
+    TagListResponse: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Tag' } } } }
+    CustomFieldListResponse: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/CustomField' } } } }
+    SegmentListResponse: { type: object, properties: { data: { type: array, items: { $ref: '#/components/schemas/Segment' } } } }
+    PageMetaEnvelope:
+      type: object
+      properties:
+        meta: { $ref: '#/components/schemas/PageMeta' }

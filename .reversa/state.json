@@ -8,14 +8,14 @@
   "doc_level": "completo",
   "output_folder": "_reversa_sdd",
   "forward_folder": "_reversa_forward",
-  "phase": "geracao",
+  "phase": "revisao",
   "completed": [
     "reconhecimento",
     "escavacao",
-    "interpretacao"
+    "interpretacao",
+    "geracao"
   ],
   "pending": [
-    "geracao",
     "revisao"
   ],
   "checkpoints": {
@@ -104,6 +104,25 @@
         "_reversa_sdd/erd-complete.md",
         "_reversa_sdd/traceability/spec-impact-matrix.md"
       ]
+    },
+    "writer": {
+      "completed_at": "2026-08-21T16:00:00Z",
+      "layout": "feature-folder",
+      "granularity": "hybrid",
+      "units_documented": 71,
+      "files_generated": 238,
+      "global_files": [
+        "_reversa_sdd/openapi/bzs-one.yaml",
+        "_reversa_sdd/user-stories/autenticacao-e-acesso.md",
+        "_reversa_sdd/user-stories/crm-e-pipeline.md",
+        "_reversa_sdd/user-stories/atendimento-whatsapp.md",
+        "_reversa_sdd/user-stories/campanhas.md",
+        "_reversa_sdd/user-stories/automacoes-e-chatbots.md",
+        "_reversa_sdd/user-stories/follow-ups.md",
+        "_reversa_sdd/user-stories/ia-e-conhecimento.md",
+        "_reversa_sdd/user-stories/api-e-mcp.md",
+        "_reversa_sdd/traceability/code-spec-matrix.md"
+      ]
     }
   },
   "engines": [
@@ -114,10 +133,10 @@
     "auto_continue": true,
     "total_units": 71,
     "total_files": 238,
-    "completed_files": 228,
-    "current_file": "_reversa_sdd/openapi/bzs-one.yaml",
-    "last_completed_file": "_reversa_sdd/infraestrutura/backup-restore/tasks.md",
-    "updated_at": "2026-08-21T15:45:00Z"
+    "completed_files": 238,
+    "current_file": null,
+    "last_completed_file": "_reversa_sdd/traceability/code-spec-matrix.md",
+    "updated_at": "2026-08-21T16:00:00Z"
   },
   "agents": [
     "reversa",

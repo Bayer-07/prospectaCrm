@@ -1609,70 +1609,70 @@
       "path": "_reversa_sdd/openapi/bzs-one.yaml",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 230,
       "path": "_reversa_sdd/user-stories/autenticacao-e-acesso.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 231,
       "path": "_reversa_sdd/user-stories/crm-e-pipeline.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 232,
       "path": "_reversa_sdd/user-stories/atendimento-whatsapp.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 233,
       "path": "_reversa_sdd/user-stories/campanhas.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 234,
       "path": "_reversa_sdd/user-stories/automacoes-e-chatbots.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 235,
       "path": "_reversa_sdd/user-stories/follow-ups.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 236,
       "path": "_reversa_sdd/user-stories/ia-e-conhecimento.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 237,
       "path": "_reversa_sdd/user-stories/api-e-mcp.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 238,
       "path": "_reversa_sdd/traceability/code-spec-matrix.md",
       "kind": "global",
       "unit": null,
-      "status": "pending"
+      "status": "completed"
     }
   ]
 }
