@@ -28,7 +28,8 @@
       ]
     },
     "archaeologist": {
-      "updated_at": "2026-08-21T13:33:21Z",
+      "updated_at": "2026-08-21T13:40:00Z",
+      "completed_at": "2026-08-21T13:40:00Z",
       "modules_analyzed": [
         "identity-access",
         "crm-sales",
@@ -44,11 +45,10 @@
         "realtime-notifications",
         "external-api-mcp",
         "web-interface",
-        "async-platform"
-      ],
-      "modules_pending": [
+        "async-platform",
         "infrastructure"
       ],
+      "modules_pending": [],
       "files": [
         "_reversa_sdd/code-analysis.md",
         "_reversa_sdd/data-dictionary.md",
@@ -67,6 +67,7 @@
         "_reversa_sdd/flowcharts/external-api-mcp.md",
         "_reversa_sdd/flowcharts/web-interface.md",
         "_reversa_sdd/flowcharts/async-platform.md",
+        "_reversa_sdd/flowcharts/infrastructure.md",
         ".reversa/context/modules.json"
       ]
     }
@@ -153,6 +154,7 @@
     "_reversa_sdd\\flowcharts\\realtime-notifications.md",
     "_reversa_sdd\\flowcharts\\external-api-mcp.md",
     "_reversa_sdd\\flowcharts\\web-interface.md",
-    "_reversa_sdd\\flowcharts\\async-platform.md"
+    "_reversa_sdd\\flowcharts\\async-platform.md",
+    "_reversa_sdd\\flowcharts\\infrastructure.md"
   ]
 }

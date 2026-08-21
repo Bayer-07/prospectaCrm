@@ -535,3 +535,46 @@ Redis retém no máximo 1.000 jobs concluídos e 5.000 falhos por fila. Estados 
 | validade | 30 segundos com aquisição `NX`. |
 
 A liberação usa compare-and-delete em Lua para não apagar um lock que já tenha expirado e sido adquirido por outro processo.
+
+## Infraestrutura e operação
+
+### Serviços de produção
+
+| Serviço | Porta interna | Persistência | Redes | Exposição padrão |
+| --- | ---: | --- | --- | --- |
+| `caddy` | 80/443/9002 | certificados/configuração | `edge`, `app` | 80/443 TCP e 443 UDP |
+| `web` | 80 | imagem imutável | `app` | somente Caddy |
+| `api` | 3000 | PostgreSQL/MinIO indiretos | `app`, `egress` | somente Caddy |
+| `mcp` | 3100 | nenhuma local | `app` | `/mcp` via Caddy |
+| `worker` | — | PostgreSQL/Redis/MinIO indiretos | `app`, `egress` | nenhuma |
+| `postgres` | 5432 | `postgres_data` | `app` | nenhuma |
+| `redis` | 6379 | `redis_data` AOF | `app` | nenhuma |
+| `minio` | 9000/9001 | `minio_data` | `app` | API em loopback 9000 |
+| `evolution` | 8080 | instâncias + banco/MinIO próprios | `app`, `egress` | loopback 8082 |
+| `transcription` | 8000 | modelos Hugging Face | `app`, `egress` | loopback 8000 |
+
+### Grupos de configuração por ambiente
+
+| Grupo | Variáveis principais | Regra |
+| --- | --- | --- |
+| Endereçamento | `APP_ADDRESS`, `APP_URL`, `VITE_API_URL`, `VITE_SOCKET_URL`, `CORS_ORIGINS` | Browser usa rotas relativas em produção. |
+| Banco/fila | `DATABASE_URL`, `POSTGRES_*`, `REDIS_URL` | Credenciais do CRM não são compartilhadas com Evolution. |
+| Sessão/criptografia | `SESSION_SECRET`, `JWT_SECRET`, `CSRF_SECRET`, `ENCRYPTION_KEY` | Segredos obrigatórios e não versionados. |
+| Mídia | `S3_ENDPOINT`, `S3_PUBLIC_ENDPOINT`, `S3_DELIVERY_ENDPOINT`, `S3_*` | Endpoints interno, browser e Evolution podem ser diferentes. |
+| WhatsApp | `EVOLUTION_API_URL`, `EVOLUTION_API_KEY`, `EVOLUTION_WEBHOOK_SECRET`, `EVOLUTION_*` | Serviço não é publicado pela borda. |
+| E-mail | `MAILGUN_*`, `CAMPAIGN_GMAIL_*` | Mailgun interno; Gmail apenas campanhas manuais. |
+| Transcrição | `TRANSCRIPTION_*`, `SPEACHES_IMAGE` | CPU/int8 e modelo persistente. |
+| IA | `AI_ASSISTANT_ENABLED`, `OPENAI_*` | Recurso opcional; configuração organizacional pode guardar a chave. |
+| Backup | `BACKUP_DIR`, `BACKUP_UPLOAD_COMMAND`, `BACKUP_ENCRYPTION_KEY` | Chave está declarada, mas não consumida pelo script atual. |
+
+### Artefato de backup atual
+
+| Conteúdo | Formato | Incluído? |
+| --- | --- | --- |
+| Banco CRM | `pg_dump -Fc` | Sim. |
+| Banco Evolution | `pg_dump -Fc` | Sim. |
+| Mídias CRM | `tar.gz` do volume MinIO | Sim. |
+| Mídias Evolution | volume `evolution_minio_data` | Não. |
+| Instâncias Evolution | volume `evolution_instances` | Não. |
+| Criptografia | uso de `BACKUP_ENCRYPTION_KEY` | Não. |
+| Restauração verificável | script/manifeste de restore | Não. |

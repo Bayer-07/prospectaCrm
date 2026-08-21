@@ -567,6 +567,44 @@ O digest diário é agendado para 08:00 em `America/Sao_Paulo` e possui catch-up
 
 Eventos concluídos são publicados no canal Redis `prospecta:realtime`, permitindo atualizar só a organização/conversa afetada. `SIGTERM` e `SIGINT` cancelam timers, fecham workers e filas, desconectam Prisma e encerram Redis antes da saída.
 
+## 16. Infraestrutura e operação (`infrastructure`)
+
+### Topologia de produção
+
+O Compose principal executa web, API, MCP e worker junto a PostgreSQL, Redis, MinIO, Evolution e Speaches. Caddy é a única borda HTTP padrão: encaminha aplicação, `/api`, `/docs`, `/mcp`, Socket.IO e webhook Mailgun, aplicando compressão e cabeçalhos de segurança.
+
+- A rede `app` é interna e contém todos os serviços. `edge` liga somente o Caddy à borda; `egress` libera saída apenas para API, worker, Evolution e transcrição.
+- PostgreSQL, Redis e MinIO do CRM são separados dos equivalentes da Evolution, inclusive por credenciais e volumes.
+- O MinIO do CRM publica a API apenas em loopback por padrão. A Evolution também expõe sua porta de desenvolvimento somente em `127.0.0.1` e nunca passa pelo proxy público.
+- Dados persistem em volumes nomeados para bancos, filas, mídias, sessões da Evolution, modelos de transcrição e certificados do Caddy.
+- API, MCP e web possuem healthcheck. Dependências de banco/Redis/MinIO aguardam saúde antes de iniciar; worker aguarda API saudável e serviços externos iniciados.
+
+As imagens da aplicação usam builds multi-stage com pnpm congelado. Os runtimes de API, worker, MCP, web e Evolution executam como usuário sem privilégios. Um init container isolado ajusta permissões de volumes antigos da Evolution antes de liberar o serviço principal.
+
+### Evolution customizada e serviços pesados
+
+A imagem Evolution fixa o commit `cd800f…`, aplica patches locais de preview de links e estabilidade multi-instância e copia o build sobre a imagem 2.3.7. Sua persistência própria grava instâncias, mensagens, contatos e chats, mas não importa histórico.
+
+Speaches roda em CPU com `faster-whisper-small`, baixa modelos no volume persistente e recebe prioridade menor de CPU. A IA generativa local foi removida: OpenAI é um serviço externo opcional, habilitado por variável e configuração organizacional.
+
+### Desenvolvimento, rebuild e segurança HTTP
+
+No desenvolvimento, o Compose adicional publica PostgreSQL em 5434, Redis em 6380, console MinIO e Evolution apenas no loopback. Vite expõe a SPA em 5173 e encaminha API/Socket localmente. Em produção, endereços do navegador permanecem relativos, permitindo trocar domínio sem recompilar URLs absolutas.
+
+`rebuild.sh` valida Compose e `.env`, recusa pull sobre árvore rastreada suja, faz `git pull --ff-only`, reconstrói somente aplicação/MCP, aplica migrações e publica containers sem remover volumes. A Evolution só é reconstruída sob opção explícita. Se existir um override Tailscale no servidor, o script o incorpora e não sobe Caddy para evitar disputa de 80/443.
+
+A API confia em um proxy, usa Helmet, compressão, CORS por allowlist, cookies e validação global com whitelist. O Caddy acrescenta `nosniff`, `SAMEORIGIN`, política de referrer e restringe câmera/geolocalização. O Content Security Policy do Helmet está explicitamente desativado.
+
+### Backup e lacunas operacionais
+
+O script atual gera dumps customizados dos dois PostgreSQL, compacta o volume MinIO do CRM, cria um `.tar.gz`, permite executar um comando externo de upload e remove arquivos locais com mais de 30 dias.
+
+🔴 **LACUNA** — apesar de `BACKUP_ENCRYPTION_KEY` existir no exemplo e a documentação exigir backups criptografados, `scripts/backup.sh` não cifra o arquivo. Também não inclui o MinIO da Evolution, não implementa 12 cópias semanais e não há script de restauração/teste automático.
+
+🟡 **RISCO** — o padrão `SPEACHES_IMAGE` usa tag `latest-cpu`, embora a orientação operacional recomende versões ou digests fixos em produção.
+
+🟡 **RISCO** — não existe healthcheck próprio do worker; o Compose pode indicar o container como ativo sem comprovar que suas conexões Redis, banco e processadores continuam funcionais.
+
 ## Pendências desta etapa
 
-🔴 **LACUNA** — resta escavar somente o módulo `infrastructure`. As demais quinze fronteiras funcionais já estão documentadas.
+O Arqueólogo concluiu os 16 módulos identificados pelo Scout. Lacunas confirmadas foram preservadas para o Detetive e o Arquiteto, sem alterar o sistema legado.

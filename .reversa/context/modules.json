@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T13:33:21Z",
+  "generated_at": "2026-08-21T13:40:00Z",
   "modules": [
     {
       "name": "identity-access",
@@ -495,6 +495,41 @@
       ],
       "dependencies": ["todos os módulos assíncronos", "PostgreSQL", "Redis", "BullMQ", "Socket.IO via Pub/Sub"],
       "algorithms": ["jobs determinísticos", "retry exponencial", "reconciliação indexada", "scheduler cron com catch-up", "lock Redis compare-and-delete", "shutdown gracioso"],
+      "complexity": "high"
+    },
+    {
+      "name": "infrastructure",
+      "path": "docker-compose.yml; docker-compose.dev.yml; infra; apps/*/Dockerfile; rebuild.sh; scripts/backup.sh; docs/OPERACAO.md",
+      "purpose": "Topologia Docker, proxy de borda, isolamento de redes e dados, build, atualização, observabilidade básica e backup operacional.",
+      "primary_files": [
+        "docker-compose.yml",
+        "docker-compose.dev.yml",
+        "infra/Caddyfile",
+        "infra/evolution/Dockerfile",
+        "apps/api/Dockerfile",
+        "apps/web/Dockerfile",
+        "rebuild.sh",
+        "scripts/backup.sh"
+      ],
+      "functions": [
+        { "name": "bootstrap", "file": "apps/api/src/main.ts", "params": ["environment"], "returns": "NestJS HTTP/Socket application", "confidence": "confirmed" },
+        { "name": "rebuild workflow", "file": "rebuild.sh", "params": ["--no-pull?", "--with-evolution?", "--pull-images?"], "returns": "updated Docker deployment", "confidence": "confirmed" },
+        { "name": "backup workflow", "file": "scripts/backup.sh", "params": ["environment"], "returns": "timestamped tar.gz", "confidence": "confirmed" },
+        { "name": "health", "file": "apps/api/src/health.controller.ts", "params": [], "returns": "{ status, service, timestamp }", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "DockerService", "fields": [{ "name": "image/build", "type": "container spec", "required": true }, { "name": "networks", "type": "edge|app|egress", "required": true }, { "name": "volumes", "type": "named volume[]", "required": false }, { "name": "healthcheck", "type": "probe?", "required": false }], "confidence": "confirmed" },
+        { "name": "BackupArchive", "fields": [{ "name": "crmDatabase", "type": "pg_dump custom", "required": true }, { "name": "evolutionDatabase", "type": "pg_dump custom", "required": true }, { "name": "crmMedia", "type": "tar.gz", "required": true }, { "name": "encrypted", "type": "false in current script", "required": true }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Somente Caddy fica na rede de borda; a rede app é interna e serviços selecionados recebem egress.", "location": "docker-compose.yml:1", "confidence": "confirmed" },
+        { "description": "Aplicação e Evolution mantêm bancos, Redis, MinIO, credenciais e volumes separados.", "location": "docker-compose.yml:119", "confidence": "confirmed" },
+        { "description": "O rebuild aplica migrações e recria serviços sem remover volumes; Evolution exige opção explícita.", "location": "rebuild.sh:111", "confidence": "confirmed" },
+        { "description": "O backup atual não usa BACKUP_ENCRYPTION_KEY, não inclui mídias/instâncias Evolution e não implementa restauração.", "location": "scripts/backup.sh:1", "confidence": "confirmed" },
+        { "description": "A API usa Helmet com CSP desativado e o proxy acrescenta cabeçalhos de segurança.", "location": "apps/api/src/main.ts:16; infra/Caddyfile:28", "confidence": "confirmed" }
+      ],
+      "dependencies": ["todos os módulos", "Docker Compose", "Caddy", "Nginx", "PostgreSQL 17", "Redis 7.4", "MinIO", "Evolution API", "Speaches"],
+      "algorithms": ["build multi-stage", "health-gated startup", "rede interna com egress seletivo", "migração deploy antes da aplicação", "backup timestamped", "volume init sem privilégios permanentes"],
       "complexity": "high"
     }
   ]
