@@ -416,6 +416,76 @@ Transcrições também são dependência da IA e do PDF do atendimento. A IA est
 
 Manutenção horária remove mensagens além de `messageRetentionMonths` em lotes de 1.000, no máximo 10 lotes por execução. Os objetos S3 são excluídos antes dos registros; se a remoção física falhar, o lote do banco é preservado para evitar órfãos silenciosos. Assets vinculados a usuário, empresa, resposta rápida, oportunidade ou RAG só podem ser removidos por seus fluxos proprietários.
 
+## 10. Relatórios e webhooks externos (`reports-webhooks`)
+
+### Consolidação gerencial
+
+O relatório recebe intervalo opcional; sem datas, usa os 30 dias anteriores. O escopo de oportunidades respeita as permissões de dados do usuário, enquanto campanhas, conversas, atividades e tarefas são agregadas dentro da organização.
+
+1. Onze consultas independentes rodam em paralelo para etapas, oportunidades abertas/ganhas/perdidas, campanhas, destinatários, conversas, primeira resposta, atividades e tarefas.
+2. O tempo de primeira resposta é calculado diretamente no PostgreSQL pela média de `firstResponseAt - createdAt`.
+3. Conversão comercial usa `ganhas / (ganhas + perdidas)`, arredondada para uma casa decimal.
+4. O PDF reutiliza exatamente o resumo calculado, incorpora fontes Poppins, cria novas páginas conforme o espaço e formata datas em `America/Sao_Paulo` e valores em BRL.
+5. A exportação CSV de empresas aplica escape de aspas, BOM UTF-8 e o escopo comercial atual.
+
+🟢 **CONFIRMADO** — o gráfico de evolução mensal exibido no navegador ainda usa cinco valores ilustrativos fixos; somente o último ponto deriva da receita ganha. Ele não representa uma série histórica calculada pelo backend.
+
+### Cadastro e emissão de webhooks
+
+- A organização pode manter vários webhooks, cada um ligado a uma de 14 ações de empresa, contato, oportunidade ou tarefa.
+- Nome aceita 2–120 caracteres; endpoint aceita até 2.048 caracteres e precisa ser HTTP(S) público, sem credenciais embutidas.
+- Um segredo aleatório de 32 bytes é criado, armazenado criptografado e retornado somente na criação. O webhook nasce desativado.
+- Cada auditoria comercial procura webhooks ativos para a ação, cria `WebhookDelivery` com `eventId` aleatório e agenda job determinístico. O payload preserva tipo, ID, estado anterior e posterior da entidade.
+- A chamada externa é `GET`; metadados seguem na query string e em cabeçalhos. A assinatura HMAC-SHA256 cobre horário, evento, tipo e entidade.
+
+### Segurança, retry e idempotência
+
+O endpoint é resolvido no cadastro e novamente imediatamente antes da chamada. Hostnames locais, credenciais na URL e endereços loopback, privados, link-local, CGNAT, documentação e multicast são recusados. O `lookup` HTTP fica preso aos IPs públicos resolvidos; até três redirecionamentos são aceitos e cada destino é revalidado, reduzindo SSRF e DNS rebinding.
+
+O worker usa timeout de 15 segundos, concorrência 5 e até oito tentativas com backoff exponencial. Sucesso marca `delivered`; falha registra erro, incrementa tentativas e muda para `retrying` ou `dead_letter`. A combinação webhook/evento é única, e entregas concluídas ou webhooks desativados são ignorados.
+
+## 11. Respostas rápidas (`quick-replies`)
+
+### Catálogo compartilhado
+
+Respostas rápidas pertencem à organização e ficam disponíveis a toda a equipe com leitura de conversas. Escrita em conversas libera criar, editar e excluir. A listagem ordena por atalho e aceita busca insensível a caixa por título, atalho ou texto.
+
+- O título é obrigatório e limitado a 100 caracteres.
+- O atalho remove `/`, acentos e caracteres inválidos, transforma espaços em hífen, converte para minúsculas e limita a 40 caracteres.
+- Cada atalho é único por organização; conflito Prisma `P2002` vira mensagem de domínio.
+- O texto aceita até 4.096 caracteres. Uma resposta precisa ter texto, anexo ou ambos.
+- O anexo opcional pode ser imagem JPEG/PNG/WebP, PDF ou Word, entre 1 byte e 25 MB, e não pode estar vinculado a outro recurso.
+
+Criação e alteração confirmam no S3 a existência, tamanho e MIME do asset antes de vinculá-lo. Trocar ou excluir anexo remove o objeto antigo depois da atualização principal; falha nessa limpeza não desfaz a resposta salva. Todas as mutações geram auditoria.
+
+### Inserção no atendimento
+
+Digitar `/` no composer abre o seletor com busca, setas, Enter e Escape. Ao escolher uma resposta, o navegador baixa o anexo por URL temporária, reconstrói um `File` local e preenche texto e arquivo no composer. Nada é enviado nessa etapa: o operador pode editar ou remover o conteúdo antes de confirmar. Variáveis como `{{saudacao}}` e `{{nome}}` permanecem literais e só são resolvidas pelo fluxo normal no momento do envio.
+
+## 12. Tempo real e notificações (`realtime-notifications`)
+
+### Canal Socket.IO autenticado
+
+O gateway usa o namespace `/realtime`, CORS configurado e cookies. Na conexão, valida token assinado, hash da sessão no banco, identidade, expiração e estado ativo do usuário. Somente depois inclui o socket nas salas `organization:<id>` e `user:<id>`; logout administrativo pode desconectar todas as sessões Socket.IO do usuário.
+
+Workers publicam envelopes em `prospecta:realtime` pelo Redis. A API assina esse canal e retransmite para a organização e, quando informado, para o usuário. Payload inválido é descartado sem derrubar o subscriber.
+
+### Atualização seletiva do navegador
+
+- `inbox.updated` invalida listas/contagens e busca apenas as 30 mensagens mais recentes da conversa afetada; a mesclagem deduplica por ID e preserva páginas antigas.
+- `whatsapp.updated`, `tasks.updated`, `conversation.ai.updated` e `ai.knowledge.updated` invalidam somente suas chaves React Query.
+- Invalidações iguais são agrupadas por 100 ms e refreshes concorrentes do mesmo histórico são serializados com uma nova passagem sinalizada.
+- Ao conectar ou reconectar, a interface reconcilia Inbox e conexões por HTTP para cobrir a janela entre a primeira consulta e a entrada na sala.
+- Enquanto Socket.IO está conectado, o polling de notificações é desativado; desconectado, volta a cada 30 segundos.
+
+### Notificações persistentes e som
+
+`Notification` é individual por usuário. A API retorna no máximo 100 não lidas recentes e permite marcar uma ou todas como lidas, sempre restringindo pelo `userId` autenticado. Conversas, follow-ups, automações, chatbots e IA criam notificações com tipo, título, corpo e rota opcional.
+
+Mensagem recebida toca um aviso sintetizado por Web Audio uma única vez por ID. Com a página focada, a conversa aberta é silenciada; sem foco, o som também toca para a conversa atual. Usuário comum não ouve conversa atribuída a outra pessoa, enquanto administrador pode ouvir. O navegador exige uma primeira interação para liberar o `AudioContext`.
+
+🟡 **INFERIDO** — a interface escuta `notification.created`, mas não foi encontrado produtor explícito desse nome de evento no código atual. As principais criações ainda chegam à tela por eventos de domínio como `inbox.updated` ou pelo polling de contingência.
+
 ## Pendências desta etapa
 
-🔴 **LACUNA** — os 7 módulos restantes ainda não foram escavados. Este documento será ampliado nos checkpoints seguintes sem substituir as seções confirmadas acima.
+🔴 **LACUNA** — os 4 módulos restantes ainda não foram escavados. Este documento será ampliado nos checkpoints seguintes sem substituir as seções confirmadas acima.

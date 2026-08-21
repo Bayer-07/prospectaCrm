@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-08-21T12:59:56Z",
+  "generated_at": "2026-08-21T13:19:23Z",
   "modules": [
     {
       "name": "identity-access",
@@ -295,6 +295,105 @@
       ],
       "dependencies": ["whatsapp-inbox", "ai-knowledge", "async-platform", "MinIO/S3", "Evolution API", "Speaches/OpenAI-compatible transcription"],
       "algorithms": ["URLs pré-assinadas com endpoints separados", "reserva atômica de transcrição", "download único de modelo local", "semáforo de ingestão de mídia", "retenção em lotes de 1000"],
+      "complexity": "high"
+    },
+    {
+      "name": "reports-webhooks",
+      "path": "apps/api/src/reports; apps/worker/src/external-webhook.processor.ts; apps/web/src/pages/Reports.tsx; apps/web/src/pages/Settings.tsx",
+      "purpose": "Consolidação gerencial, exportações e chamadas HTTP GET assinadas quando entidades comerciais mudam.",
+      "primary_files": [
+        "apps/api/src/reports/reports.service.ts",
+        "apps/api/src/reports/report-pdf.ts",
+        "apps/api/src/reports/outbound-webhook-url.service.ts",
+        "apps/worker/src/external-webhook.processor.ts",
+        "apps/worker/src/public-http-get.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "ReportsService.summary", "file": "apps/api/src/reports/reports.service.ts", "params": ["AuthContext", "from?/to?"], "returns": "Promise<ReportSummary>", "confidence": "confirmed" },
+        { "name": "ReportsService.exportPdf", "file": "apps/api/src/reports/reports.service.ts", "params": ["AuthContext", "from?/to?"], "returns": "Promise<Buffer>", "confidence": "confirmed" },
+        { "name": "ReportsService.createOutboundWebhook", "file": "apps/api/src/reports/reports.service.ts", "params": ["AuthContext", "name/endpoint/action"], "returns": "Promise<WebhookWithOneTimeSecret>", "confidence": "confirmed" },
+        { "name": "CrmService.audit", "file": "apps/api/src/crm/crm.service.ts", "params": ["AuthContext", "action", "entityType", "entityId", "before", "after"], "returns": "Promise<AuditLog>", "confidence": "confirmed" },
+        { "name": "processExternalWebhook", "file": "apps/worker/src/external-webhook.processor.ts", "params": ["PrismaClient", "BullMQ Job"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "publicHttpGet", "file": "apps/worker/src/public-http-get.ts", "params": ["URL", "headers/signal/resolver?"], "returns": "Promise<{ ok, status }>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "OutboundWebhook", "fields": [{ "name": "organizationId", "type": "UUID", "required": true }, { "name": "url", "type": "string", "required": true }, { "name": "secretEncrypted", "type": "string", "required": true }, { "name": "events", "type": "JSON", "required": true }, { "name": "enabled", "type": "boolean", "required": true }], "confidence": "confirmed" },
+        { "name": "WebhookDelivery", "fields": [{ "name": "eventId", "type": "string", "required": true }, { "name": "eventType", "type": "string", "required": true }, { "name": "payload", "type": "JSON", "required": true }, { "name": "attempts", "type": "int", "required": true }, { "name": "status", "type": "string", "required": true }, { "name": "nextAttemptAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "O webhook nasce desativado e o segredo em claro é devolvido somente na criação.", "location": "apps/api/src/reports/reports.service.ts:234", "confidence": "confirmed" },
+        { "description": "Cadastro, redirects e conexão final rejeitam destinos não públicos e fixam o DNS resolvido.", "location": "packages/contracts/src/public-http-url.ts; apps/worker/src/public-http-get.ts", "confidence": "confirmed" },
+        { "description": "Cada webhook/evento é único e uma entrega usa no máximo oito tentativas antes de dead letter.", "location": "packages/database/prisma/schema.prisma:1438; apps/worker/src/external-webhook.processor.ts:56", "confidence": "confirmed" },
+        { "description": "A série mensal do gráfico de receita no frontend contém valores ilustrativos fixos.", "location": "apps/web/src/pages/Reports.tsx:66", "confidence": "confirmed" }
+      ],
+      "dependencies": ["crm-sales", "campaigns-email", "whatsapp-inbox", "async-platform", "PostgreSQL", "Redis/BullMQ", "pdf-lib"],
+      "algorithms": ["agregações paralelas de relatório", "PDF paginado", "assinatura HMAC-SHA256", "proteção SSRF com DNS fixado", "retry exponencial"],
+      "complexity": "high"
+    },
+    {
+      "name": "quick-replies",
+      "path": "apps/api/src/quick-replies; apps/web/src/pages/QuickReplies.tsx; apps/web/src/pages/Inbox.tsx",
+      "purpose": "Catálogo organizacional de textos e anexos inseridos de forma editável no composer por comandos iniciados com barra.",
+      "primary_files": [
+        "apps/api/src/quick-replies/quick-replies.service.ts",
+        "apps/api/src/quick-replies/quick-replies.controller.ts",
+        "apps/api/src/media/media.service.ts",
+        "apps/web/src/pages/QuickReplies.tsx",
+        "apps/web/src/pages/Inbox.tsx",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "QuickRepliesService.list", "file": "apps/api/src/quick-replies/quick-replies.service.ts", "params": ["AuthContext", "search?"], "returns": "Promise<QuickReply[]>", "confidence": "confirmed" },
+        { "name": "QuickRepliesService.create", "file": "apps/api/src/quick-replies/quick-replies.service.ts", "params": ["AuthContext", "QuickReplyInput"], "returns": "Promise<QuickReply>", "confidence": "confirmed" },
+        { "name": "QuickRepliesService.update", "file": "apps/api/src/quick-replies/quick-replies.service.ts", "params": ["AuthContext", "id", "Partial<QuickReplyInput>"], "returns": "Promise<QuickReply>", "confidence": "confirmed" },
+        { "name": "QuickRepliesService.remove", "file": "apps/api/src/quick-replies/quick-replies.service.ts", "params": ["AuthContext", "id"], "returns": "Promise<{ id }>", "confidence": "confirmed" },
+        { "name": "MediaService.confirmQuickReplyAsset", "file": "apps/api/src/media/media.service.ts", "params": ["AuthContext", "assetId", "quickReplyId?"], "returns": "Promise<MediaAsset>", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "QuickReply", "fields": [{ "name": "organizationId", "type": "UUID", "required": true }, { "name": "createdById", "type": "UUID", "required": true }, { "name": "mediaAssetId", "type": "UUID?", "required": false }, { "name": "title", "type": "string", "required": true }, { "name": "shortcut", "type": "string", "required": true }, { "name": "text", "type": "string?", "required": false }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Atalho é normalizado e único por organização.", "location": "apps/api/src/quick-replies/quick-replies.service.ts:19; packages/database/prisma/schema.prisma:948", "confidence": "confirmed" },
+        { "description": "Resposta exige texto ou anexo; texto suporta até 4096 caracteres.", "location": "apps/api/src/quick-replies/quick-replies.service.ts:134", "confidence": "confirmed" },
+        { "description": "Selecionar uma resposta apenas preenche o composer; o operador ainda edita e confirma o envio.", "location": "apps/web/src/pages/Inbox.tsx:1143", "confidence": "confirmed" }
+      ],
+      "dependencies": ["whatsapp-inbox", "media-transcription", "identity-access", "MinIO/S3"],
+      "algorithms": ["normalização de atalho", "busca insensível a caixa", "confirmação de asset por HEAD", "menu de comando por teclado"],
+      "complexity": "medium"
+    },
+    {
+      "name": "realtime-notifications",
+      "path": "apps/api/src/realtime; apps/web/src/components/Shell.tsx; apps/web/src/lib/realtime.ts; apps/web/src/lib/incoming-notification.ts; apps/worker/src/main.ts",
+      "purpose": "Propagação autenticada de atualizações por Socket.IO, invalidação seletiva de cache e central persistente de notificações.",
+      "primary_files": [
+        "apps/api/src/realtime/realtime.gateway.ts",
+        "apps/api/src/reports/reports.service.ts",
+        "apps/worker/src/main.ts",
+        "apps/web/src/components/Shell.tsx",
+        "apps/web/src/lib/realtime.ts",
+        "apps/web/src/lib/incoming-notification.ts",
+        "packages/database/prisma/schema.prisma"
+      ],
+      "functions": [
+        { "name": "RealtimeGateway.handleConnection", "file": "apps/api/src/realtime/realtime.gateway.ts", "params": ["Socket"], "returns": "Promise<void>", "confidence": "confirmed" },
+        { "name": "RealtimeGateway.notifyOrganization", "file": "apps/api/src/realtime/realtime.gateway.ts", "params": ["organizationId", "event", "payload"], "returns": "void", "confidence": "confirmed" },
+        { "name": "ReportsService.notifications", "file": "apps/api/src/reports/reports.service.ts", "params": ["AuthContext"], "returns": "Promise<Notification[]>", "confidence": "confirmed" },
+        { "name": "mergeLatestHistory", "file": "apps/web/src/lib/realtime.ts", "params": ["cached history", "latest page", "pageSize?"], "returns": "RealtimeHistoryData|undefined", "confidence": "confirmed" },
+        { "name": "shouldPlayIncomingMessageSound", "file": "apps/web/src/lib/incoming-notification.ts", "params": ["payload", "pathname", "user", "pageFocused?"], "returns": "boolean", "confidence": "confirmed" }
+      ],
+      "entities": [
+        { "name": "Notification", "fields": [{ "name": "organizationId", "type": "UUID", "required": true }, { "name": "userId", "type": "UUID", "required": true }, { "name": "type", "type": "string", "required": true }, { "name": "title", "type": "string", "required": true }, { "name": "body", "type": "string?", "required": false }, { "name": "actionUrl", "type": "string?", "required": false }, { "name": "readAt", "type": "DateTime?", "required": false }], "confidence": "confirmed" },
+        { "name": "RealtimeEnvelope", "fields": [{ "name": "organizationId", "type": "UUID", "required": true }, { "name": "userId", "type": "UUID?", "required": false }, { "name": "event", "type": "string", "required": true }, { "name": "payload", "type": "unknown", "required": false }], "confidence": "confirmed" }
+      ],
+      "business_rules": [
+        { "description": "Socket só entra nas salas após token, sessão, expiração e usuário ativo serem confirmados.", "location": "apps/api/src/realtime/realtime.gateway.ts:39", "confidence": "confirmed" },
+        { "description": "Notificações listadas e marcadas como lidas sempre pertencem ao userId autenticado.", "location": "apps/api/src/reports/reports.service.ts:112", "confidence": "confirmed" },
+        { "description": "Mensagem de conversa aberta só é silenciada quando a página está visível e focada.", "location": "apps/web/src/lib/incoming-notification.ts:22", "confidence": "confirmed" },
+        { "description": "O frontend escuta notification.created, mas não há produtor explícito desse nome no código atual.", "location": "apps/web/src/components/Shell.tsx:346", "confidence": "inferred" }
+      ],
+      "dependencies": ["identity-access", "whatsapp-inbox", "crm-sales", "async-platform", "Socket.IO", "Redis Pub/Sub", "React Query"],
+      "algorithms": ["autenticação de socket por sessão", "salas por organização/usuário", "coalescência de invalidações", "mesclagem paginada deduplicada", "síntese de aviso Web Audio"],
       "complexity": "high"
     }
   ]

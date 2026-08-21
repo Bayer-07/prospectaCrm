@@ -28,7 +28,7 @@
       ]
     },
     "archaeologist": {
-      "updated_at": "2026-08-21T12:59:56Z",
+      "updated_at": "2026-08-21T13:19:23Z",
       "modules_analyzed": [
         "identity-access",
         "crm-sales",
@@ -38,12 +38,12 @@
         "workflows",
         "follow-ups",
         "ai-knowledge",
-        "media-transcription"
-      ],
-      "modules_pending": [
+        "media-transcription",
         "reports-webhooks",
         "quick-replies",
-        "realtime-notifications",
+        "realtime-notifications"
+      ],
+      "modules_pending": [
         "external-api-mcp",
         "web-interface",
         "async-platform",
@@ -61,6 +61,9 @@
         "_reversa_sdd/flowcharts/follow-ups.md",
         "_reversa_sdd/flowcharts/ai-knowledge.md",
         "_reversa_sdd/flowcharts/media-transcription.md",
+        "_reversa_sdd/flowcharts/reports-webhooks.md",
+        "_reversa_sdd/flowcharts/quick-replies.md",
+        "_reversa_sdd/flowcharts/realtime-notifications.md",
         ".reversa/context/modules.json"
       ]
     }
@@ -141,6 +144,9 @@
     ".reversa\\context\\modules.json",
     "_reversa_sdd\\flowcharts\\follow-ups.md",
     "_reversa_sdd\\flowcharts\\ai-knowledge.md",
-    "_reversa_sdd\\flowcharts\\media-transcription.md"
+    "_reversa_sdd\\flowcharts\\media-transcription.md",
+    "_reversa_sdd\\flowcharts\\reports-webhooks.md",
+    "_reversa_sdd\\flowcharts\\quick-replies.md",
+    "_reversa_sdd\\flowcharts\\realtime-notifications.md"
   ]
 }

@@ -360,3 +360,84 @@ Relações 1:1 opcionais e exclusivas: foto de usuário, logo de empresa, respos
 | `transcribedAt` | Data de conclusão. |
 
 Não há tabela separada de transcrição: a reserva idempotente e o resultado vivem na própria mensagem.
+
+## Relatórios e webhooks externos
+
+### `ReportSummary` (estrutura calculada, não persistida)
+
+| Grupo | Campos |
+| --- | --- |
+| Período | `from`, `to` |
+| Funil | etapa, cor, quantidade e valor em centavos |
+| Vendas | abertas, ganhas, perdidas, valores e taxa de conversão |
+| Inbox | conversas iniciadas, abertas e média da primeira resposta |
+| Campanhas | total e contagens por estado de destinatário |
+| Operação | grupos de atividades e tarefas |
+
+### `OutboundWebhook`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `organizationId` | UUID | Isolamento do cadastro por organização. |
+| `name` | String | Nome de 2 a 120 caracteres. |
+| `url` | String | Endpoint HTTP(S) público validado. |
+| `secretEncrypted` | String | Segredo HMAC cifrado e nunca relistado. |
+| `events` | JSON | No fluxo atual, lista com uma ação selecionada. |
+| `enabled` | `true` no schema | A API cria explicitamente como `false`. |
+| timestamps | DateTime | Criação e última alteração. |
+
+### `WebhookDelivery`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `webhookId`, `eventId` | UUID/String, par único | Idempotência por webhook e evento. |
+| `eventType` | String | Ação comercial que originou a entrega. |
+| `payload` | JSON | Tipo/ID da entidade e estados anterior/posterior. |
+| `attempts` | `0` | Tentativas efetivamente processadas. |
+| `status` | `pending` | `pending`, `retrying`, `delivered` ou `dead_letter`. |
+| `nextAttemptAt` | DateTime? | Diagnóstico do próximo retry calculado. |
+| `deliveredAt`, `lastError` | opcionais | Resultado final ou última falha. |
+
+O índice por estado/próxima tentativa auxilia operação e inspeção; o agendamento efetivo das retentativas fica no BullMQ.
+
+## Respostas rápidas
+
+### `QuickReply`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `organizationId` | UUID | Catálogo compartilhado da organização. |
+| `createdById` | UUID | Usuário autor. |
+| `mediaAssetId` | UUID? único | Imagem ou documento opcional de uso exclusivo. |
+| `title` | String | Nome legível, até 100 caracteres. |
+| `shortcut` | String | Comando normalizado sem `/`, até 40 caracteres. |
+| `text` | String? | Conteúdo editável, até 4.096 caracteres. |
+| timestamps | DateTime | Criação e atualização. |
+
+O par organização/atalho é único. O índice organização/título/ID apoia a listagem, e o asset ligado usa `onDelete: SetNull`.
+
+## Tempo real e notificações
+
+### `Notification`
+
+| Campo | Tipo/padrão | Significado |
+| --- | --- | --- |
+| `organizationId` | UUID | Organização do evento. |
+| `userId` | UUID | Destinatário individual. |
+| `type` | String | Categoria livre, como mensagem, atribuição, follow-up ou handoff. |
+| `title` | String | Resumo visível no popover. |
+| `body` | String? | Contexto curto opcional. |
+| `actionUrl` | String? | Rota interna aberta ao clicar. |
+| `readAt` | DateTime? | Ausente enquanto não lida. |
+| `createdAt` | DateTime | Ordenação decrescente. |
+
+Índices cobrem as 100 notificações recentes por usuário e atualização em massa das não lidas.
+
+### Envelope Redis/Socket.IO (não persistido)
+
+| Campo | Significado |
+| --- | --- |
+| `organizationId` | Sala organizacional que receberá o evento. |
+| `userId?` | Sala individual adicional, quando necessário. |
+| `event` | Nome dinâmico: Inbox, tarefas, conexões, IA ou conhecimento. |
+| `payload?` | IDs e indicadores mínimos para invalidação seletiva. |

@@ -29,9 +29,9 @@
 - [x] ✅ **Arqueólogo** — Análise do módulo `follow-ups`
 - [x] ✅ **Arqueólogo** — Análise do módulo `ai-knowledge`
 - [x] ✅ **Arqueólogo** — Análise do módulo `media-transcription`
-- [ ] **Arqueólogo** — Análise do módulo `reports-webhooks`
-- [ ] **Arqueólogo** — Análise do módulo `quick-replies`
-- [ ] **Arqueólogo** — Análise do módulo `realtime-notifications`
+- [x] ✅ **Arqueólogo** — Análise do módulo `reports-webhooks`
+- [x] ✅ **Arqueólogo** — Análise do módulo `quick-replies`
+- [x] ✅ **Arqueólogo** — Análise do módulo `realtime-notifications`
 - [ ] **Arqueólogo** — Análise do módulo `external-api-mcp`
 - [ ] **Arqueólogo** — Análise do módulo `web-interface`
 - [ ] **Arqueólogo** — Análise do módulo `async-platform`
