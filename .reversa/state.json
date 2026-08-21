@@ -114,10 +114,10 @@
     "auto_continue": true,
     "total_units": 71,
     "total_files": 238,
-    "completed_files": 16,
-    "current_file": "_reversa_sdd/crm-vendas/requirements.md",
-    "last_completed_file": "_reversa_sdd/identidade-acesso/chaves-api/tasks.md",
-    "updated_at": "2026-08-21T14:32:00Z"
+    "completed_files": 32,
+    "current_file": "_reversa_sdd/whatsapp-inbox/requirements.md",
+    "last_completed_file": "_reversa_sdd/crm-vendas/importacao-segmentacao/tasks.md",
+    "updated_at": "2026-08-21T14:40:00Z"
   },
   "agents": [
     "reversa",

@@ -125,112 +125,112 @@
       "path": "_reversa_sdd/crm-vendas/requirements.md",
       "kind": "canonical",
       "unit": "crm-vendas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 18,
       "path": "_reversa_sdd/crm-vendas/design.md",
       "kind": "canonical",
       "unit": "crm-vendas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 19,
       "path": "_reversa_sdd/crm-vendas/tasks.md",
       "kind": "canonical",
       "unit": "crm-vendas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 20,
       "path": "_reversa_sdd/crm-vendas/contracts.md",
       "kind": "optional",
       "unit": "crm-vendas",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 21,
       "path": "_reversa_sdd/crm-vendas/empresas-contatos/requirements.md",
       "kind": "canonical",
       "unit": "crm-vendas/empresas-contatos",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 22,
       "path": "_reversa_sdd/crm-vendas/empresas-contatos/design.md",
       "kind": "canonical",
       "unit": "crm-vendas/empresas-contatos",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 23,
       "path": "_reversa_sdd/crm-vendas/empresas-contatos/tasks.md",
       "kind": "canonical",
       "unit": "crm-vendas/empresas-contatos",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 24,
       "path": "_reversa_sdd/crm-vendas/pipeline-oportunidades/requirements.md",
       "kind": "canonical",
       "unit": "crm-vendas/pipeline-oportunidades",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 25,
       "path": "_reversa_sdd/crm-vendas/pipeline-oportunidades/design.md",
       "kind": "canonical",
       "unit": "crm-vendas/pipeline-oportunidades",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 26,
       "path": "_reversa_sdd/crm-vendas/pipeline-oportunidades/tasks.md",
       "kind": "canonical",
       "unit": "crm-vendas/pipeline-oportunidades",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 27,
       "path": "_reversa_sdd/crm-vendas/tarefas-agenda/requirements.md",
       "kind": "canonical",
       "unit": "crm-vendas/tarefas-agenda",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 28,
       "path": "_reversa_sdd/crm-vendas/tarefas-agenda/design.md",
       "kind": "canonical",
       "unit": "crm-vendas/tarefas-agenda",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 29,
       "path": "_reversa_sdd/crm-vendas/tarefas-agenda/tasks.md",
       "kind": "canonical",
       "unit": "crm-vendas/tarefas-agenda",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 30,
       "path": "_reversa_sdd/crm-vendas/importacao-segmentacao/requirements.md",
       "kind": "canonical",
       "unit": "crm-vendas/importacao-segmentacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 31,
       "path": "_reversa_sdd/crm-vendas/importacao-segmentacao/design.md",
       "kind": "canonical",
       "unit": "crm-vendas/importacao-segmentacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 32,
       "path": "_reversa_sdd/crm-vendas/importacao-segmentacao/tasks.md",
       "kind": "canonical",
       "unit": "crm-vendas/importacao-segmentacao",
-      "status": "pending"
+      "status": "completed"
     },
     {
       "order": 33,
