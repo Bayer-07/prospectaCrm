@@ -116,4 +116,46 @@ describe('MediaService uploads', () => {
       'opportunity-1',
     )).resolves.toEqual(expect.objectContaining({ contentType: 'application/pdf', sizeBytes: 16_384 }));
   });
+
+  it('valida o arquivo da base de conhecimento antes da indexação', async () => {
+    findUnique.mockResolvedValue({
+      id: '14ee3455-a854-40ab-92dc-01d71c3dbef8',
+      key: 'organization-1/2026-08-20/manual.pdf',
+      filename: 'manual.pdf',
+      contentType: 'application/pdf',
+      sizeBytes: 32_768,
+      messageId: null,
+      profilePhotoFor: null,
+      companyLogoFor: null,
+      quickReplyFor: null,
+      opportunityProposalFor: null,
+      aiKnowledgeDocument: null,
+    });
+    vi.spyOn((service as any).client, 'send').mockResolvedValueOnce({
+      ContentLength: 32_768,
+      ContentType: 'application/pdf',
+    });
+
+    await expect(service.confirmAiKnowledgeAsset(auth, '14ee3455-a854-40ab-92dc-01d71c3dbef8'))
+      .resolves.toEqual(expect.objectContaining({ filename: 'manual.pdf', sizeBytes: 32_768 }));
+  });
+
+  it('rejeita formatos que o File Search da OpenAI não indexa', async () => {
+    findUnique.mockResolvedValue({
+      id: '14ee3455-a854-40ab-92dc-01d71c3dbef8',
+      key: 'organization-1/2026-08-20/contatos.csv',
+      filename: 'contatos.csv',
+      contentType: 'text/csv',
+      sizeBytes: 1024,
+      messageId: null,
+      profilePhotoFor: null,
+      companyLogoFor: null,
+      quickReplyFor: null,
+      opportunityProposalFor: null,
+      aiKnowledgeDocument: null,
+    });
+
+    await expect(service.confirmAiKnowledgeAsset(auth, '14ee3455-a854-40ab-92dc-01d71c3dbef8'))
+      .rejects.toThrow('PowerPoint PPTX');
+  });
 });

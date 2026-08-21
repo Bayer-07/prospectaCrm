@@ -349,6 +349,7 @@ export function Shell() {
       scheduleInvalidation(['ai-summary', payload?.conversationId]);
       scheduleInvalidation(['ai-proposals', payload?.conversationId]);
     });
+    socket.on('ai.knowledge.updated', () => scheduleInvalidation(['ai-knowledge-documents']));
     return () => {
       for (const timer of invalidationTimers.values()) window.clearTimeout(timer);
       invalidationTimers.clear();

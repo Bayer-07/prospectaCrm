@@ -5,8 +5,9 @@ import { createHash, randomUUID } from 'node:crypto';
 import type { AuthContext } from '../auth/types.js';
 import { encryptSecret } from '../common/encryption.js';
 import { conversationVisibilityWhere } from '../integrations/conversation-visibility.js';
+import { MediaService } from '../media/media.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
-import { AI_GENERATION_QUEUE } from '../queue/queue.module.js';
+import { AI_GENERATION_QUEUE, AI_KNOWLEDGE_QUEUE } from '../queue/queue.module.js';
 
 const DEFAULT_FALLBACK = 'No momento não consegui continuar o atendimento automático. Vou encaminhar você para nossa equipe.';
 const VALID_FIELDS = new Set(['name', 'email', 'jobTitle', 'company', 'qualificationNote']);
@@ -59,7 +60,12 @@ function assertProposalRequest(auth: AuthContext, input: { action: string; field
 
 @Injectable()
 export class AiService {
-  constructor(private readonly db: PrismaService, @Inject(AI_GENERATION_QUEUE) private readonly queue: Queue) {}
+  constructor(
+    private readonly db: PrismaService,
+    @Inject(AI_GENERATION_QUEUE) private readonly queue: Queue,
+    @Inject(AI_KNOWLEDGE_QUEUE) private readonly knowledgeQueue: Queue,
+    private readonly media: MediaService,
+  ) {}
 
   async getSettings(auth: AuthContext) {
     this.assertAdmin(auth);
@@ -110,6 +116,12 @@ export class AiService {
       where: { organizationId: auth.organizationId },
       select: { openAiApiKeyEncrypted: true },
     });
+    if (input.removeApiKey && existing?.openAiApiKeyEncrypted && !process.env.OPENAI_API_KEY?.trim()) {
+      const knowledgeDocuments = await this.db.aiKnowledgeDocument.count({ where: { organizationId: auth.organizationId } });
+      if (knowledgeDocuments) {
+        throw new BadRequestException('Remova os documentos da base de conhecimento antes de excluir a única chave da OpenAI');
+      }
+    }
     const apiKeyConfigured = Boolean(
       apiKey
       || (!input.removeApiKey && existing?.openAiApiKeyEncrypted)
@@ -167,6 +179,92 @@ export class AiService {
     });
     if (!generation) throw new NotFoundException('Teste de IA não encontrado');
     return generation;
+  }
+
+  async listKnowledgeDocuments(auth: AuthContext) {
+    this.assertAdmin(auth);
+    return this.db.aiKnowledgeDocument.findMany({
+      where: { organizationId: auth.organizationId },
+      select: {
+        id: true,
+        status: true,
+        error: true,
+        indexedAt: true,
+        createdAt: true,
+        updatedAt: true,
+        mediaAsset: { select: { id: true, filename: true, contentType: true, sizeBytes: true } },
+        createdBy: { select: { id: true, name: true } },
+      },
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+    });
+  }
+
+  async addKnowledgeDocument(auth: AuthContext, mediaAssetId?: string) {
+    this.assertAdmin(auth);
+    this.assertFeatureEnabled();
+    await this.assertOrganizationEnabled(auth.organizationId);
+    if (!mediaAssetId || typeof mediaAssetId !== 'string') throw new BadRequestException('Selecione um documento para adicionar');
+    const asset = await this.media.confirmAiKnowledgeAsset(auth, mediaAssetId);
+    let document;
+    try {
+      document = await this.db.$transaction(async (tx) => {
+        const created = await tx.aiKnowledgeDocument.create({
+          data: { organizationId: auth.organizationId, mediaAssetId: asset.id, createdById: auth.userId },
+          include: { mediaAsset: true, createdBy: { select: { id: true, name: true } } },
+        });
+        await tx.auditLog.create({ data: {
+          organizationId: auth.organizationId,
+          userId: auth.userId,
+          action: 'ai.knowledge_document_created',
+          entityType: 'AiKnowledgeDocument',
+          entityId: created.id,
+          after: { filename: asset.filename, sizeBytes: asset.sizeBytes },
+        } });
+        return created;
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
+        throw new BadRequestException('Este documento já foi adicionado à base de conhecimento');
+      }
+      throw error;
+    }
+    await this.enqueueKnowledge(document.id, 'index', document.updatedAt);
+    return document;
+  }
+
+  async retryKnowledgeDocument(auth: AuthContext, documentId: string) {
+    this.assertAdmin(auth);
+    this.assertFeatureEnabled();
+    await this.assertOrganizationEnabled(auth.organizationId);
+    const document = await this.db.aiKnowledgeDocument.findFirst({ where: { id: documentId, organizationId: auth.organizationId } });
+    if (!document) throw new NotFoundException('Documento da base de conhecimento não encontrado');
+    if (document.status !== 'FAILED') throw new BadRequestException('Somente documentos com falha podem ser reprocessados');
+    const updated = await this.db.aiKnowledgeDocument.update({
+      where: { id: document.id },
+      data: { status: 'INDEXING', error: null, indexedAt: null },
+    });
+    await this.enqueueKnowledge(updated.id, 'retry', updated.updatedAt);
+    return updated;
+  }
+
+  async deleteKnowledgeDocument(auth: AuthContext, documentId: string) {
+    this.assertAdmin(auth);
+    const document = await this.db.aiKnowledgeDocument.findFirst({ where: { id: documentId, organizationId: auth.organizationId } });
+    if (!document) throw new NotFoundException('Documento da base de conhecimento não encontrado');
+    if (document.status === 'DELETING') return { id: document.id, status: document.status };
+    const updated = await this.db.$transaction(async (tx) => {
+      const deleting = await tx.aiKnowledgeDocument.update({ where: { id: document.id }, data: { status: 'DELETING', error: null } });
+      await tx.auditLog.create({ data: {
+        organizationId: auth.organizationId,
+        userId: auth.userId,
+        action: 'ai.knowledge_document_deleted',
+        entityType: 'AiKnowledgeDocument',
+        entityId: document.id,
+      } });
+      return deleting;
+    });
+    await this.enqueueKnowledge(updated.id, 'delete', updated.updatedAt);
+    return { id: updated.id, status: updated.status };
   }
 
   async createGeneration(
@@ -360,6 +458,16 @@ export class AiService {
       removeOnComplete: 1_000,
       removeOnFail: 5_000,
     });
+  }
+
+  private async enqueueKnowledge(documentId: string, action: 'index' | 'retry' | 'delete', updatedAt: Date) {
+    await this.knowledgeQueue.add('sync-document', { documentId, action }, {
+      jobId: `ai-knowledge-${action}-${documentId}-${updatedAt.getTime()}`,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 5_000 },
+      removeOnComplete: 1_000,
+      removeOnFail: 5_000,
+    }).catch(() => undefined);
   }
 
   private async runtimeStatus(apiKeyConfigured: boolean) {

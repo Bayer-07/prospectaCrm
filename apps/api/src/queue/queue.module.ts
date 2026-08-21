@@ -8,6 +8,7 @@ export const QUEUES = {
   transactionalEmails: 'transactional-emails', transcriptions: 'audio-transcriptions',
   followUps: 'follow-ups',
   aiGenerations: 'ai-generations',
+  aiKnowledge: 'ai-knowledge',
 } as const;
 
 export const QUEUE_CONNECTION = Symbol('QUEUE_CONNECTION');
@@ -20,6 +21,7 @@ export const TRANSACTIONAL_EMAIL_QUEUE = Symbol('TRANSACTIONAL_EMAIL_QUEUE');
 export const TRANSCRIPTION_QUEUE = Symbol('TRANSCRIPTION_QUEUE');
 export const FOLLOW_UP_QUEUE = Symbol('FOLLOW_UP_QUEUE');
 export const AI_GENERATION_QUEUE = Symbol('AI_GENERATION_QUEUE');
+export const AI_KNOWLEDGE_QUEUE = Symbol('AI_KNOWLEDGE_QUEUE');
 
 const queueOptions = (connection: Redis) => ({
   connection,
@@ -39,7 +41,8 @@ const queueOptions = (connection: Redis) => ({
     { provide: TRANSCRIPTION_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.transcriptions, queueOptions(connection)) },
     { provide: FOLLOW_UP_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.followUps, queueOptions(connection)) },
     { provide: AI_GENERATION_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.aiGenerations, queueOptions(connection)) },
+    { provide: AI_KNOWLEDGE_QUEUE, inject: [QUEUE_CONNECTION], useFactory: (connection: Redis) => new Queue(QUEUES.aiKnowledge, queueOptions(connection)) },
   ],
-  exports: [QUEUE_CONNECTION, INBOUND_QUEUE, OUTBOUND_QUEUE, CAMPAIGN_QUEUE, AUTOMATION_QUEUE, EXTERNAL_WEBHOOK_QUEUE, TRANSACTIONAL_EMAIL_QUEUE, TRANSCRIPTION_QUEUE, FOLLOW_UP_QUEUE, AI_GENERATION_QUEUE],
+  exports: [QUEUE_CONNECTION, INBOUND_QUEUE, OUTBOUND_QUEUE, CAMPAIGN_QUEUE, AUTOMATION_QUEUE, EXTERNAL_WEBHOOK_QUEUE, TRANSACTIONAL_EMAIL_QUEUE, TRANSCRIPTION_QUEUE, FOLLOW_UP_QUEUE, AI_GENERATION_QUEUE, AI_KNOWLEDGE_QUEUE],
 })
 export class QueueModule {}

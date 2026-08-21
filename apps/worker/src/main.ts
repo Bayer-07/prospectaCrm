@@ -14,6 +14,7 @@ import { UserInviteProcessor } from './user-invite.processor.js';
 import { WorkflowProcessor } from './workflow.processor.js';
 import { FollowUpProcessor } from './follow-up.processor.js';
 import { AiGenerationProcessor } from './ai.processor.js';
+import { AiKnowledgeProcessor } from './ai-knowledge.processor.js';
 
 const connection = new Redis(process.env.REDIS_URL || 'redis://localhost:6379', { maxRetriesPerRequest: null });
 const evolution = new EvolutionClient();
@@ -27,6 +28,7 @@ const taskDigestQueue = new Queue('task-digests', queueOptions);
 const transactionalEmailQueue = new Queue('transactional-emails', queueOptions);
 const followUpQueue = new Queue('follow-ups', queueOptions);
 const aiGenerationQueue = new Queue('ai-generations', queueOptions);
+const aiKnowledgeQueue = new Queue('ai-knowledge', queueOptions);
 const transcriptionQueue = new Queue('audio-transcriptions', queueOptions);
 
 const inbound = new InboundProcessor(prisma, chatbotQueue, evolution, inboundQueue, transactionalEmailQueue);
@@ -39,6 +41,7 @@ const userInvites = new UserInviteProcessor(prisma);
 const audioTranscriptions = new AudioTranscriptionProcessor(prisma);
 const followUps = new FollowUpProcessor(prisma, followUpQueue, outboundQueue, automationQueue, transactionalEmailQueue);
 const aiGenerations = new AiGenerationProcessor(prisma, aiGenerationQueue, outboundQueue, chatbotQueue, transcriptionQueue);
+const aiKnowledge = new AiKnowledgeProcessor(prisma, aiKnowledgeQueue);
 
 const workers = [
   new Worker('inbound-webhooks', async (job) => {
@@ -97,6 +100,10 @@ const workers = [
       }));
     }
   }, { connection, concurrency: 1 }),
+  new Worker('ai-knowledge', async (job) => {
+    const result = await aiKnowledge.process(job);
+    if (result?.organizationId) await connection.publish('prospecta:realtime', JSON.stringify(result));
+  }, { connection, concurrency: 2 }),
 ];
 
 for (const worker of workers) {
@@ -137,6 +144,7 @@ await campaigns.reconcileActiveCampaigns();
 await followUps.reconcile();
 await chatbots.reconcileDelays();
 await aiGenerations.reconcilePending();
+await aiKnowledge.reconcile();
 const maintenanceTimer = setInterval(() => void (async () => {
   await runMaintenance(prisma);
   await campaigns.reconcileActiveCampaigns();
@@ -147,6 +155,8 @@ const chatbotDelayTimer = setInterval(() => void chatbots.reconcileDelays()
   .catch((error) => console.error('Falha ao reconciliar esperas de chatbots:', error)), 60_000);
 const aiReconcileTimer = setInterval(() => void aiGenerations.reconcilePending()
   .catch((error) => console.error('Falha ao reconciliar gerações de IA:', error)), 30_000);
+const aiKnowledgeReconcileTimer = setInterval(() => void aiKnowledge.reconcile()
+  .catch((error) => console.error('Falha ao reconciliar documentos da IA:', error)), 30_000);
 
 let recentSyncRunning = false;
 const syncRecentEvolutionMessages = async () => {
@@ -181,9 +191,10 @@ const shutdown = async () => {
   clearInterval(followUpTimer);
   clearInterval(chatbotDelayTimer);
   clearInterval(aiReconcileTimer);
+  clearInterval(aiKnowledgeReconcileTimer);
   clearInterval(recentSyncTimer);
   await Promise.all(workers.map((worker) => worker.close()));
-  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close(), followUpQueue.close(), aiGenerationQueue.close(), transcriptionQueue.close()]);
+  await Promise.all([campaignQueue.close(), automationQueue.close(), chatbotQueue.close(), outboundQueue.close(), inboundQueue.close(), taskDigestQueue.close(), transactionalEmailQueue.close(), followUpQueue.close(), aiGenerationQueue.close(), aiKnowledgeQueue.close(), transcriptionQueue.close()]);
   await prisma.$disconnect();
   await connection.quit();
 };

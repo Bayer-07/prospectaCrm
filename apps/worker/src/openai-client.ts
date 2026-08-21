@@ -4,7 +4,8 @@ export type AiMetrics = {
   totalDurationMs?: number;
 };
 
-export type AiResult<T> = { data: T; model: string; metrics: AiMetrics };
+export type AiKnowledgeSource = { fileId: string; filename: string; score?: number };
+export type AiResult<T> = { data: T; model: string; metrics: AiMetrics; sources: AiKnowledgeSource[] };
 
 export type GenerateOptions = {
   system: string;
@@ -15,17 +16,34 @@ export type GenerateOptions = {
   model?: string;
   maxTokens?: number;
   validate?: (value: unknown) => unknown;
+  vectorStoreId?: string;
 };
 
 type OpenAiResponse = {
   model?: string;
   status?: string;
   output_text?: string;
-  output?: Array<{ content?: Array<{ type?: string; text?: string }> }>;
+  output?: Array<{
+    type?: string;
+    content?: Array<{ type?: string; text?: string }>;
+    results?: Array<{ file_id?: string; filename?: string; score?: number }>;
+  }>;
   usage?: { input_tokens?: number; output_tokens?: number };
   error?: { message?: string };
   incomplete_details?: { reason?: string };
 };
+
+function knowledgeSources(payload: OpenAiResponse) {
+  const unique = new Map<string, AiKnowledgeSource>();
+  for (const item of payload.output || []) {
+    if (item.type !== 'file_search_call') continue;
+    for (const result of item.results || []) {
+      if (!result.file_id || !result.filename) continue;
+      unique.set(result.file_id, { fileId: result.file_id, filename: result.filename, score: result.score });
+    }
+  }
+  return [...unique.values()];
+}
 
 function responseText(payload: OpenAiResponse) {
   if (payload.output_text?.trim()) return payload.output_text.trim();
@@ -71,6 +89,10 @@ export class OpenAiClient {
               schema: options.schema,
             },
           },
+          ...(options.vectorStoreId ? {
+            tools: [{ type: 'file_search', vector_store_ids: [options.vectorStoreId], max_num_results: 5 }],
+            include: ['file_search_call.results'],
+          } : {}),
           ...(options.maxTokens ? { max_output_tokens: Math.min(4_096, Math.max(32, Math.floor(options.maxTokens))) } : {}),
         }),
       });
@@ -94,6 +116,7 @@ export class OpenAiClient {
           evalCount: payload.usage?.output_tokens,
           totalDurationMs: Math.round(performance.now() - startedAt),
         },
+        sources: knowledgeSources(payload),
       };
     } catch (error) {
       if (error instanceof Error && error.name === 'AbortError') throw new Error('A geração excedeu o tempo limite');

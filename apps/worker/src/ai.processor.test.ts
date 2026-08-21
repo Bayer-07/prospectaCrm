@@ -38,8 +38,8 @@ describe('processamento estruturado da IA', () => {
 
   it('refaz em português uma geração inicialmente escrita em inglês', async () => {
     const generate = vi.fn()
-      .mockResolvedValueOnce({ data: { reply: 'Hello, how can I help you with this system?' }, model: 'gpt-5.6-luna', metrics: {} })
-      .mockResolvedValueOnce({ data: { reply: 'Olá, como posso ajudar com este sistema?' }, model: 'gpt-5.6-luna', metrics: {} });
+      .mockResolvedValueOnce({ data: { reply: 'Hello, how can I help you with this system?' }, model: 'gpt-5.6-luna', metrics: {}, sources: [] })
+      .mockResolvedValueOnce({ data: { reply: 'Olá, como posso ajudar com este sistema?' }, model: 'gpt-5.6-luna', metrics: {}, sources: [] });
 
     await expect(generateInPortuguese<{ reply: string }>({ generate } as never, {
       system: 'Responda ao cliente.', prompt: 'O cliente disse olá.', schema: { type: 'object' }, timeoutMs: 1_000,
@@ -77,6 +77,7 @@ describe('processamento estruturado da IA', () => {
       },
       conversation: { findUnique: vi.fn().mockResolvedValue({ assigneeId: 'user-1', contact: { id: 'contact-1', name: 'Maria', companies: [] }, chatbotSession: null }) },
       organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+      aiKnowledgeDocument: { findFirst: vi.fn().mockResolvedValue(null) },
       message: { findMany: vi.fn().mockResolvedValue([{ id: 'message-1', direction: 'INBOUND', type: 'audio', text: null, transcriptionText: null, createdAt: new Date(), media: [] }]) },
     };
     const aiQueue = { add: vi.fn().mockResolvedValue({}) };
@@ -125,15 +126,17 @@ describe('processamento estruturado da IA', () => {
         globalInstructions: '',
         fallbackMessage: 'Transferindo.',
         model: 'gpt-5.6-terra',
+        openAiVectorStoreId: 'vs-1',
         openAiApiKeyEncrypted: encryptTestSecret('chave-da-organizacao', 'segredo-de-criptografia-do-teste'),
       }) },
+      aiKnowledgeDocument: { findFirst: vi.fn().mockResolvedValue({ id: 'knowledge-1' }) },
       message: {
         findFirst: vi.fn().mockResolvedValue({ id: 'message-initial' }),
         findMany: vi.fn().mockResolvedValueOnce([currentInbound]).mockResolvedValueOnce([firstInbound]),
       },
     };
     const outboundQueue = { add: vi.fn() };
-    const ai = { model: 'test', generate: vi.fn().mockResolvedValue({ data: { reply: 'Claro!', action: 'continue', confidence: 0.9, proposal: {} }, model: 'test', metrics: {} }) };
+    const ai = { model: 'test', generate: vi.fn().mockResolvedValue({ data: { reply: 'Claro!', action: 'continue', confidence: 0.9, proposal: {} }, model: 'test', metrics: {}, sources: [{ fileId: 'file-1', filename: 'catalogo.pdf' }] }) };
     const processor = new AiGenerationProcessor(db as never, {} as never, outboundQueue as never, {} as never, {} as never, ai as never);
 
     await processor.process({ data: { generationId: 'generation-2' } } as never);
@@ -151,6 +154,7 @@ describe('processamento estruturado da IA', () => {
       prompt: expect.stringContaining('Cliente: Quero ajuda'),
       model: 'gpt-5.6-terra',
       apiKey: 'chave-da-organizacao',
+      vectorStoreId: 'vs-1',
     }));
   });
 

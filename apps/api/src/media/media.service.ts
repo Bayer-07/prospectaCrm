@@ -27,6 +27,17 @@ const DOCUMENT_TYPES = new Set([
   'application/vnd.openxmlformats-officedocument.presentationml.presentation',
   'text/plain',
 ]);
+const AI_KNOWLEDGE_TYPES = new Set([
+  'application/pdf',
+  'application/msword',
+  'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  'text/plain',
+  'text/markdown',
+  'text/html',
+  'application/json',
+]);
+const AI_KNOWLEDGE_EXTENSIONS = /\.(?:doc|docx|html?|json|md|pdf|pptx|txt)$/i;
 const QUICK_REPLY_MEDIA_TYPES = new Set([
   ...PROFILE_PHOTO_TYPES,
   ...DOCUMENT_TYPES,
@@ -34,7 +45,7 @@ const QUICK_REPLY_MEDIA_TYPES = new Set([
 const OPPORTUNITY_PROPOSAL_TYPES = new Set([...PROFILE_PHOTO_TYPES, ...DOCUMENT_TYPES]);
 const ALLOWED_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/webp', 'image/x-icon', 'audio/ogg', 'audio/mpeg', 'audio/mp4', 'audio/webm',
-  'video/mp4', ...DOCUMENT_TYPES,
+  'video/mp4', ...DOCUMENT_TYPES, ...AI_KNOWLEDGE_TYPES,
 ]);
 
 function requiredS3Secret() {
@@ -257,6 +268,48 @@ export class MediaService implements OnModuleInit {
     return asset;
   }
 
+  async confirmAiKnowledgeAsset(auth: AuthContext, id: string) {
+    const asset = await this.db.mediaAsset.findUnique({
+      where: { id },
+      include: {
+        profilePhotoFor: { select: { id: true } },
+        companyLogoFor: { select: { id: true } },
+        quickReplyFor: { select: { id: true } },
+        opportunityProposalFor: { select: { id: true } },
+        aiKnowledgeDocument: { select: { id: true } },
+      },
+    });
+    if (
+      !asset?.key.startsWith(`${auth.organizationId}/`)
+      || asset.messageId
+      || asset.profilePhotoFor
+      || asset.companyLogoFor
+      || asset.quickReplyFor
+      || asset.opportunityProposalFor
+      || asset.aiKnowledgeDocument
+      || !AI_KNOWLEDGE_TYPES.has(asset.contentType)
+      || !AI_KNOWLEDGE_EXTENSIONS.test(asset.filename)
+      || asset.sizeBytes < 1
+      || asset.sizeBytes > MAX_FILE_BYTES
+    ) {
+      throw new BadRequestException('Selecione um PDF, Word, PowerPoint PPTX, TXT, Markdown, HTML ou JSON de até 25 MB');
+    }
+    try {
+      const stored = await this.client.send(new HeadObjectCommand({ Bucket: this.bucket, Key: asset.key }));
+      if (
+        !stored.ContentLength
+        || stored.ContentLength !== asset.sizeBytes
+        || (stored.ContentType && stored.ContentType.split(';', 1)[0].toLowerCase() !== asset.contentType)
+      ) {
+        throw new BadRequestException('O arquivo enviado não corresponde ao documento selecionado');
+      }
+    } catch (error) {
+      if (error instanceof BadRequestException) throw error;
+      throw new BadRequestException('Conclua o envio do documento antes de adicioná-lo à base de conhecimento');
+    }
+    return asset;
+  }
+
   async deleteAsset(auth: AuthContext, id: string) {
     const asset = await this.db.mediaAsset.findUnique({
       where: { id },
@@ -265,6 +318,7 @@ export class MediaService implements OnModuleInit {
         companyLogoFor: { select: { id: true } },
         quickReplyFor: { select: { id: true } },
         opportunityProposalFor: { select: { id: true } },
+        aiKnowledgeDocument: { select: { id: true } },
       },
     });
     if (!asset?.key.startsWith(`${auth.organizationId}/`)) return;
@@ -272,6 +326,7 @@ export class MediaService implements OnModuleInit {
     if (asset.companyLogoFor) throw new BadRequestException('A logo ainda está vinculada a uma empresa');
     if (asset.quickReplyFor) throw new BadRequestException('O arquivo ainda está vinculado a uma resposta rápida');
     if (asset.opportunityProposalFor) throw new BadRequestException('O arquivo ainda está vinculado a uma oportunidade');
+    if (asset.aiKnowledgeDocument) throw new BadRequestException('O arquivo ainda está vinculado à base de conhecimento da IA');
     await this.client.send(new DeleteObjectCommand({ Bucket: this.bucket, Key: asset.key }));
     await this.db.mediaAsset.delete({ where: { id: asset.id } });
   }

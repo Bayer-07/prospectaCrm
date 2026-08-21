@@ -249,6 +249,14 @@ O BZS One usa a Responses API da OpenAI para gerar resumos persistentes, sugerir
 
 O recurso nasce desligado. O CRM, WhatsApp, campanhas e demais workers continuam funcionando normalmente sem uma chave. Ao ativá-lo, o conteúdo necessário da conversa é enviado à OpenAI para processamento. As requisições usam `store: false`; ainda assim, revise as políticas internas de privacidade antes da homologação.
 
+### Base de conhecimento e RAG
+
+Administradores podem abrir **Integrações → Inteligência artificial → Base de conhecimento** e arrastar arquivos PDF, Word, PowerPoint PPTX, TXT, Markdown, HTML ou JSON, que são os formatos compatíveis com o File Search usados pelo sistema. O upload original fica no MinIO e a indexação vetorial é executada em segundo plano pelo worker, sem bloquear a interface. A tela apresenta os estados `Indexando`, `Pronto para uso`, `Falha na indexação` e `Removendo`, além de permitir reprocessar falhas e excluir documentos.
+
+Quando houver ao menos um documento pronto, o BZS One habilita o `file_search` da Responses API nas sugestões de resposta e no bloco de pré-atendimento por IA. Os resumos permanecem limitados às mensagens e eventos da conversa para não misturar conhecimento institucional com fatos do atendimento. As fontes recuperadas são salvas no resultado da geração para auditoria, mas não são exibidas nem enviadas automaticamente ao cliente.
+
+A base vetorial é isolada por organização. Ao excluir um documento, o worker remove o arquivo da OpenAI, a cópia do MinIO e o vínculo no PostgreSQL. A OpenAI cobra separadamente o armazenamento vetorial e as chamadas de File Search; consulte a [documentação de File Search](https://platform.openai.com/docs/guides/tools-file-search) e a [tabela de preços](https://platform.openai.com/pricing). Documentos enviados à base são processados e armazenados pela OpenAI, portanto não adicione informações que a política interna da empresa proíba compartilhar com o provedor.
+
 ### Configuração no Ubuntu
 
 Mantenha o recurso habilitado no servidor e configure a chave de criptografia usada para proteger credenciais salvas pelo painel:

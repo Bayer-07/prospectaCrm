@@ -1,7 +1,7 @@
-import { FormEvent, useEffect, useState } from 'react';
+import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, BrainCircuit, Check, Copy, ExternalLink, KeyRound, LockKeyhole, Mail, MoreHorizontal, Network, Pencil, Play, Plus, QrCode, RefreshCw, ShieldCheck, Smartphone, Trash2, Unplug, UserPlus, Users } from 'lucide-react';
+import { AlertTriangle, BookOpen, BrainCircuit, Check, Copy, ExternalLink, FileText, KeyRound, LockKeyhole, Mail, MoreHorizontal, Network, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, ShieldCheck, Smartphone, Trash2, Unplug, UploadCloud, UserPlus, Users } from 'lucide-react';
 import { api, dateTime, type Envelope } from '../lib/api';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { useAuth } from '../App';
@@ -79,6 +79,15 @@ type AiSettingsData = {
   runtime: { available: boolean; reason?: string; provider: 'openai' };
 };
 type AiConfigTest = { id: string; status: string; result?: { reply?: string }; error?: string };
+type AiKnowledgeDocument = {
+  id: string;
+  status: 'INDEXING' | 'READY' | 'FAILED' | 'DELETING';
+  error?: string | null;
+  indexedAt?: string | null;
+  createdAt: string;
+  mediaAsset: { id: string; filename: string; contentType: string; sizeBytes: number };
+  createdBy?: { id: string; name: string } | null;
+};
 type AiSettingsForm = Pick<AiSettingsData, 'enabled' | 'globalInstructions' | 'fallbackMessage' | 'model'> & {
   apiKey: string;
   removeApiKey: boolean;
@@ -195,11 +204,135 @@ function AiSettings() {
         {current.removeApiKey && <button type="button" onClick={() => update({ removeApiKey: false })}>Desfazer</button>}
       </div>
     </section>
+    <AiKnowledgeBase enabled={current.enabled} apiKeyConfigured={settings.data!.data.apiKeyConfigured && !current.removeApiKey} />
     <label className="field ai-textarea-field"><span>Instruções gerais da BZS</span><textarea rows={8} maxLength={10_000} value={current.globalInstructions} onChange={(event) => update({ globalInstructions: event.target.value })} placeholder="Tom de voz, produtos, limites comerciais e informações que a IA deve respeitar." /><small>{current.globalInstructions.length.toLocaleString('pt-BR')} / 10.000 caracteres</small></label>
     <label className="field ai-textarea-field"><span>Mensagem de indisponibilidade</span><textarea rows={3} maxLength={1_000} value={current.fallbackMessage} onChange={(event) => update({ fallbackMessage: event.target.value })} /><small>Enviada antes da transferência quando o pré-atendimento não puder continuar.</small></label>
     {testGenerationId && currentTest && <div className={`ai-test-result ${currentTest.status.toLowerCase()}`}><BrainCircuit size={16} /><span>{testMessage}</span></div>}
     <div className="ai-settings-actions"><Button variant="secondary" onClick={() => test.mutate()} loading={test.isPending || Boolean(testGenerationId && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(testResult.data?.data.status || ''))} disabled={!settings.data!.data.enabled || !runtime.available || Boolean(form)} title={form ? 'Salve as alterações antes de testar' : undefined}><Play size={16} />Testar geração</Button><Button onClick={() => save.mutate()} loading={save.isPending}>Salvar configurações</Button></div>
   </div>;
+}
+
+const knowledgeMimeByExtension: Record<string, string> = {
+  doc: 'application/msword', docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+  html: 'text/html', htm: 'text/html', json: 'application/json', md: 'text/markdown', pdf: 'application/pdf',
+  pptx: 'application/vnd.openxmlformats-officedocument.presentationml.presentation', txt: 'text/plain',
+};
+
+const knowledgeStatusLabels: Record<AiKnowledgeDocument['status'], string> = {
+  INDEXING: 'Indexando',
+  READY: 'Pronto para uso',
+  FAILED: 'Falha na indexação',
+  DELETING: 'Removendo',
+};
+
+function knowledgeContentType(file: File) {
+  const extension = file.name.split('.').pop()?.toLowerCase() || '';
+  return file.type || knowledgeMimeByExtension[extension] || 'application/octet-stream';
+}
+
+function formatFileSize(bytes: number) {
+  if (bytes < 1_024) return `${bytes} B`;
+  if (bytes < 1_048_576) return `${(bytes / 1_024).toFixed(1)} KB`;
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+function AiKnowledgeBase({ enabled, apiKeyConfigured }: Readonly<{ enabled: boolean; apiKeyConfigured: boolean }>) {
+  const client = useQueryClient();
+  const inputRef = useRef<HTMLInputElement>(null);
+  const [dragging, setDragging] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const documents = useQuery({
+    queryKey: ['ai-knowledge-documents'],
+    queryFn: () => api<Envelope<AiKnowledgeDocument[]>>('/settings/ai/documents'),
+    refetchInterval: (query) => query.state.data?.data.some((document) => ['INDEXING', 'DELETING'].includes(document.status)) ? 3_000 : false,
+  });
+  const retry = useMutation({
+    mutationFn: (id: string) => api(`/settings/ai/documents/${id}/retry`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('Reindexação iniciada.');
+      void client.invalidateQueries({ queryKey: ['ai-knowledge-documents'] });
+    },
+  });
+  const remove = useMutation({
+    mutationFn: (id: string) => api(`/settings/ai/documents/${id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Documento sendo removido da base de conhecimento.');
+      void client.invalidateQueries({ queryKey: ['ai-knowledge-documents'] });
+    },
+  });
+  const addFiles = async (files: File[]) => {
+    if (!files.length || uploading) return;
+    if (!enabled || !apiKeyConfigured) {
+      toast.error('Habilite a IA e salve uma chave da OpenAI antes de adicionar documentos.');
+      return;
+    }
+    setUploading(true);
+    let added = 0;
+    let failed = 0;
+    for (const file of files) {
+      try {
+        const contentType = knowledgeContentType(file);
+        const created = await api<Envelope<{ id: string; uploadUrl: string }>>('/media/uploads', {
+          method: 'POST',
+          body: JSON.stringify({ filename: file.name, contentType, sizeBytes: file.size }),
+        });
+        const uploaded = await fetch(created.data.uploadUrl, { method: 'PUT', headers: { 'Content-Type': contentType }, body: file });
+        if (!uploaded.ok) throw new Error(`Falha ao enviar ${file.name} para o armazenamento`);
+        await api('/settings/ai/documents', { method: 'POST', body: JSON.stringify({ mediaAssetId: created.data.id }) });
+        added += 1;
+      } catch {
+        failed += 1;
+      }
+    }
+    setUploading(false);
+    if (inputRef.current) inputRef.current.value = '';
+    const addedLabel = added === 1 ? 'Documento adicionado' : `${added} documentos adicionados`;
+    const failedLabel = failed === 1 ? 'Um documento não pôde ser adicionado.' : `${failed} documentos não puderam ser adicionados.`;
+    if (added) toast.success(`${addedLabel}. A indexação continuará em segundo plano.`);
+    if (failed) toast.error(failedLabel);
+    void client.invalidateQueries({ queryKey: ['ai-knowledge-documents'] });
+  };
+  const items = documents.data?.data || [];
+  const readyCount = items.filter((document) => document.status === 'READY').length;
+  let documentContent = <div className="ai-knowledge-empty"><BookOpen size={20} /><div><strong>Nenhum documento adicionado</strong><span>A IA continuará usando apenas as instruções gerais e o contexto da conversa.</span></div></div>;
+  if (documents.isLoading) {
+    documentContent = <div className="ai-knowledge-loading"><RefreshCw className="spin" size={17} />Carregando documentos…</div>;
+  } else if (items.length) {
+    documentContent = <div className="ai-knowledge-list">
+      {items.map((document) => <article key={document.id}>
+        <div className="ai-knowledge-file-icon"><FileText size={18} /></div>
+        <div className="ai-knowledge-file-main"><strong title={document.mediaAsset.filename}>{document.mediaAsset.filename}</strong><span>{formatFileSize(document.mediaAsset.sizeBytes)} · adicionado por {document.createdBy?.name || 'usuário removido'} em {dateTime(document.createdAt)}</span>{document.error && <small title={document.error}>{document.error}</small>}</div>
+        <span className={`ai-knowledge-status ${document.status.toLowerCase()}`}><i />{knowledgeStatusLabels[document.status]}</span>
+        <div className="ai-knowledge-actions">
+          {document.status === 'FAILED' && <button type="button" onClick={() => retry.mutate(document.id)} disabled={retry.isPending} title="Tentar indexar novamente" aria-label={`Reindexar ${document.mediaAsset.filename}`}><RotateCcw size={16} /></button>}
+          <button type="button" className="danger" onClick={() => { if (window.confirm(`Remover “${document.mediaAsset.filename}” da base de conhecimento?`)) remove.mutate(document.id); }} disabled={document.status === 'DELETING' || remove.isPending} title="Remover documento" aria-label={`Remover ${document.mediaAsset.filename}`}><Trash2 size={16} /></button>
+        </div>
+      </article>)}
+    </div>;
+  }
+  return <section className="ai-knowledge-card">
+    <div className="ai-provider-card-header">
+      <div className="ai-provider-icon"><BookOpen size={19} /></div>
+      <div><h3>Base de conhecimento</h3><p>Documentos consultados nas sugestões de resposta e no pré-atendimento automático.</p></div>
+      <span className="ai-knowledge-count">{readyCount} {readyCount === 1 ? 'documento pronto' : 'documentos prontos'}</span>
+    </div>
+    <button
+      type="button"
+      className={`ai-knowledge-dropzone ${dragging ? 'dragging' : ''}`}
+      onClick={() => inputRef.current?.click()}
+      onDragEnter={(event) => { event.preventDefault(); setDragging(true); }}
+      onDragOver={(event) => event.preventDefault()}
+      onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
+      onDrop={(event) => { event.preventDefault(); setDragging(false); void addFiles([...event.dataTransfer.files]); }}
+      disabled={uploading}
+    >
+      <UploadCloud size={23} />
+      <span><strong>{uploading ? 'Enviando documentos…' : 'Arraste documentos ou clique para selecionar'}</strong><small>PDF, Word, PowerPoint PPTX, TXT, Markdown, HTML ou JSON · até 25 MB por arquivo</small></span>
+    </button>
+    <input ref={inputRef} type="file" multiple hidden accept=".pdf,.doc,.docx,.pptx,.txt,.md,.html,.htm,.json" onChange={(event) => void addFiles(Array.from(event.target.files || []))} />
+    <div className="ai-knowledge-privacy"><ShieldCheck size={15} /><span>Os documentos são enviados à OpenAI para indexação vetorial. O BZS One mantém a cópia original no armazenamento interno e remove ambas ao excluir.</span></div>
+    {documentContent}
+  </section>;
 }
 
 function UsersSettings() {

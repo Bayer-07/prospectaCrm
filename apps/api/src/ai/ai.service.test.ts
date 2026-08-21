@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllEnvs());
 
 describe('serviço de IA', () => {
   it('restringe a configuração global a administradores', async () => {
-    const service = new AiService({} as never, {} as never);
+    const service = new AiService({} as never, {} as never, {} as never, {} as never);
     await expect(service.getSettings({ ...admin, roleKey: 'seller' })).rejects.toThrow(/administradores/);
   });
 
@@ -26,7 +26,7 @@ describe('serviço de IA', () => {
       conversationAiGeneration: { upsert: vi.fn().mockResolvedValue(generation) },
     };
     const queue = { add: vi.fn().mockResolvedValue({}) };
-    const service = new AiService(db as never, queue as never);
+    const service = new AiService(db as never, queue as never, {} as never, {} as never);
 
     await expect(service.createGeneration(admin, 'conversation-1', { type: 'REPLY_SUGGESTION' })).resolves.toBe(generation);
     expect(db.conversationAiGeneration.upsert).toHaveBeenCalledWith(expect.objectContaining({
@@ -55,7 +55,7 @@ describe('serviço de IA', () => {
       },
     };
     const queue = { add: vi.fn().mockResolvedValue({}) };
-    const service = new AiService(db as never, queue as never);
+    const service = new AiService(db as never, queue as never, {} as never, {} as never);
 
     await expect(service.createGeneration(admin, 'conversation-1', { type: 'REPLY_SUGGESTION' })).resolves.toBe(pending);
     expect(db.conversationAiGeneration.updateMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -69,7 +69,7 @@ describe('serviço de IA', () => {
 
   it('mantém a IA desligada quando o ambiente não foi habilitado', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'false');
-    const service = new AiService({} as never, {} as never);
+    const service = new AiService({} as never, {} as never, {} as never, {} as never);
     await expect(service.createGeneration(admin, 'conversation-1', { type: 'SUMMARY' })).rejects.toThrow(/desativado/);
   });
 
@@ -77,7 +77,7 @@ describe('serviço de IA', () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
     vi.stubEnv('OPENAI_API_KEY', '');
     const db = { organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, openAiApiKeyEncrypted: null }) } };
-    const service = new AiService(db as never, {} as never);
+    const service = new AiService(db as never, {} as never, {} as never, {} as never);
     await expect(service.createGeneration(admin, 'conversation-1', { type: 'SUMMARY' })).rejects.toThrow(/chave da OpenAI/);
   });
 
@@ -100,7 +100,7 @@ describe('serviço de IA', () => {
         };
       });
     const db = { organizationAiSettings: { findUnique, upsert: vi.fn().mockResolvedValue({}) } };
-    const service = new AiService(db as never, {} as never);
+    const service = new AiService(db as never, {} as never, {} as never, {} as never);
 
     const result = await service.updateSettings(admin, {
       enabled: true,
@@ -119,13 +119,24 @@ describe('serviço de IA', () => {
   });
 
   it('rejeita um modelo que não esteja na lista curada', async () => {
-    const service = new AiService({} as never, {} as never);
+    const service = new AiService({} as never, {} as never, {} as never, {} as never);
     await expect(service.updateSettings(admin, { model: 'modelo-inexistente' })).rejects.toThrow(/modelo da OpenAI válido/);
+  });
+
+  it('preserva a única chave capaz de remover documentos indexados', async () => {
+    vi.stubEnv('OPENAI_API_KEY', '');
+    const db = {
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ openAiApiKeyEncrypted: 'encrypted-key' }) },
+      aiKnowledgeDocument: { count: vi.fn().mockResolvedValue(2) },
+    };
+    const service = new AiService(db as never, {} as never, {} as never, {} as never);
+
+    await expect(service.updateSettings(admin, { removeApiKey: true })).rejects.toThrow(/Remova os documentos/);
   });
 
   it('não permite consultar um teste administrativo de outra organização', async () => {
     const db = { conversationAiGeneration: { findFirst: vi.fn().mockResolvedValue(null) } };
-    const service = new AiService(db as never, {} as never);
+    const service = new AiService(db as never, {} as never, {} as never, {} as never);
     await expect(service.getTest(admin, 'test-1')).rejects.toThrow(/não encontrado/);
     expect(db.conversationAiGeneration.findFirst).toHaveBeenCalledWith({
       where: { id: 'test-1', organizationId: 'org-1', type: 'CONFIG_TEST' },
@@ -133,10 +144,42 @@ describe('serviço de IA', () => {
   });
 
   it('exige permissão de escrita em contatos para aplicar propostas', async () => {
-    const service = new AiService({} as never, {} as never);
+    const service = new AiService({} as never, {} as never, {} as never, {} as never);
     await expect(service.updateProposal(
       { ...admin, permissions: [{ resource: 'conversations', action: 'write', scope: 'ALL' }] },
       'conversation-1', 'proposal-1', { action: 'apply', fields: ['name'] },
     )).rejects.toThrow(/alterar contatos/);
+  });
+
+  it('confirma o upload e agenda a indexação de um documento', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const now = new Date('2026-08-20T15:00:00.000Z');
+    const asset = { id: 'asset-1', filename: 'catalogo.pdf', sizeBytes: 1_024 };
+    const document = { id: 'document-1', organizationId: 'org-1', status: 'INDEXING', updatedAt: now, mediaAsset: asset };
+    const db = {
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+      $transaction: vi.fn(async (callback) => callback({
+        aiKnowledgeDocument: { create: vi.fn().mockResolvedValue(document) },
+        auditLog: { create: vi.fn().mockResolvedValue({}) },
+      })),
+    };
+    const queue = { add: vi.fn().mockResolvedValue({}) };
+    const media = { confirmAiKnowledgeAsset: vi.fn().mockResolvedValue(asset) };
+    const service = new AiService(db as never, {} as never, queue as never, media as never);
+
+    await expect(service.addKnowledgeDocument(admin, 'asset-1')).resolves.toBe(document);
+    expect(media.confirmAiKnowledgeAsset).toHaveBeenCalledWith(admin, 'asset-1');
+    expect(queue.add).toHaveBeenCalledWith('sync-document', { documentId: 'document-1', action: 'index' }, expect.objectContaining({
+      jobId: `ai-knowledge-index-document-1-${now.getTime()}`,
+    }));
+  });
+
+  it('lista somente documentos da organização autenticada', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = new AiService({ aiKnowledgeDocument: { findMany } } as never, {} as never, {} as never, {} as never);
+
+    await expect(service.listKnowledgeDocuments(admin)).resolves.toEqual([]);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ where: { organizationId: 'org-1' } }));
   });
 });

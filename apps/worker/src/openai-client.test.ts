@@ -35,6 +35,7 @@ describe('cliente da OpenAI', () => {
       data: { reply: 'Olá!' },
       model: 'gpt-5.6-luna',
       metrics: { promptEvalCount: 12, evalCount: 4 },
+      sources: [],
     });
     const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
     expect(fetchMock).toHaveBeenCalledWith('https://openai.test/v1/responses', expect.objectContaining({
@@ -50,6 +51,30 @@ describe('cliente da OpenAI', () => {
       text: { verbosity: 'low', format: { type: 'json_schema', name: 'bzs_one_structured_response', strict: true, schema: { type: 'object' } } },
       max_output_tokens: 160,
     });
+  });
+
+  it('habilita o file search e devolve as fontes consultadas', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const fetchMock = vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      status: 'completed',
+      output: [
+        { type: 'file_search_call', results: [{ file_id: 'file-1', filename: 'catalogo.pdf', score: 0.92 }] },
+        { type: 'message', content: [{ type: 'output_text', text: '{"reply":"Resposta baseada no catálogo"}' }] },
+      ],
+    }), { status: 200 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const result = await new OpenAiClient().generate<{ reply: string }>({
+      system: 'Sistema', prompt: 'Usuário', schema: { type: 'object' }, timeoutMs: 1_000, vectorStoreId: 'vs-1',
+    });
+
+    const request = JSON.parse(String(fetchMock.mock.calls[0][1]?.body));
+    expect(request).toMatchObject({
+      tools: [{ type: 'file_search', vector_store_ids: ['vs-1'], max_num_results: 5 }],
+      include: ['file_search_call.results'],
+    });
+    expect(result.sources).toEqual([{ fileId: 'file-1', filename: 'catalogo.pdf', score: 0.92 }]);
   });
 
   it('rejeita a saída quando o validador estrutural não a aceita', async () => {

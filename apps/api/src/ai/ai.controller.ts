@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Param, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Param, Patch, Post } from '@nestjs/common';
 import { CurrentUser } from '../auth/current-user.decorator.js';
 import { RequirePermission } from '../auth/permission.decorator.js';
 import type { AuthContext } from '../auth/types.js';
@@ -29,6 +29,26 @@ export class AiController {
   @Get('settings/ai/tests/:generationId')
   getTest(@CurrentUser() auth: AuthContext, @Param('generationId') generationId: string) {
     return this.ai.getTest(auth, generationId).then((data) => ({ data }));
+  }
+
+  @Get('settings/ai/documents')
+  listDocuments(@CurrentUser() auth: AuthContext) {
+    return this.ai.listKnowledgeDocuments(auth).then((data) => ({ data }));
+  }
+
+  @Post('settings/ai/documents')
+  addDocument(@CurrentUser() auth: AuthContext, @Body() body: { mediaAssetId?: string }) {
+    return this.ai.addKnowledgeDocument(auth, body.mediaAssetId).then((data) => ({ data }));
+  }
+
+  @Post('settings/ai/documents/:documentId/retry')
+  retryDocument(@CurrentUser() auth: AuthContext, @Param('documentId') documentId: string) {
+    return this.ai.retryKnowledgeDocument(auth, documentId).then((data) => ({ data }));
+  }
+
+  @Delete('settings/ai/documents/:documentId')
+  deleteDocument(@CurrentUser() auth: AuthContext, @Param('documentId') documentId: string) {
+    return this.ai.deleteKnowledgeDocument(auth, documentId).then((data) => ({ data }));
   }
 
   @RequirePermission('conversations', 'write')

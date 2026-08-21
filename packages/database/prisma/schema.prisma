@@ -176,6 +176,13 @@ enum AiProposalStatus {
   DISMISSED
 }
 
+enum AiKnowledgeDocumentStatus {
+  INDEXING
+  READY
+  FAILED
+  DELETING
+}
+
 model Organization {
   id                     String                     @id @default(uuid()) @db.Uuid
   name                   String
@@ -213,6 +220,7 @@ model Organization {
   aiSettings             OrganizationAiSettings?
   aiGenerations          ConversationAiGeneration[]
   aiProposals            ConversationAiProposal[]
+  aiKnowledgeDocuments   AiKnowledgeDocument[]
 }
 
 model Team {
@@ -307,6 +315,7 @@ model User {
   aiSettingsUpdated       OrganizationAiSettings[]   @relation("AiSettingsUpdater")
   aiGenerationsRequested  ConversationAiGeneration[] @relation("AiGenerationRequester")
   aiProposalsApplied      ConversationAiProposal[]   @relation("AiProposalApplier")
+  aiKnowledgeDocuments    AiKnowledgeDocument[]      @relation("AiKnowledgeDocumentCreator")
 
   @@unique([organizationId, email])
   @@index([organizationId, teamId])
@@ -904,19 +913,20 @@ model Message {
 }
 
 model MediaAsset {
-  id                     String       @id @default(uuid()) @db.Uuid
-  messageId              String?      @db.Uuid
-  key                    String       @unique
+  id                     String               @id @default(uuid()) @db.Uuid
+  messageId              String?              @db.Uuid
+  key                    String               @unique
   filename               String
   contentType            String
   sizeBytes              Int
   expiresAt              DateTime?
-  createdAt              DateTime     @default(now())
-  message                Message?     @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  profilePhotoFor        User?        @relation("UserProfilePhoto")
-  companyLogoFor         Company?     @relation("CompanyLogo")
+  createdAt              DateTime             @default(now())
+  message                Message?             @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  profilePhotoFor        User?                @relation("UserProfilePhoto")
+  companyLogoFor         Company?             @relation("CompanyLogo")
   quickReplyFor          QuickReply?
-  opportunityProposalFor Opportunity? @relation("OpportunityProposalAsset")
+  opportunityProposalFor Opportunity?         @relation("OpportunityProposalAsset")
+  aiKnowledgeDocument    AiKnowledgeDocument?
 
   @@index([messageId])
 }
@@ -1253,18 +1263,39 @@ model ChatbotSession {
 }
 
 model OrganizationAiSettings {
-  organizationId          String       @id @db.Uuid
-  enabled                 Boolean      @default(false)
-  globalInstructions      String       @default("")
-  fallbackMessage         String       @default("No momento não consegui continuar o atendimento automático. Vou encaminhar você para nossa equipe.")
-  model                    String       @default("gpt-5.6-luna")
-  openAiApiKeyEncrypted    String?
-  openAiApiKeyLastFour     String?
-  updatedById             String?      @db.Uuid
-  createdAt               DateTime     @default(now())
-  updatedAt               DateTime     @updatedAt
-  organization            Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  updatedBy               User?        @relation("AiSettingsUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+  organizationId        String       @id @db.Uuid
+  enabled               Boolean      @default(false)
+  globalInstructions    String       @default("")
+  fallbackMessage       String       @default("No momento não consegui continuar o atendimento automático. Vou encaminhar você para nossa equipe.")
+  model                 String       @default("gpt-5.6-luna")
+  openAiApiKeyEncrypted String?
+  openAiApiKeyLastFour  String?
+  openAiVectorStoreId   String?
+  updatedById           String?      @db.Uuid
+  createdAt             DateTime     @default(now())
+  updatedAt             DateTime     @updatedAt
+  organization          Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  updatedBy             User?        @relation("AiSettingsUpdater", fields: [updatedById], references: [id], onDelete: SetNull)
+}
+
+model AiKnowledgeDocument {
+  id                 String                    @id @default(uuid()) @db.Uuid
+  organizationId     String                    @db.Uuid
+  mediaAssetId       String                    @unique @db.Uuid
+  createdById        String?                   @db.Uuid
+  status             AiKnowledgeDocumentStatus @default(INDEXING)
+  openAiFileId       String?
+  openAiVectorFileId String?
+  error              String?
+  indexedAt          DateTime?
+  createdAt          DateTime                  @default(now())
+  updatedAt          DateTime                  @updatedAt
+  organization       Organization              @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  mediaAsset         MediaAsset                @relation(fields: [mediaAssetId], references: [id], onDelete: Restrict)
+  createdBy          User?                     @relation("AiKnowledgeDocumentCreator", fields: [createdById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, createdAt(sort: Desc)], map: "AiKnowledgeDocument_org_status_created_idx")
+  @@index([status, updatedAt], map: "AiKnowledgeDocument_status_updated_idx")
 }
 
 model ConversationAiGeneration {
