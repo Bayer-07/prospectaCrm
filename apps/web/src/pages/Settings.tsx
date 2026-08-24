@@ -7,6 +7,7 @@ import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '.
 import { useAuth } from '../App';
 import { toast } from '../lib/toast';
 import { UserAvatar } from '../components/UserAvatar';
+import { TeamColorPicker } from '../components/TeamColorPicker';
 
 type Team = { id: string; name: string; color: string; isDefault?: boolean; _count?: { memberships: number; conversations: number; instanceAccess: number } };
 type User = { id: string; name: string; email: string; status: string; lastLoginAt?: string; profilePhotoId?: string | null; profilePhoto?: { createdAt?: string } | null; role: { id: string; key: string; name: string }; teams: Team[] };
@@ -423,14 +424,15 @@ function TeamsSettings() {
 
 function TeamModal({ team, onClose, onSaved }: Readonly<{ team: Team | null; onClose(): void; onSaved(): void }>) {
   const [form, setForm] = useState({ name: team?.name || '', color: team?.color || '#64748b' });
+  const [colorValid, setColorValid] = useState(true);
   const mutation = useMutation({
     mutationFn: () => api(team ? `/teams/${team.id}` : '/teams', { method: team ? 'PATCH' : 'POST', body: JSON.stringify(form) }),
     onSuccess: () => { toast.success(team ? 'Equipe atualizada.' : 'Equipe criada.'); onSaved(); },
   });
-  return <Modal title={team ? 'Editar equipe' : 'Nova equipe'} onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}>
+  return <Modal title={team ? 'Editar equipe' : 'Nova equipe'} onClose={onClose} width={640}><form className="modal-form team-modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); if (colorValid) mutation.mutate(); }}>
     <Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
-    <label className="field"><span>Cor de identificação</span><div className="team-color-input"><input type="color" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} /><input value={form.color} pattern="#[0-9a-fA-F]{6}" onChange={(event) => setForm({ ...form, color: event.target.value })} required /></div><small>Usada nos tickets e nos usuários.</small></label>
-    <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Salvar equipe</Button></div>
+    <TeamColorPicker value={form.color} previewLabel={form.name.trim() || 'Nome da fila'} onChange={(color) => setForm((current) => ({ ...current, color }))} onValidityChange={setColorValid} />
+    <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending} disabled={!colorValid}>Salvar equipe</Button></div>
   </form></Modal>;
 }
 
