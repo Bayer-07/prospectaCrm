@@ -1,6 +1,7 @@
 import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { FollowUpAlertEmailJob } from '@prospecta/contracts';
+import { normalizeWhatsappDocumentMetadata } from '@prospecta/contracts/whatsapp-document';
 import { EvolutionClient } from './evolution-client.js';
 import { signedMediaUrl, storedMediaBase64 } from './storage.js';
 
@@ -27,6 +28,7 @@ const OUTBOUND_MESSAGE_SELECT = {
   text: true,
   status: true,
   payload: true,
+  media: { select: { key: true, filename: true, contentType: true } },
   instance: { select: { instanceKey: true } },
   conversation: {
     select: {
@@ -108,6 +110,22 @@ export class OutboundProcessor {
     const mediaKey = payload.mediaKey ? String(payload.mediaKey) : undefined;
     const mediaBase64 = message.type === 'audio' && mediaKey ? await storedMediaBase64(mediaKey) : undefined;
     const mediaUrl = mediaKey && !mediaBase64 ? await signedMediaUrl(mediaKey) : undefined;
+    const documentAsset = message.type === 'document' && mediaKey
+      ? message.media.find((media) => media.key === mediaKey)
+        || await this.db.mediaAsset.findUnique({
+          where: { key: mediaKey },
+          select: { key: true, filename: true, contentType: true },
+        })
+      : null;
+    if (message.type === 'document' && mediaKey && !documentAsset) {
+      throw new Error('O anexo da mensagem não está mais disponível');
+    }
+    const documentMetadata = documentAsset
+      ? normalizeWhatsappDocumentMetadata(documentAsset)
+      : null;
+    if (message.type === 'document' && documentAsset && !documentMetadata) {
+      throw new Error('O anexo da mensagem possui um tipo de documento inválido');
+    }
     const replyTarget = payload.replyToMessageId ? await this.db.message.findFirst({
       where: { id: String(payload.replyToMessageId), conversationId: message.conversationId },
       select: { providerMessageId: true, direction: true, type: true, text: true, payload: true },
@@ -126,6 +144,8 @@ export class OutboundProcessor {
       text: message.text || undefined,
       mediaUrl,
       mediaBase64,
+      fileName: documentMetadata?.fileName,
+      mimeType: documentMetadata?.mimeType,
       quoted,
     };
   }

@@ -1,6 +1,7 @@
 import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
+import { normalizeWhatsappDocumentMetadata } from '@prospecta/contracts/whatsapp-document';
 import { randomInt, randomUUID } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
 import { GmailCampaignClient, GmailCampaignError } from './gmail-campaign-client.js';
@@ -312,6 +313,21 @@ export class CampaignProcessor {
 
   private async deliverWhatsappBubble(recipientId: string, position: number, bubble: any, campaign: any, contact: any) {
     const text = this.render(bubble.content, campaignContactVariables(contact));
+    const documentAsset = bubble.type === 'document' && bubble.mediaKey
+      ? await this.db.mediaAsset.findUnique({
+        where: { key: bubble.mediaKey },
+        select: { key: true, filename: true, contentType: true },
+      })
+      : null;
+    if (bubble.type === 'document' && bubble.mediaKey && (!documentAsset || !documentAsset.key.startsWith(`${campaign.organizationId}/`))) {
+      throw new Error('O anexo da campanha não está mais disponível');
+    }
+    const documentMetadata = documentAsset
+      ? normalizeWhatsappDocumentMetadata(documentAsset)
+      : null;
+    if (bubble.type === 'document' && documentAsset && !documentMetadata) {
+      throw new Error('O anexo da campanha possui um tipo de documento inválido');
+    }
     const mediaBase64 = bubble.type === 'audio' && bubble.mediaKey ? await storedMediaBase64(bubble.mediaKey) : undefined;
     const mediaUrl = bubble.mediaKey && !mediaBase64 ? await signedMediaUrl(bubble.mediaKey) : undefined;
     let conversation = await this.db.conversation.findFirst({
@@ -332,6 +348,8 @@ export class CampaignProcessor {
       text,
       mediaUrl,
       mediaBase64,
+      fileName: documentMetadata?.fileName,
+      mimeType: documentMetadata?.mimeType,
     });
     const providerId = String(result.key?.id || result.messageId || randomUUID());
     if (!conversation) conversation = await this.createCampaignConversation(campaign, contact);

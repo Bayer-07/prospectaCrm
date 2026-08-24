@@ -5,6 +5,15 @@ export { extractSharedWhatsappContacts, normalizePhoneKey } from './whatsapp-con
 export type { SharedWhatsappContact } from './whatsapp-contact.js';
 
 export {
+  documentContentTypeForFilename,
+  isWhatsappDocumentContentType,
+  normalizeMediaContentType,
+  normalizeWhatsappDocumentMetadata,
+  WHATSAPP_DOCUMENT_CONTENT_TYPES,
+} from './whatsapp-document.js';
+export type { WhatsappDocumentContentType, WhatsappDocumentMetadata } from './whatsapp-document.js';
+
+export {
   contactTemplateVariables,
   DEFAULT_TEMPLATE_TIME_ZONE,
   renderTemplateVariables,

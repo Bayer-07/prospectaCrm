@@ -82,6 +82,8 @@ describe('contrato de envio Evolution', () => {
   it('envia mídia usando URL temporária', async () => {
     await new EvolutionClient().send('comercial', { number: '+5511999999999', type: 'image', text: 'Legenda', mediaUrl: 'http://minio.local/arquivo-assinado' });
     expect(requests[2]).toMatchObject({ url: '/message/sendMedia/comercial', body: { number: '5511999999999', mediatype: 'image', media: 'http://minio.local/arquivo-assinado', caption: 'Legenda' } });
+    expect(requests[2].body).not.toHaveProperty('fileName');
+    expect(requests[2].body).not.toHaveProperty('mimetype');
   });
 
   it('preserva o endereço LID aprendido nos eventos do WhatsApp', async () => {
@@ -210,6 +212,31 @@ describe('contrato de envio Evolution', () => {
       url: '/chat/findMessages/comercial',
       apiKey: 'test-key',
       body: { where: { key: { id: 'edit-envelope-1' } }, page: 1, offset: 5 },
+    });
+  });
+
+  it('envia nome e MIME originais no contrato de documento', async () => {
+    const requestIndex = requests.length;
+
+    await new EvolutionClient().send('comercial', {
+      number: '+5511999999999',
+      type: 'document',
+      text: 'Segue a proposta',
+      mediaUrl: 'http://minio.local/arquivo-assinado',
+      fileName: 'Proposta comercial.pdf',
+      mimeType: 'application/pdf',
+    });
+
+    expect(requests[requestIndex]).toMatchObject({
+      url: '/message/sendMedia/comercial',
+      body: {
+        number: '5511999999999',
+        mediatype: 'document',
+        media: 'http://minio.local/arquivo-assinado',
+        caption: 'Segue a proposta',
+        fileName: 'Proposta comercial.pdf',
+        mimetype: 'application/pdf',
+      },
     });
   });
 });

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CampaignProcessor, campaignContactVariables, campaignMessageSequence } from './campaign.processor.js';
 
+vi.mock('./storage.js', () => ({
+  signedMediaUrl: vi.fn().mockResolvedValue('http://minio.local/proposta-assinada'),
+  storedMediaBase64: vi.fn().mockResolvedValue('audio-base64'),
+}));
+
 describe('mensagens personalizadas de campanhas', () => {
   const campaignMessages = [{ id: 'bubble-1', type: 'text', content: 'Mensagem geral', mediaKey: null }];
 
@@ -31,6 +36,89 @@ describe('mensagens personalizadas de campanhas', () => {
       cargo: 'Síndica',
       empresa: 'Condomínio Acme',
     });
+  });
+});
+
+describe('documentos em campanhas de WhatsApp', () => {
+  function campaignDocumentFixture(asset: { key: string; filename: string; contentType: string } | null) {
+    const mediaKey = 'organization-1/2026-08-24/proposta.pdf';
+    const db = {
+      campaignRecipient: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'recipient-document',
+          status: 'QUEUED',
+          messages: [],
+          whatsappVerifiedAt: new Date(),
+          contact: {
+            id: 'contact-1',
+            name: 'Maria',
+            phone: '+5545999999999',
+            campaignsBlocked: false,
+            suppressions: [],
+            companies: [],
+          },
+          campaign: {
+            id: 'campaign-document',
+            organizationId: 'organization-1',
+            instanceId: 'instance-1',
+            status: 'RUNNING',
+            bubbles: [{ id: 'bubble-document', type: 'document', content: 'Segue a proposta', mediaKey }],
+            instance: { instanceKey: 'comercial', status: 'CONNECTED' },
+            bubbleDelayMinSeconds: 3,
+            bubbleDelayMaxSeconds: 7,
+          },
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      mediaAsset: { findUnique: vi.fn().mockResolvedValue(asset) },
+      conversation: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'conversation-1',
+          remoteJid: '5545999999999@s.whatsapp.net',
+          teamId: 'team-1',
+        }),
+      },
+      message: { create: vi.fn().mockResolvedValue({}) },
+    };
+    const queue = { add: vi.fn().mockResolvedValue({}) };
+    const evolution = { send: vi.fn().mockResolvedValue({ key: { id: 'provider-document' } }) };
+    return { db, queue, evolution, mediaKey };
+  }
+
+  it('propaga nome e MIME do MediaAsset para a Evolution', async () => {
+    const fixture = campaignDocumentFixture({
+      key: 'organization-1/2026-08-24/proposta.pdf',
+      filename: 'Proposta comercial.pdf',
+      contentType: 'application/pdf',
+    });
+    const processor = new CampaignProcessor(fixture.db as never, fixture.queue as never, fixture.evolution as never);
+
+    await processor.process({
+      name: 'send-campaign-bubble',
+      data: { recipientId: 'recipient-document', position: 0 },
+      opts: { attempts: 3 },
+      attemptsMade: 0,
+    } as never);
+
+    expect(fixture.evolution.send).toHaveBeenCalledWith('comercial', expect.objectContaining({
+      type: 'document',
+      mediaUrl: 'http://minio.local/proposta-assinada',
+      fileName: 'Proposta comercial.pdf',
+      mimeType: 'application/pdf',
+    }));
+  });
+
+  it('falha antes da Evolution quando o anexo foi removido', async () => {
+    const fixture = campaignDocumentFixture(null);
+    const processor = new CampaignProcessor(fixture.db as never, fixture.queue as never, fixture.evolution as never);
+
+    await expect(processor.process({
+      name: 'send-campaign-bubble',
+      data: { recipientId: 'recipient-document', position: 0 },
+      opts: { attempts: 3 },
+      attemptsMade: 0,
+    } as never)).rejects.toThrow('O anexo da campanha não está mais disponível');
+    expect(fixture.evolution.send).not.toHaveBeenCalled();
   });
 });
 

@@ -16,6 +16,10 @@
     "./public-http-url": {
       "types": "./dist/public-http-url.d.ts",
       "import": "./dist/public-http-url.js"
+    },
+    "./whatsapp-document": {
+      "types": "./dist/whatsapp-document.d.ts",
+      "import": "./dist/whatsapp-document.js"
     }
   },
   "scripts": {

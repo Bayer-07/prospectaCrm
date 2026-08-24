@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { OutboundProcessor } from './outbound.processor.js';
 
+vi.mock('./storage.js', () => ({
+  signedMediaUrl: vi.fn().mockResolvedValue('http://minio.local/proposta-assinada'),
+  storedMediaBase64: vi.fn().mockResolvedValue('audio-base64'),
+}));
+
 describe('sequência de mensagens do follow-up', () => {
   it('agenda a próxima mensagem somente depois do envio bem-sucedido da anterior', async () => {
     const followUp = { id: 'follow-up-1', revision: 3, status: 'RUNNING', organizationId: 'organization-1', conversationId: 'conversation-1', taskId: 'task-1', responsibleId: 'user-1' };
@@ -40,5 +45,94 @@ describe('sequência de mensagens do follow-up', () => {
     expect(queueOptions.delay).toBeGreaterThanOrEqual(119_000);
     expect(queueOptions.delay).toBeLessThanOrEqual((before + 121_000) - Date.now());
     expect(db.conversationFollowUpStep.update).toHaveBeenCalledWith({ where: { id: 'step-2' }, data: { scheduledAt: expect.any(Date) } });
+  });
+
+  it('preserva nome e MIME do documento ao enviar uma etapa agendada', async () => {
+    const followUp = { id: 'follow-up-2', revision: 1, status: 'RUNNING', organizationId: 'organization-1', conversationId: 'conversation-1', taskId: 'task-1', responsibleId: 'user-1' };
+    const message = {
+      id: 'message-document',
+      conversationId: 'conversation-1',
+      providerMessageId: 'followup:follow-up-2:step-document',
+      type: 'document',
+      text: 'Segue a proposta',
+      status: 'QUEUED',
+      payload: { mediaKey: 'organization-1/2026-08-24/proposta.pdf' },
+      media: [{
+        key: 'organization-1/2026-08-24/proposta.pdf',
+        filename: 'Proposta comercial.PDF',
+        contentType: 'application/pdf',
+      }],
+      instance: { instanceKey: 'comercial' },
+      conversation: {
+        remoteJid: '5545999999999@s.whatsapp.net',
+        assigneeId: 'user-1',
+        firstResponseAt: new Date(),
+        contact: { phone: '+5545999999999' },
+        chatbotSession: null,
+      },
+      followUpStep: { id: 'step-document', position: 0, status: 'QUEUED', followUp },
+    };
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(message), update: vi.fn().mockResolvedValue({}) },
+      conversation: { update: vi.fn().mockResolvedValue({}) },
+      conversationFollowUpStep: { findFirst: vi.fn().mockResolvedValue(null), update: vi.fn().mockResolvedValue({}) },
+      conversationFollowUp: { update: vi.fn().mockResolvedValue({}) },
+      task: { update: vi.fn().mockResolvedValue({}) },
+      conversationEvent: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn((operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const evolution = { send: vi.fn().mockResolvedValue({ key: { id: 'provider-document' } }) };
+    const processor = new OutboundProcessor(db as never, evolution as never, { add: vi.fn() } as never);
+
+    await processor.process({ data: { messageId: message.id }, attemptsMade: 0, opts: { attempts: 5 } } as never);
+
+    expect(evolution.send).toHaveBeenCalledWith('comercial', expect.objectContaining({
+      type: 'document',
+      mediaUrl: 'http://minio.local/proposta-assinada',
+      fileName: 'Proposta comercial.PDF',
+      mimeType: 'application/pdf',
+    }));
+  });
+
+  it('recupera os metadados pelo mediaKey ao reenviar uma mensagem legada', async () => {
+    const mediaKey = 'organization-1/2026-08-24/contrato.docx';
+    const message = {
+      id: 'message-retry',
+      conversationId: 'conversation-1',
+      providerMessageId: 'local:retry',
+      type: 'document',
+      text: null,
+      status: 'QUEUED',
+      payload: { mediaKey },
+      media: [],
+      instance: { instanceKey: 'comercial' },
+      conversation: {
+        remoteJid: '5545999999999@s.whatsapp.net',
+        assigneeId: 'user-1',
+        firstResponseAt: new Date(),
+        contact: { phone: '+5545999999999' },
+        chatbotSession: null,
+      },
+      followUpStep: null,
+    };
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(message), update: vi.fn().mockResolvedValue({}) },
+      mediaAsset: { findUnique: vi.fn().mockResolvedValue({ key: mediaKey, filename: 'Contrato', contentType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' }) },
+      conversation: { update: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn((operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const evolution = { send: vi.fn().mockResolvedValue({ key: { id: 'provider-retry' } }) };
+    const processor = new OutboundProcessor(db as never, evolution as never);
+
+    await processor.process({ data: { messageId: message.id }, attemptsMade: 0, opts: { attempts: 5 } } as never);
+
+    expect(db.mediaAsset.findUnique).toHaveBeenCalledWith({
+      where: { key: mediaKey },
+      select: { key: true, filename: true, contentType: true },
+    });
+    expect(evolution.send).toHaveBeenCalledWith('comercial', expect.objectContaining({
+      fileName: 'Contrato.docx',
+      mimeType: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    }));
   });
 });

@@ -1,9 +1,20 @@
+export type EvolutionSendInput = {
+  number: string;
+  type: string;
+  text?: string;
+  mediaUrl?: string;
+  mediaBase64?: string;
+  fileName?: string;
+  mimeType?: string;
+  quoted?: { key: Record<string, unknown>; message: Record<string, unknown> };
+};
+
 export class EvolutionClient {
   private readonly baseUrl = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
   private readonly apiKey = process.env.EVOLUTION_API_KEY || '';
   private readonly maximumAudioBytes = 25 * 1024 * 1024;
 
-  async send(instance: string, input: { number: string; type: string; text?: string; mediaUrl?: string; mediaBase64?: string; quoted?: { key: Record<string, unknown>; message: Record<string, unknown> } }) {
+  async send(instance: string, input: EvolutionSendInput) {
     if (!this.apiKey) throw new Error('EVOLUTION_API_KEY não configurada');
     const number = this.normalizeTarget(input.number);
     const isText = input.type === 'text' || (!input.mediaUrl && !input.mediaBase64);
@@ -30,7 +41,7 @@ export class EvolutionClient {
 
   private async messageBody(
     number: string,
-    input: { type: string; text?: string; mediaUrl?: string; mediaBase64?: string; quoted?: { key: Record<string, unknown>; message: Record<string, unknown> } },
+    input: EvolutionSendInput,
     isText: boolean,
     isAudio: boolean,
   ) {
@@ -40,7 +51,10 @@ export class EvolutionClient {
       const audio = input.mediaBase64 || await this.audioBase64(input.mediaUrl!);
       return { number, audio, delay: 0, ...quoted };
     }
-    return { number, mediatype: input.type, media: input.mediaUrl, caption: input.text || '', ...quoted };
+    const documentMetadata = input.type === 'document'
+      ? { fileName: input.fileName, mimetype: input.mimeType }
+      : {};
+    return { number, mediatype: input.type, media: input.mediaUrl, caption: input.text || '', ...documentMetadata, ...quoted };
   }
 
   private async audioBase64(url: string) {
