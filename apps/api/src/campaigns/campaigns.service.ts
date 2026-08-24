@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { campaignCadenceSchema, contactTemplateVariables, normalizePhoneKey, renderTemplateVariables } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
-import { permissionScope, scopedWhere } from '../auth/data-scope.js';
+import { authTeamIds, permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { EvolutionService } from '../integrations/evolution.service.js';
 import { campaignEmailConfigurationStatus } from '../email/campaign-email-config.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -628,7 +628,7 @@ export class CampaignsService {
     });
     const accessibleExisting = allExisting.filter((contact) =>
       scope === 'ALL'
-      || (scope === 'TEAM' && Boolean(auth.teamId) && contact.teamId === auth.teamId)
+      || (scope === 'TEAM' && Boolean(contact.teamId) && authTeamIds(auth).includes(contact.teamId!))
       || (scope === 'OWN' && Boolean(auth.userId) && contact.ownerId === auth.userId));
     const accessibleIds = new Set(accessibleExisting.map((contact) => contact.id));
     const inaccessible = allExisting.filter((contact) => !accessibleIds.has(contact.id));
@@ -638,6 +638,7 @@ export class CampaignsService {
 
     const existingByPhone = new Map(accessibleExisting.map((contact) => [contact.phoneKey, contact]));
     const rowByContactId = new Map<string, CampaignCsvRow>();
+    const defaultTeamId = await this.defaultTeamId(auth.organizationId);
     for (const row of csvPreview.rows) {
       const phoneKey = normalizePhoneKey(row.phone)!;
       const existing = existingByPhone.get(phoneKey);
@@ -648,7 +649,7 @@ export class CampaignsService {
           id: contactId,
           organizationId: auth.organizationId,
           ownerId: auth.userId,
-          teamId: auth.teamId,
+          teamId: defaultTeamId,
           name: row.name,
           phone: row.phone,
           phoneKey,
@@ -803,7 +804,10 @@ export class CampaignsService {
   private scope(auth: AuthContext) {
     const scope = permissionScope(auth, 'campaigns');
     if (scope === 'ALL') return {};
-    if (scope === 'TEAM') return auth.teamId ? { createdBy: { teamId: auth.teamId } } : { id: '__none__' };
+    if (scope === 'TEAM') {
+      const teamIds = authTeamIds(auth);
+      return teamIds.length ? { createdBy: { teamMemberships: { some: { teamId: { in: teamIds } } } } } : { id: '__none__' };
+    }
     return auth.userId ? { createdById: auth.userId } : { id: '__none__' };
   }
 
@@ -822,5 +826,11 @@ export class CampaignsService {
         skipped: progress.skipped,
       },
     };
+  }
+
+  private async defaultTeamId(organizationId: string) {
+    const team = await this.db.team.findFirst({ where: { organizationId, isDefault: true }, select: { id: true } });
+    if (!team) throw new BadRequestException('A equipe Geral não está configurada');
+    return team.id;
   }
 }

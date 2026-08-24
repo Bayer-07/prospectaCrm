@@ -364,6 +364,39 @@ export class ChatbotProcessor {
         await this.record(session.id, node.id, inboundMessageId, context, { tagId });
         return this.moveSessionToNextNode(graph, session.id, node.id);
       }
+      case 'assign_queue': {
+        const teamId = textValue(node.data?.teamId);
+        const [team, conversation] = await Promise.all([
+          this.db.team.findFirst({ where: { id: teamId }, select: { id: true, name: true, organizationId: true } }),
+          this.db.conversation.findUnique({
+            where: { id: session.conversationId },
+            select: { id: true, organizationId: true, teamId: true, assigneeId: true },
+          }),
+        ]);
+        if (!conversation || !team || team.organizationId !== conversation.organizationId) throw new Error('Fila configurada não encontrada');
+        const assigneeKeepsTicket = conversation.assigneeId
+          ? Boolean(await this.db.userTeam.findUnique({
+              where: { userId_teamId: { userId: conversation.assigneeId, teamId: team.id } },
+              select: { userId: true },
+            }))
+          : false;
+        const removeAssignee = Boolean(conversation.assigneeId && !assigneeKeepsTicket);
+        await this.db.$transaction([
+          this.db.conversation.update({
+            where: { id: conversation.id },
+            data: { teamId: team.id, ...(removeAssignee ? { assigneeId: null, status: 'WAITING' } : {}) },
+          }),
+          this.db.conversationEvent.create({ data: {
+            organizationId: conversation.organizationId,
+            conversationId: conversation.id,
+            type: 'chatbot_queue_assigned',
+            text: `Chatbot atribuiu o atendimento à fila ${team.name}`,
+            metadata: { previousTeamId: conversation.teamId, teamId: team.id, removedAssigneeId: removeAssignee ? conversation.assigneeId : null },
+          } }),
+        ]);
+        await this.record(session.id, node.id, inboundMessageId, context, { teamId: team.id, removedAssignee: removeAssignee });
+        return this.moveSessionToNextNode(graph, session.id, node.id);
+      }
       case 'handoff':
         await this.record(session.id, node.id, inboundMessageId, context, { status: 'HANDED_OFF' });
         await this.handoff(session.id, session.conversationId);
@@ -562,7 +595,9 @@ export class ChatbotProcessor {
         text: 'Chatbot transferiu o atendimento para a fila de espera',
       } }),
     ]);
-    const userTargets = conversation.contact.teamId ? [{ teamId: conversation.contact.teamId }, { role: { key: 'admin' } }] : [{ role: { key: 'admin' } }];
+    const userTargets = conversation.teamId
+      ? [{ teamMemberships: { some: { teamId: conversation.teamId } } }, { role: { key: 'admin' } }]
+      : [{ role: { key: 'admin' } }];
     const users = await this.db.user.findMany({
       where: { organizationId: conversation.organizationId, status: 'ACTIVE', OR: userTargets },
       select: { id: true },

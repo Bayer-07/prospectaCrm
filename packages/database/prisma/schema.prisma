@@ -228,15 +228,18 @@ model Team {
   organizationId String                 @db.Uuid
   name           String
   color          String                 @default("#4f46e5")
+  isDefault      Boolean                @default(false)
   createdAt      DateTime               @default(now())
   updatedAt      DateTime               @updatedAt
   organization   Organization           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   users          User[]
+  memberships    UserTeam[]
   companies      Company[]
   contacts       Contact[]
   opportunities  Opportunity[]
   tasks          Task[]
   instanceAccess WhatsappInstanceTeam[]
+  conversations  Conversation[]
 
   @@unique([organizationId, name])
   @@index([organizationId])
@@ -286,6 +289,7 @@ model User {
   updatedAt               DateTime                   @updatedAt
   organization            Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   team                    Team?                      @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  teamMemberships         UserTeam[]
   role                    Role                       @relation(fields: [roleId], references: [id])
   profilePhoto            MediaAsset?                @relation("UserProfilePhoto", fields: [profilePhotoId], references: [id], onDelete: SetNull)
   sessions                Session[]
@@ -319,6 +323,17 @@ model User {
 
   @@unique([organizationId, email])
   @@index([organizationId, teamId])
+}
+
+model UserTeam {
+  userId    String   @db.Uuid
+  teamId    String   @db.Uuid
+  createdAt DateTime @default(now())
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team      Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@id([userId, teamId])
+  @@index([teamId])
 }
 
 model Session {
@@ -823,6 +838,7 @@ model Conversation {
   instanceId      String                     @db.Uuid
   contactId       String                     @db.Uuid
   assigneeId      String?                    @db.Uuid
+  teamId          String?                    @db.Uuid
   remoteJid       String
   phoneJid        String?
   status          ConversationStatus         @default(WAITING)
@@ -836,6 +852,7 @@ model Conversation {
   instance        WhatsappInstance           @relation(fields: [instanceId], references: [id], onDelete: Cascade)
   contact         Contact                    @relation(fields: [contactId], references: [id], onDelete: Cascade)
   assignee        User?                      @relation("ConversationAssignee", fields: [assigneeId], references: [id], onDelete: SetNull)
+  team            Team?                      @relation(fields: [teamId], references: [id], onDelete: SetNull)
   messages        Message[]
   events          ConversationEvent[]
   pins            ConversationPin[]
@@ -848,6 +865,7 @@ model Conversation {
   @@unique([instanceId, phoneJid])
   @@index([instanceId, contactId])
   @@index([organizationId, status, lastMessageAt(sort: Desc), id(sort: Desc)], map: "Conversation_org_status_recent_idx")
+  @@index([organizationId, teamId, status, lastMessageAt(sort: Desc), id(sort: Desc)], map: "Conversation_org_team_status_recent_idx")
   @@index([organizationId, createdAt, status])
   @@index([organizationId, closedAt])
   @@index([assigneeId, status, lastMessageAt(sort: Desc), id(sort: Desc)], map: "Conversation_assignee_status_recent_idx")

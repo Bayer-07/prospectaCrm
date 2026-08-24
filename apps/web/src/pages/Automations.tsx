@@ -16,8 +16,8 @@ import '@xyflow/react/dist/style.css';
 type FlowData = { label?: string; subtitle?: string; [key: string]: unknown };
 type WorkflowRecord = { id: string; name: string; description?: string; status: string; publishedVersion?: number; updatedAt: string; versions: Array<{ id: string; version: number; graph: { nodes: Node<FlowData>[]; edges: Edge[] }; publishedAt?: string }>; _count?: { enrollments: number } };
 type AutomationMetadata = {
-  users: Array<{ id: string; name: string; teamId?: string }>;
-  teams: Array<{ id: string; name: string }>;
+  users: Array<{ id: string; name: string; teamIds: string[] }>;
+  teams: Array<{ id: string; name: string; color: string; isDefault?: boolean }>;
   tags: Array<{ id: string; name: string; color: string }>;
   customFields: Array<{ id: string; key: string; label: string; fieldType: string; entityType: string }>;
   instances: Array<{ id: string; name: string; phone?: string; status: string }>;
@@ -32,6 +32,7 @@ const nodeDefinitions = [
   { type: 'update_record', label: 'Atualizar contato', subtitle: 'Campo do CRM', icon: Braces, tone: 'slate' },
   { type: 'move_stage', label: 'Mover etapa', subtitle: 'Oportunidade do contato', icon: ArrowRightLeft, tone: 'slate' },
   { type: 'assign', label: 'Atribuir', subtitle: 'Usuário ou equipe', icon: UserRoundCheck, tone: 'slate' },
+  { type: 'assign_queue', label: 'Atribuir fila', subtitle: 'Move o atendimento', icon: UserRoundCheck, tone: 'violet' },
   { type: 'add_tag', label: 'Adicionar tag', subtitle: 'Organizar contato', icon: Tag, tone: 'slate' },
   { type: 'remove_tag', label: 'Remover tag', subtitle: 'Desmarcar contato', icon: Tag, tone: 'slate' },
   { type: 'create_task', label: 'Criar tarefa', subtitle: 'Próxima ação', icon: Plus, tone: 'slate' },
@@ -129,6 +130,7 @@ function WorkflowBuilder({ workflowId, metadata, onBack }: Readonly<{ workflowId
         ...(type === 'condition' ? { field: 'consentStatus', operator: 'equals', value: 'GRANTED' } : {}),
         ...(type === 'update_record' ? { field: 'source', value: 'Automação' } : {}),
         ...(type === 'move_stage' ? { stageId: metadata.pipelines[0]?.stages[0]?.id || '' } : {}),
+        ...(type === 'assign_queue' ? { teamId: metadata.teams[0]?.id || '' } : {}),
         ...(type === 'create_task' ? { title: 'Acompanhar contato', dueInHours: 24 } : {}),
         ...(type === 'notify' ? { title: 'Contato em automação', body: 'O contato chegou a esta etapa do fluxo.' } : {}),
       },
@@ -183,6 +185,7 @@ function AutomationNodeInspector({ node, metadata, onChange, onDelete }: Readonl
       <SelectField label="Responsável" value={flowString(node.data.userId)} onChange={(event) => onChange({ userId: event.target.value })}><option value="">Não alterar</option>{metadata.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
       <SelectField label="Equipe" value={flowString(node.data.teamId)} onChange={(event) => onChange({ teamId: event.target.value })}><option value="">Não alterar</option>{metadata.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>
     </>}
+    {node.type === 'assign_queue' && <><SelectField label="Fila de destino" value={flowString(node.data.teamId)} onChange={(event) => onChange({ teamId: event.target.value })}><option value="">Selecione</option>{metadata.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField><div className="inspector-note">Exige um ticket no contexto. Se a automação começou sem atendimento, use antes um bloco <strong>Enviar WhatsApp</strong> para criar e guardar a conversa.</div></>}
     {(node.type === 'add_tag' || node.type === 'remove_tag') && <SelectField label={node.type === 'add_tag' ? 'Tag a adicionar' : 'Tag a remover'} value={flowString(node.data.tagId)} onChange={(event) => onChange({ tagId: event.target.value })}><option value="">Selecione</option>{metadata.tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</SelectField>}
     {node.type === 'create_task' && <>
       <label className="field"><span>Título da tarefa</span><input value={flowString(node.data.title)} onChange={(event) => onChange({ title: event.target.value })} /></label>

@@ -236,11 +236,11 @@ export const campaignCadenceSchema = z.object({
 
 export const workflowNodeTypes = [
   'trigger', 'condition', 'send_whatsapp', 'wait', 'update_record', 'move_stage',
-  'assign', 'add_tag', 'remove_tag', 'create_task', 'notify', 'end',
+  'assign', 'assign_queue', 'add_tag', 'remove_tag', 'create_task', 'notify', 'end',
 ] as const;
 
 export const chatbotNodeTypes = [
-  'trigger', 'message', 'question', 'wait', 'ai_conversation', 'condition', 'add_tag', 'handoff', 'close', 'end',
+  'trigger', 'message', 'question', 'wait', 'ai_conversation', 'condition', 'add_tag', 'assign_queue', 'handoff', 'close', 'end',
 ] as const;
 export type ChatbotNodeType = (typeof chatbotNodeTypes)[number];
 

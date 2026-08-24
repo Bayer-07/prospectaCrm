@@ -345,8 +345,8 @@ describe('busca global de atendimentos', () => {
     expect(request.where.AND).toEqual(expect.arrayContaining([
       {
         OR: [
-          { assigneeId: 'user-1' },
-          { assigneeId: null, instance: { teams: { some: { teamId: 'team-1' } } } },
+          { teamId: { in: ['team-1'] } },
+          { teamId: null, assigneeId: 'user-1' },
         ],
       },
       { status: { in: ['WAITING', 'OPEN'] } },
@@ -405,15 +405,18 @@ describe('busca global de atendimentos', () => {
 describe('opções dos filtros de atendimento', () => {
   it('expõe todas as conexões e usuários para o administrador no modo de visão geral', async () => {
     const instances = [{ id: 'instance-1', name: 'Comercial', status: 'CONNECTED' }];
-    const users = [{ id: 'user-1', name: 'Gabriel', email: 'gabriel@bzs.com.br' }];
+    const rawUsers = [{ id: 'user-1', name: 'Gabriel', email: 'gabriel@bzs.com.br', teamMemberships: [] }];
+    const users = [{ id: 'user-1', name: 'Gabriel', email: 'gabriel@bzs.com.br', teams: [] }];
+    const teams = [{ id: 'team-1', name: 'Geral', color: '#64748b', isDefault: true }];
     const instanceFindMany = vi.fn().mockResolvedValue(instances);
-    const userFindMany = vi.fn().mockResolvedValue(users);
+    const userFindMany = vi.fn().mockResolvedValue(rawUsers);
     const service = new EvolutionService({
       whatsappInstance: { findMany: instanceFindMany },
       user: { findMany: userFindMany },
+      team: { findMany: vi.fn().mockResolvedValue(teams) },
     } as never, {} as never, {} as never, {} as never);
 
-    await expect(service.conversationFilterOptions(auth, 'all')).resolves.toEqual({ instances, users });
+    await expect(service.conversationFilterOptions(auth, 'all')).resolves.toEqual({ instances, users, teams });
 
     expect(instanceFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { organizationId: 'organization-1', archivedAt: null },
@@ -429,6 +432,7 @@ describe('opções dos filtros de atendimento', () => {
     const service = new EvolutionService({
       whatsappInstance: { findMany: instanceFindMany },
       user: { findMany: userFindMany },
+      team: { findMany: vi.fn().mockResolvedValue([]) },
     } as never, {} as never, {} as never, {} as never);
     const scopedAuth = { ...auth, roleKey: 'sdr', teamId: 'team-1' };
 
@@ -438,7 +442,7 @@ describe('opções dos filtros de atendimento', () => {
       where: {
         organizationId: 'organization-1',
         archivedAt: null,
-        teams: { some: { teamId: 'team-1' } },
+        teams: { some: { teamId: { in: ['team-1'] } } },
       },
     }));
     expect(userFindMany).toHaveBeenCalledWith(expect.objectContaining({
@@ -529,6 +533,7 @@ describe('responsabilidade ao abrir um atendimento', () => {
       remoteJid: '5511999999999@s.whatsapp.net',
       status: 'CLOSED',
       assigneeId: 'user-anterior',
+      teamId: 'team-geral',
     };
     const updated = {
       ...previous,
@@ -564,7 +569,10 @@ describe('responsabilidade ao abrir um atendimento', () => {
         assigneeId: 'user-1',
         closedAt: null,
       },
-      include: { assignee: { select: { id: true, name: true } } },
+      include: {
+        assignee: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, color: true, isDefault: true } },
+      },
     });
     expect(createEvent).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -574,6 +582,8 @@ describe('responsabilidade ao abrir um atendimento', () => {
         metadata: {
           previousAssigneeId: 'user-anterior',
           assigneeId: 'user-1',
+          previousTeamId: 'team-geral',
+          teamId: 'team-geral',
         },
       }),
     });
@@ -581,10 +591,34 @@ describe('responsabilidade ao abrir um atendimento', () => {
       conversationId: 'conversation-1',
     });
     expect(updateFollowUp).toHaveBeenCalledWith(expect.objectContaining({ data: { responsibleId: 'user-1' } }));
-    expect(updateFollowUpTask).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeId: 'user-1', teamId: null } }));
+    expect(updateFollowUpTask).toHaveBeenCalledWith(expect.objectContaining({ data: { assigneeId: 'user-1', teamId: 'team-geral' } }));
     expect(realtime.notifyOrganization).toHaveBeenCalledWith('organization-1', 'tasks.updated', {
       conversationId: 'conversation-1',
     });
+  });
+
+  it('restaura a fila Geral ao reabrir um atendimento sem fila', async () => {
+    const previous = {
+      id: 'conversation-1',
+      remoteJid: '5511999999999@s.whatsapp.net',
+      status: 'CLOSED',
+      assigneeId: 'user-1',
+      teamId: null,
+    };
+    const update = vi.fn().mockResolvedValue({ ...previous, status: 'OPEN', teamId: 'team-geral' });
+    const db = {
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-geral', name: 'Geral', color: '#64748b' }) },
+      conversation: { findFirst: vi.fn().mockResolvedValue(previous), update },
+      conversationEvent: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const service = new EvolutionService(db as never, {} as never, {} as never, { notifyOrganization: vi.fn() } as never);
+
+    await service.setConversationStatus(auth, 'conversation-1', 'OPEN');
+
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ teamId: 'team-geral' }),
+    }));
   });
 
   it('atribui ao usuário uma conversa encerrada iniciada pelo seletor de contatos', async () => {
@@ -592,6 +626,7 @@ describe('responsabilidade ao abrir um atendimento', () => {
       id: 'conversation-1',
       status: 'CLOSED',
       assigneeId: 'user-anterior',
+      teamId: null,
     };
     const updated = {
       ...existing,
@@ -609,6 +644,7 @@ describe('responsabilidade ao abrir um atendimento', () => {
         }),
       },
       whatsappInstance: { findFirst: vi.fn().mockResolvedValue({ id: 'instance-1' }) },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-geral', name: 'Geral', color: '#64748b' }) },
       conversation: {
         findFirst: vi.fn().mockResolvedValue(existing),
         update,
@@ -629,10 +665,14 @@ describe('responsabilidade ao abrir um atendimento', () => {
       data: {
         contactId: 'contact-1',
         assigneeId: 'user-1',
+        teamId: 'team-geral',
         status: 'OPEN',
         closedAt: null,
       },
-      include: { assignee: { select: { id: true, name: true } } },
+      include: {
+        assignee: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, color: true } },
+      },
     });
     expect(createEvent).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -644,6 +684,52 @@ describe('responsabilidade ao abrir um atendimento', () => {
         }),
       }),
     });
+  });
+});
+
+describe('transferência entre filas', () => {
+  function transferDependencies(assignee: { id: string; name: string } | null = { id: 'user-2', name: 'Marina' }) {
+    const current = { id: 'conversation-1', organizationId: 'organization-1', remoteJid: '5511999999999@s.whatsapp.net', status: 'OPEN', assigneeId: 'user-1', teamId: 'team-old' };
+    const update = vi.fn().mockResolvedValue({ ...current, assigneeId: assignee?.id || null, teamId: 'team-new' });
+    const db = {
+      conversation: { findFirst: vi.fn().mockResolvedValue(current), update },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-new', name: 'Gerência', color: '#123456' }) },
+      user: { findFirst: vi.fn().mockResolvedValue(assignee), findMany: vi.fn().mockResolvedValue([{ id: 'user-3' }]) },
+      chatbotSession: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      conversationEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+      conversationFollowUp: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      task: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      notification: { create: vi.fn().mockResolvedValue({}), createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const realtime = { notifyOrganization: vi.fn() };
+    return { db, realtime, update };
+  }
+
+  it('permite manter o atendente e trocar somente sua fila', async () => {
+    const { db, realtime, update } = transferDependencies({ id: 'user-1', name: 'Gabriel' });
+    const service = new EvolutionService(db as never, {} as never, {} as never, realtime as never);
+    await service.assign(auth, 'conversation-1', 'user-1', 'team-new');
+    expect(db.user.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ id: 'user-1', teamMemberships: { some: { teamId: 'team-new' } } }),
+    }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ assigneeId: 'user-1', teamId: 'team-new', status: 'OPEN' }) }));
+  });
+
+  it('transfere somente para a fila, remove o atendente e notifica seus membros', async () => {
+    const { db, realtime, update } = transferDependencies(null);
+    const service = new EvolutionService(db as never, {} as never, {} as never, realtime as never);
+    await service.assign(auth, 'conversation-1', null, 'team-new');
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ assigneeId: null, teamId: 'team-new', status: 'WAITING' }) }));
+    expect(db.notification.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ userId: 'user-3', type: 'conversation.queued' })] });
+  });
+
+  it('recusa fila que não pertence ao atendente escolhido', async () => {
+    const { db, realtime } = transferDependencies(null);
+    const service = new EvolutionService(db as never, {} as never, {} as never, realtime as never);
+    await expect(service.assign(auth, 'conversation-1', 'user-2', 'team-new')).rejects.toThrow('não está atribuída ao atendente');
+    expect(db.conversation.update).not.toHaveBeenCalled();
   });
 });
 

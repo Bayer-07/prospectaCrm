@@ -3,7 +3,7 @@ import { Queue } from 'bullmq';
 import { Prisma } from '@prisma/client';
 import { workflowNodeTypes } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
-import { permissionScope } from '../auth/data-scope.js';
+import { authTeamIds, permissionScope } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { AUTOMATION_QUEUE } from '../queue/queue.module.js';
 
@@ -28,6 +28,7 @@ function validateWorkflowNode(node: WorkflowNode) {
   if (node.type === 'update_record' && !primitiveText(data.field).trim()) throw new BadRequestException('Configure o campo que será atualizado');
   if (node.type === 'move_stage' && !primitiveText(data.stageId).trim()) throw new BadRequestException('Configure a etapa de destino');
   if (node.type === 'assign' && !data.userId && !data.teamId) throw new BadRequestException('Configure um usuário ou equipe para atribuição');
+  if (node.type === 'assign_queue' && !primitiveText(data.teamId).trim()) throw new BadRequestException('Configure a fila de destino');
   if (['add_tag', 'remove_tag'].includes(node.type) && !primitiveText(data.tagId).trim()) throw new BadRequestException('Configure a tag da automação');
 }
 
@@ -65,14 +66,15 @@ export class WorkflowsService {
   }
 
   async metadata(auth: AuthContext) {
-    const [users, teams, tags, customFields, instances, pipelines] = await Promise.all([
-      this.db.user.findMany({ where: { organizationId: auth.organizationId, status: 'ACTIVE' }, select: { id: true, name: true, teamId: true } }),
-      this.db.team.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true } }),
+    const [rawUsers, teams, tags, customFields, instances, pipelines] = await Promise.all([
+      this.db.user.findMany({ where: { organizationId: auth.organizationId, status: 'ACTIVE' }, select: { id: true, name: true, teamMemberships: { select: { teamId: true } } } }),
+      this.db.team.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, color: true, isDefault: true } }),
       this.db.tag.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, color: true }, orderBy: { name: 'asc' } }),
       this.db.customFieldDefinition.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, key: true, label: true, fieldType: true, entityType: true }, orderBy: { position: 'asc' } }),
       this.db.whatsappInstance.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, phone: true, status: true }, orderBy: { name: 'asc' } }),
       this.db.pipeline.findMany({ where: { organizationId: auth.organizationId, isActive: true }, select: { id: true, name: true, stages: { select: { id: true, name: true, position: true }, orderBy: { position: 'asc' } } }, orderBy: { name: 'asc' } }),
     ]);
+    const users = rawUsers.map(({ teamMemberships, ...user }) => ({ ...user, teamIds: teamMemberships.map((membership) => membership.teamId) }));
     return { users, teams, tags, customFields, instances, pipelines };
   }
 
@@ -113,6 +115,7 @@ export class WorkflowsService {
     if (latest.publishedAt) throw new BadRequestException('Crie uma nova versão antes de publicar novamente');
     const graph = latest.graph as unknown as WorkflowGraph;
     this.validateShape(graph, true);
+    await this.assertQueueReferences(auth.organizationId, graph);
     await this.db.$transaction([
       this.db.workflowVersion.update({ where: { id: latest.id }, data: { publishedAt: new Date() } }),
       this.db.workflow.update({ where: { id }, data: { status: 'PUBLISHED', publishedVersion: latest.version } }),
@@ -283,10 +286,23 @@ export class WorkflowsService {
     };
   }
 
+  private async assertQueueReferences(organizationId: string, graph: WorkflowGraph) {
+    const teamIds = [...new Set(graph.nodes
+      .filter((node) => node.type === 'assign_queue')
+      .map((node) => primitiveText(node.data?.teamId).trim())
+      .filter(Boolean))];
+    if (!teamIds.length) return;
+    const count = await this.db.team.count({ where: { organizationId, id: { in: teamIds } } });
+    if (count !== teamIds.length) throw new BadRequestException('Uma fila usada pela automação não existe mais');
+  }
+
   private scope(auth: AuthContext) {
     const scope = permissionScope(auth, 'workflows');
     if (scope === 'ALL') return {};
-    if (scope === 'TEAM') return auth.teamId ? { createdBy: { teamId: auth.teamId } } : { id: '__none__' };
+    if (scope === 'TEAM') {
+      const teamIds = authTeamIds(auth);
+      return teamIds.length ? { createdBy: { teamMemberships: { some: { teamId: { in: teamIds } } } } } : { id: '__none__' };
+    }
     return auth.userId ? { createdById: auth.userId } : { id: '__none__' };
   }
 }

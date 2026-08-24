@@ -41,6 +41,12 @@ async function main() {
     create: { name: 'Minha Empresa', slug: 'empresa' },
   });
 
+  const geral = await db.team.upsert({
+    where: { organizationId_name: { organizationId: organization.id, name: 'Geral' } },
+    update: { isDefault: true },
+    create: { organizationId: organization.id, name: 'Geral', color: '#64748b', isDefault: true },
+  });
+
   await db.team.upsert({
     where: { organizationId_name: { organizationId: organization.id, name: 'Prospecção' } },
     update: {}, create: { organizationId: organization.id, name: 'Prospecção', color: '#635bff' },
@@ -65,14 +71,24 @@ async function main() {
     });
   }
 
-  await db.user.upsert({
+  const admin = await db.user.upsert({
     where: { organizationId_email: { organizationId: organization.id, email: 'admin@empresa.local' } },
-    update: {},
+    update: { teamId: geral.id },
     create: {
-      organizationId: organization.id, teamId: vendas.id, roleId: roles.admin.id,
+      organizationId: organization.id, teamId: geral.id, roleId: roles.admin.id,
       name: 'Administrador', email: 'admin@empresa.local',
       passwordHash: await argon2.hash(adminPassword), status: UserStatus.ACTIVE,
     },
+  });
+  await db.userTeam.upsert({
+    where: { userId_teamId: { userId: admin.id, teamId: geral.id } },
+    update: {},
+    create: { userId: admin.id, teamId: geral.id },
+  });
+  await db.userTeam.upsert({
+    where: { userId_teamId: { userId: admin.id, teamId: vendas.id } },
+    update: {},
+    create: { userId: admin.id, teamId: vendas.id },
   });
 
   const pipeline = await db.pipeline.upsert({

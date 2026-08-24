@@ -3,13 +3,14 @@ import { randomBytes } from 'node:crypto';
 import { Prisma } from '@prisma/client';
 import { sgaProspectingEmailTemplates } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
-import { scopedWhere } from '../auth/data-scope.js';
+import { authTeamIds, permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { encryptSecret } from '../common/encryption.js';
 import { campaignEmailConfigurationStatus } from '../email/campaign-email-config.js';
 import { buildReportPdf } from './report-pdf.js';
 import { isOutboundWebhookAction, OUTBOUND_WEBHOOK_ACTIONS, type OutboundWebhookAction } from './webhook-actions.js';
 import { OutboundWebhookUrlService } from './outbound-webhook-url.service.js';
+import { conversationVisibilitySql, conversationVisibilityWhere } from '../integrations/conversation-visibility.js';
 
 type OutboundWebhookInput = {
   name: string;
@@ -37,8 +38,8 @@ export class ReportsService {
     const from = query.from ? new Date(query.from) : new Date(Date.now() - 30 * 86_400_000);
     const to = query.to ? new Date(query.to) : new Date();
     const opportunityWhere = { organizationId: auth.organizationId, createdAt: { lte: to }, ...scopedWhere(auth, 'opportunities') };
-    const campaignWhere = { organizationId: auth.organizationId, archivedAt: null, createdAt: { gte: from, lte: to } };
-    const conversationWhere = { organizationId: auth.organizationId, createdAt: { gte: from, lte: to } };
+    const campaignWhere = { organizationId: auth.organizationId, archivedAt: null, createdAt: { gte: from, lte: to }, ...this.campaignScope(auth) };
+    const conversationWhere = { organizationId: auth.organizationId, createdAt: { gte: from, lte: to }, ...conversationVisibilityWhere(auth, true) };
     const [stageGroups, stages, openStats, wonStats, lostCount, campaignTotal, recipientStatusGroups, conversationStatusGroups, responseTime, activities, tasks] = await Promise.all([
       this.db.opportunity.groupBy({ by: ['stageId'], where: opportunityWhere, _count: { _all: true }, _sum: { valueCents: true } }),
       this.db.pipelineStage.findMany({ where: { pipeline: { organizationId: auth.organizationId } }, orderBy: { position: 'asc' } }),
@@ -59,9 +60,10 @@ export class ReportsService {
           AND "createdAt" >= ${from}
           AND "createdAt" <= ${to}
           AND "firstResponseAt" IS NOT NULL
+          AND ${conversationVisibilitySql(auth)}
       `),
       this.db.activity.groupBy({ by: ['userId', 'type'], where: { occurredAt: { gte: from, lte: to }, user: { organizationId: auth.organizationId } }, _count: true }),
-      this.db.task.groupBy({ by: ['status'], where: { organizationId: auth.organizationId, createdAt: { gte: from, lte: to } }, _count: true }),
+      this.db.task.groupBy({ by: ['status'], where: { organizationId: auth.organizationId, createdAt: { gte: from, lte: to }, ...this.taskScope(auth) }, _count: true }),
     ]);
     const recipientStatuses = Object.fromEntries(recipientStatusGroups.map((item) => [item.status.toLowerCase(), item._count._all]));
     const stageTotals = new Map(stageGroups.map((stage) => [stage.stageId, { count: stage._count._all, valueCents: stage._sum.valueCents || 0 }]));
@@ -322,5 +324,25 @@ export class ReportsService {
     const candidate = Array.isArray(value) ? value[0] : undefined;
     const action = typeof candidate === 'string' ? candidate : '';
     return isOutboundWebhookAction(action) ? action : 'company.created';
+  }
+
+  private campaignScope(auth: AuthContext): Prisma.CampaignWhereInput {
+    const scope = permissionScope(auth, 'campaigns');
+    if (scope === 'ALL') return {};
+    if (scope === 'TEAM') {
+      const teamIds = authTeamIds(auth);
+      return teamIds.length ? { createdBy: { teamMemberships: { some: { teamId: { in: teamIds } } } } } : { id: '__none__' };
+    }
+    return auth.userId ? { createdById: auth.userId } : { id: '__none__' };
+  }
+
+  private taskScope(auth: AuthContext): Prisma.TaskWhereInput {
+    const scope = permissionScope(auth, 'tasks');
+    if (scope === 'ALL') return {};
+    if (scope === 'TEAM') {
+      const teamIds = authTeamIds(auth);
+      return teamIds.length ? { teamId: { in: teamIds } } : { id: '__none__' };
+    }
+    return auth.userId ? { assigneeId: auth.userId } : { id: '__none__' };
   }
 }

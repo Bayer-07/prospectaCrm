@@ -72,6 +72,7 @@ describe('dados visuais e sociais da empresa', () => {
     const create = vi.fn().mockImplementation(({ data }) => ({ id: 'company-1', ...data }));
     const service = new CrmService({
       company: { findFirst: vi.fn().mockResolvedValue(null), create },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-geral' }) },
       activity: { create: vi.fn().mockResolvedValue({ id: 'activity-1' }) },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
       outboundWebhook: { findMany: vi.fn().mockResolvedValue([]) },
@@ -174,6 +175,7 @@ describe('tarefas criadas por integrações', () => {
     const create = vi.fn().mockResolvedValue({ id: 'task-1' });
     const service = new CrmService({
       user: { findFirst },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-geral' }) },
       task: { create },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
       outboundWebhook: { findMany: vi.fn().mockResolvedValue([]) },
@@ -192,7 +194,7 @@ describe('tarefas criadas por integrações', () => {
     expect(create).toHaveBeenCalledWith({
       data: expect.objectContaining({
         organizationId: apiKeyAuth.organizationId,
-        teamId,
+        teamId: 'team-geral',
         createdById: assigneeId,
         assigneeId,
         priority: 'HIGH',
@@ -207,6 +209,7 @@ describe('tarefas criadas por integrações', () => {
     const queueAdd = vi.fn().mockResolvedValue({});
     const service = new CrmService({
       task: { create: vi.fn().mockResolvedValue({ id: 'task-1', title: 'Retornar contato' }) },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-geral' }) },
       auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
       outboundWebhook: {
         findMany: vi.fn().mockResolvedValue([

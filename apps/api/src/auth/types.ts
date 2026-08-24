@@ -7,6 +7,7 @@ export type AuthContext = {
   organizationId: string;
   userId?: string;
   teamId?: string | null;
+  teamIds?: string[];
   roleKey?: string;
   name: string;
   email?: string;

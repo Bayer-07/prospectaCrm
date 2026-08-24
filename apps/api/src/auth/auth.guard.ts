@@ -75,6 +75,7 @@ export class AuthGuard implements CanActivate {
             select: {
               organizationId: true,
               teamId: true,
+              teamMemberships: { select: { teamId: true } },
               roleId: true,
               name: true,
               email: true,
@@ -111,6 +112,7 @@ export class AuthGuard implements CanActivate {
           organizationId: record.user.organizationId,
           userId: record.userId,
           teamId: record.user.teamId,
+          teamIds: record.user.teamMemberships.map((membership) => membership.teamId),
           roleKey: record.user.role.key,
           name: record.user.name,
           email: record.user.email,

@@ -36,17 +36,18 @@ export class UsersService {
     @Optional() private readonly media?: MediaService,
   ) {}
 
-  list(auth: AuthContext) {
-    return this.db.user.findMany({
+  async list(auth: AuthContext) {
+    const users = await this.db.user.findMany({
       where: { organizationId: auth.organizationId, status: { not: 'SUSPENDED' } },
       select: {
         id: true, name: true, email: true, status: true, lastLoginAt: true,
         profilePhotoId: true,
         profilePhoto: { select: { createdAt: true } },
-        team: { select: { id: true, name: true, color: true } },
+        teamMemberships: { select: { team: { select: { id: true, name: true, color: true, isDefault: true } } }, orderBy: { team: { name: 'asc' } } },
         role: { select: { id: true, key: true, name: true } },
       }, orderBy: { name: 'asc' },
     });
+    return users.map(({ teamMemberships, ...user }) => ({ ...user, teams: teamMemberships.map((membership) => membership.team) }));
   }
 
   async metadata(auth: AuthContext) {
@@ -184,7 +185,7 @@ export class UsersService {
     return this.media.downloadUrl(auth, user.profilePhotoId);
   }
 
-  async createInvite(auth: AuthContext, input: { name: string; email: string; roleId: string; teamId?: string }) {
+  async createInvite(auth: AuthContext, input: { name: string; email: string; roleId: string; teamIds?: string[] }) {
     if (!auth.userId) throw new BadRequestException('Convites exigem sessão de usuário');
     const creatorId = auth.userId;
     const name = input.name?.trim();
@@ -193,10 +194,7 @@ export class UsersService {
     if (!isValidEmailAddress(email)) throw new BadRequestException('Informe um e-mail válido');
     const role = await this.db.role.findFirst({ where: { id: input.roleId, organizationId: auth.organizationId } });
     if (!role) throw new NotFoundException('Papel não encontrado');
-    if (input.teamId) {
-      const team = await this.db.team.findFirst({ where: { id: input.teamId, organizationId: auth.organizationId }, select: { id: true } });
-      if (!team) throw new NotFoundException('Equipe não encontrada');
-    }
+    const { teamIds, teams, defaultTeamId } = await this.resolveUserTeams(auth.organizationId, input.teamIds || []);
     const rawToken = randomBytes(32).toString('base64url');
     const { user, invite, archivedUserId } = await this.db.$transaction(async (tx) => {
       const existing = await tx.user.findFirst({
@@ -224,14 +222,21 @@ export class UsersService {
             name,
             email,
             roleId: input.roleId,
-            teamId: input.teamId,
+            teamId: defaultTeamId,
             status: 'INVITED',
+            teamMemberships: { create: teamIds.map((teamId) => ({ teamId })) },
           },
         });
       } else if (existing) {
         invitedUser = await tx.user.update({
           where: { id: existing.id },
-          data: { name, roleId: input.roleId, teamId: input.teamId, status: 'INVITED' },
+          data: {
+            name,
+            roleId: input.roleId,
+            teamId: defaultTeamId,
+            status: 'INVITED',
+            teamMemberships: { deleteMany: {}, create: teamIds.map((teamId) => ({ teamId })) },
+          },
         });
       } else {
         invitedUser = await tx.user.create({
@@ -240,8 +245,9 @@ export class UsersService {
             name,
             email,
             roleId: input.roleId,
-            teamId: input.teamId,
+            teamId: defaultTeamId,
             status: 'INVITED',
+            teamMemberships: { create: teamIds.map((teamId) => ({ teamId })) },
           },
         });
       }
@@ -284,41 +290,40 @@ export class UsersService {
     await this.audit(auth, 'user.invite_created', 'User', user.id, {
       email,
       roleId: input.roleId,
-      teamId: input.teamId,
+      teamIds,
       inviteTokenId: invite.id,
       ...(archivedUserId ? { replacedSuspendedUserId: archivedUserId } : {}),
       emailDelivery: 'QUEUED',
     });
-    return { userId: user.id, email, inviteUrl, expiresInHours: 72, emailDelivery: 'QUEUED' as const };
+    return { userId: user.id, email, teams, inviteUrl, expiresInHours: 72, emailDelivery: 'QUEUED' as const };
   }
 
   async updateUser(
     auth: AuthContext,
     userId: string,
-    input: { name: string; email: string; roleId: string; teamId?: string | null },
+    input: { name: string; email: string; roleId: string; teamIds?: string[] },
   ) {
     const name = input.name?.trim();
     const email = input.email?.trim().toLowerCase() || '';
-    const teamId = input.teamId?.trim() || null;
     if (!name || name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido');
     if (!isValidEmailAddress(email)) throw new BadRequestException('Informe um e-mail válido');
 
-    const [user, role, team] = await Promise.all([
+    const [user, role, resolvedTeams] = await Promise.all([
       this.db.user.findFirst({
         where: { id: userId, organizationId: auth.organizationId, status: { not: 'SUSPENDED' } },
-        include: { role: { select: { id: true, key: true, name: true } } },
+        include: {
+          role: { select: { id: true, key: true, name: true } },
+          teamMemberships: { select: { teamId: true } },
+        },
       }),
       this.db.role.findFirst({
         where: { id: input.roleId, organizationId: auth.organizationId },
         select: { id: true, key: true, name: true },
       }),
-      teamId
-        ? this.db.team.findFirst({ where: { id: teamId, organizationId: auth.organizationId }, select: { id: true } })
-        : Promise.resolve(null),
+      this.resolveUserTeams(auth.organizationId, input.teamIds || []),
     ]);
     if (!user) throw new NotFoundException('Usuário não encontrado');
     if (!role) throw new NotFoundException('Papel não encontrado');
-    if (teamId && !team) throw new NotFoundException('Equipe não encontrada');
 
     const duplicate = await this.db.user.findFirst({
       where: {
@@ -333,16 +338,37 @@ export class UsersService {
       await this.ensureAnotherActiveAdmin(auth.organizationId, userId);
     }
 
-    const [updated] = await this.db.$transaction([
+    const nextTeamIds = resolvedTeams.teamIds;
+    const previousTeamIds = user.teamMemberships.map((membership) => membership.teamId);
+    const removedTeamIds = previousTeamIds.filter((teamId) => !nextTeamIds.includes(teamId));
+    const affectedConversations = removedTeamIds.length ? await this.db.conversation.findMany({
+      where: { assigneeId: userId, teamId: { in: removedTeamIds } },
+      select: { id: true, status: true, team: { select: { id: true, name: true } } },
+    }) : [];
+
+    await this.db.$transaction([
       this.db.user.update({
         where: { id: userId },
-        data: { name, email, roleId: role.id, teamId },
-        select: {
-          id: true, name: true, email: true, status: true, lastLoginAt: true,
-          team: { select: { id: true, name: true, color: true } },
-          role: { select: { id: true, key: true, name: true } },
-        },
+        data: { name, email, roleId: role.id, teamId: resolvedTeams.defaultTeamId },
       }),
+      this.db.userTeam.deleteMany({ where: { userId } }),
+      ...(nextTeamIds.length ? [this.db.userTeam.createMany({ data: nextTeamIds.map((teamId) => ({ userId, teamId })) })] : []),
+      ...(affectedConversations.length ? [this.db.conversationEvent.createMany({ data: affectedConversations.map((conversation) => ({
+        organizationId: auth.organizationId,
+        conversationId: conversation.id,
+        actorId: auth.userId,
+        type: 'ASSIGNEE_REMOVED_FROM_TEAM',
+        text: `${auth.name} removeu ${user.name} da fila ${conversation.team?.name || 'sem nome'}; o atendimento ficou sem atendente`,
+        metadata: { removedUserId: user.id, removedTeamId: conversation.team?.id || null },
+      })) })] : []),
+      ...(affectedConversations.length ? [this.db.conversation.updateMany({
+        where: { id: { in: affectedConversations.map((conversation) => conversation.id) } },
+        data: { assigneeId: null },
+      })] : []),
+      ...(affectedConversations.some((conversation) => conversation.status === 'OPEN') ? [this.db.conversation.updateMany({
+        where: { id: { in: affectedConversations.filter((conversation) => conversation.status === 'OPEN').map((conversation) => conversation.id) } },
+        data: { status: 'WAITING' },
+      })] : []),
       this.db.auditLog.create({
         data: {
           organizationId: auth.organizationId,
@@ -354,14 +380,26 @@ export class UsersService {
             name: user.name,
             email: user.email,
             roleId: user.roleId,
-            teamId: user.teamId,
+            teamIds: previousTeamIds,
           },
-          after: { name, email, roleId: role.id, teamId },
+          after: { name, email, roleId: role.id, teamIds: nextTeamIds },
         },
       }),
     ]);
     this.authCache?.invalidateUser(userId);
-    return updated;
+    if (affectedConversations.length) this.realtime?.notifyOrganization(auth.organizationId, 'inbox.updated', { userId });
+    const updated = await this.db.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: {
+        id: true, name: true, email: true, status: true, lastLoginAt: true,
+        profilePhotoId: true,
+        profilePhoto: { select: { createdAt: true } },
+        role: { select: { id: true, key: true, name: true } },
+        teamMemberships: { select: { team: { select: { id: true, name: true, color: true, isDefault: true } } }, orderBy: { team: { name: 'asc' } } },
+      },
+    });
+    const { teamMemberships, ...result } = updated;
+    return { ...result, teams: teamMemberships.map((membership) => membership.team) };
   }
 
   async deleteUser(auth: AuthContext, userId: string) {
@@ -500,5 +538,23 @@ export class UsersService {
       },
     });
     if (!activeAdmins) throw new BadRequestException('A organização precisa manter pelo menos um administrador ativo');
+  }
+
+  private async resolveUserTeams(organizationId: string, values: string[]) {
+    const teamIds = [...new Set(values.map((value) => String(value).trim()).filter(Boolean))];
+    const [teams, defaultTeam] = await Promise.all([
+      this.db.team.findMany({
+        where: { organizationId, id: { in: teamIds } },
+        select: { id: true, name: true, color: true, isDefault: true },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+      }),
+      this.db.team.findFirst({
+        where: { organizationId, isDefault: true },
+        select: { id: true },
+      }),
+    ]);
+    if (!defaultTeam) throw new BadRequestException('A equipe Geral não está configurada');
+    if (teams.length !== teamIds.length) throw new NotFoundException('Uma ou mais equipes não foram encontradas');
+    return { teamIds, teams, defaultTeamId: defaultTeam.id };
   }
 }

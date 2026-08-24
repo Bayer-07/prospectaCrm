@@ -1,9 +1,9 @@
-import { BadGatewayException, BadRequestException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
+import { BadGatewayException, BadRequestException, ForbiddenException, Inject, Injectable, NotFoundException, Optional, ServiceUnavailableException } from '@nestjs/common';
 import { Queue } from 'bullmq';
 import { createHash, randomUUID } from 'node:crypto';
 import type { Prisma } from '@prisma/client';
 import { contactTemplateVariables, isOptOutMessage, normalizeEvolutionInstanceStatus, renderTemplateVariables, type EvolutionInstanceStatus } from '@prospecta/contracts';
-import { permissionScope, scopedWhere } from '../auth/data-scope.js';
+import { authTeamIds, permissionScope, scopedWhere } from '../auth/data-scope.js';
 import type { AuthContext } from '../auth/types.js';
 import { firstLinkInText } from '../crm/link-preview.service.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -50,9 +50,9 @@ function primitiveText(value: unknown) {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 }
 
-function teamAccessWhere(scope: string, teamId?: string | null) {
+function teamAccessWhere(scope: string, teamIds: string[]) {
   if (scope === 'ALL') return {};
-  return teamId ? { teams: { some: { teamId } } } : { id: '__none__' };
+  return teamIds.length ? { teams: { some: { teamId: { in: teamIds } } } } : { id: '__none__' };
 }
 
 function providerNumbers(response: Record<string, any>) {
@@ -170,7 +170,7 @@ export class EvolutionService {
   async listInstances(auth: AuthContext) {
     const scope = permissionScope(auth, 'integrations');
     const instances = await this.db.whatsappInstance.findMany({
-      where: { organizationId: auth.organizationId, archivedAt: null, ...teamAccessWhere(scope, auth.teamId) },
+      where: { organizationId: auth.organizationId, archivedAt: null, ...teamAccessWhere(scope, authTeamIds(auth)) },
       include: { teams: { include: { team: true } }, warmupProfile: true, _count: { select: { conversations: true } } },
       orderBy: { createdAt: 'asc' },
     });
@@ -212,7 +212,8 @@ export class EvolutionService {
 
   async createInstance(auth: AuthContext, input: { name: string; instanceKey: string; teamIds: string[] }) {
     const writeScope = permissionScope(auth, 'integrations', 'write');
-    if (writeScope !== 'ALL' && (!auth.teamId || input.teamIds.some((id) => id !== auth.teamId))) throw new BadRequestException('Você só pode conectar números da sua equipe');
+    const allowedTeamIds = authTeamIds(auth);
+    if (writeScope !== 'ALL' && input.teamIds.some((id) => !allowedTeamIds.includes(id))) throw new BadRequestException('Você só pode conectar números das suas equipes');
     const teams = await this.db.team.count({ where: { organizationId: auth.organizationId, id: { in: input.teamIds } } });
     if (!input.teamIds.length || teams !== new Set(input.teamIds).size) throw new BadRequestException('Selecione equipes válidas');
     const instance = await this.db.whatsappInstance.create({
@@ -324,6 +325,7 @@ export class EvolutionService {
     limit?: string;
     instanceId?: string;
     assigneeId?: string;
+    teamId?: string;
     lastInteractionFrom?: string;
     lastInteractionTo?: string;
   }) {
@@ -358,6 +360,9 @@ export class EvolutionService {
       ? { instanceId: query.instanceId }
       : {};
     const assigneeWhere = assigneeFilter(auth, query.assigneeId, query.assignee);
+    const teamWhere: Prisma.ConversationWhereInput = query.teamId
+      ? { teamId: query.teamId === 'none' ? null : query.teamId }
+      : {};
     const where: Prisma.ConversationWhereInput = {
       organizationId: auth.organizationId,
       AND: [
@@ -367,10 +372,12 @@ export class EvolutionService {
         lastInteractionWhere,
         instanceWhere,
         assigneeWhere,
+        teamWhere,
       ],
     };
     const select = {
       id: true, unreadCount: true, status: true, lastMessageAt: true,
+      team: { select: { id: true, name: true, color: true, isDefault: true } },
       contact: {
         select: {
           id: true,
@@ -467,9 +474,10 @@ export class EvolutionService {
     const canViewAllUsers = auth.roleKey === 'admin';
     const instanceScope: Prisma.WhatsappInstanceWhereInput = teamAccessWhere(
       canViewAllUsers ? 'ALL' : 'TEAM',
-      auth.teamId,
+      authTeamIds(auth),
     );
-    const [instances, users] = await Promise.all([
+    const teamIds = authTeamIds(auth);
+    const [instances, users, teams] = await Promise.all([
       this.db.whatsappInstance.findMany({
         where: {
           organizationId: auth.organizationId,
@@ -485,11 +493,28 @@ export class EvolutionService {
           status: 'ACTIVE',
           ...(canViewAllUsers ? {} : { id: auth.userId || '__none__' }),
         },
-        select: { id: true, name: true, email: true },
+        select: {
+          id: true,
+          name: true,
+          email: true,
+          teamMemberships: { select: { team: { select: { id: true, name: true, color: true, isDefault: true } } }, orderBy: { team: { name: 'asc' } } },
+        },
         orderBy: [{ name: 'asc' }, { id: 'asc' }],
       }),
+      this.db.team.findMany({
+        where: {
+          organizationId: auth.organizationId,
+          ...(canViewAllUsers ? {} : { id: { in: teamIds } }),
+        },
+        select: { id: true, name: true, color: true, isDefault: true },
+        orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+      }),
     ]);
-    return { instances, users };
+    return {
+      instances,
+      users: users.map(({ teamMemberships, ...user }) => ({ ...user, teams: teamMemberships.map((membership) => membership.team) })),
+      teams,
+    };
   }
 
   conversationInstances(auth: AuthContext) {
@@ -525,18 +550,22 @@ export class EvolutionService {
     const existing = await this.db.conversation.findFirst({
       where: { instanceId: instance.id, OR: [{ remoteJid }, { phoneJid: remoteJid }, { contactId: contact.id }] },
       orderBy: { updatedAt: 'desc' },
-      select: { id: true, assigneeId: true, status: true },
+      select: { id: true, assigneeId: true, status: true, teamId: true },
     });
     if (existing?.status === 'OPEN' && auth.roleKey !== 'admin' && existing.assigneeId && existing.assigneeId !== assigneeId) {
       throw new NotFoundException('Conversa não encontrada');
     }
 
+    const defaultTeam = await this.defaultTeam(auth.organizationId);
+    if (auth.roleKey !== 'admin' && !authTeamIds(auth).includes(defaultTeam.id)) {
+      throw new BadRequestException('Você precisa ter acesso à equipe Geral para iniciar um atendimento');
+    }
     let conversation;
     if (existing) {
       conversation = await this.db.conversation.update({
         where: { id: existing.id },
-        data: { contactId: contact.id, assigneeId, status: 'OPEN', closedAt: null },
-        include: { assignee: { select: { id: true, name: true } } },
+        data: { contactId: contact.id, assigneeId, teamId: existing.teamId || defaultTeam.id, status: 'OPEN', closedAt: null },
+        include: { assignee: { select: { id: true, name: true } }, team: { select: { id: true, name: true, color: true } } },
       });
     } else {
       conversation = await this.db.conversation.create({
@@ -545,10 +574,11 @@ export class EvolutionService {
           instanceId: instance.id,
           contactId: contact.id,
           assigneeId,
+          teamId: defaultTeam.id,
           remoteJid,
           status: 'OPEN',
         },
-        include: { assignee: { select: { id: true, name: true } } },
+        include: { assignee: { select: { id: true, name: true } }, team: { select: { id: true, name: true, color: true } } },
       });
     }
     const event = startedConversationEvent(auth.name, existing, assigneeId);
@@ -604,7 +634,9 @@ export class EvolutionService {
             consentEvents: { orderBy: { occurredAt: 'desc' }, take: 5 },
           },
         },
-        assignee: { select: { id: true, name: true } }, instance: true,
+        assignee: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, color: true, isDefault: true } },
+        instance: true,
         followUps: {
           where: { status: { in: ['SCHEDULED', 'RUNNING'] } },
           select: { id: true, status: true, scheduledAt: true, mode: true },
@@ -683,15 +715,39 @@ export class EvolutionService {
   conversationAssignees(auth: AuthContext) {
     let accessWhere: Prisma.UserWhereInput = { id: auth.userId || '__none__' };
     if (auth.roleKey === 'admin') accessWhere = {};
-    else if (auth.teamId) accessWhere = { teamId: auth.teamId };
+    else {
+      const teamIds = authTeamIds(auth);
+      accessWhere = teamIds.length
+        ? { teamMemberships: { some: { teamId: { in: teamIds } } } }
+        : { id: auth.userId || '__none__' };
+    }
     return this.db.user.findMany({
       where: {
         organizationId: auth.organizationId,
         status: 'ACTIVE',
         ...accessWhere,
       },
-      select: { id: true, name: true, email: true, team: { select: { id: true, name: true, color: true } } },
+      select: {
+        id: true,
+        name: true,
+        email: true,
+        teamMemberships: {
+          select: { team: { select: { id: true, name: true, color: true, isDefault: true } } },
+          orderBy: { team: { name: 'asc' } },
+        },
+      },
       orderBy: { name: 'asc' },
+    }).then((users) => users.map(({ teamMemberships, ...user }) => ({
+      ...user,
+      teams: teamMemberships.map((membership) => membership.team),
+    })));
+  }
+
+  conversationTeams(auth: AuthContext) {
+    return this.db.team.findMany({
+      where: { organizationId: auth.organizationId },
+      select: { id: true, name: true, color: true, isDefault: true },
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     });
   }
 
@@ -942,25 +998,45 @@ export class EvolutionService {
     }
   }
 
-  async assign(auth: AuthContext, id: string, assigneeId: string | null) {
+  async assign(auth: AuthContext, id: string, assigneeId: string | null, requestedTeamId?: string) {
     const conversation = await this.assertConversation(auth, id);
     if (conversation.status === 'CLOSED') throw new BadRequestException('Reabra a conversa antes de alterar o responsável');
-    const assignee = await this.resolveConversationAssignee(auth, assigneeId);
-    const event = assignmentEvent(auth.name, conversation.assigneeId, assigneeId, assignee);
+    const team = requestedTeamId === undefined
+      ? (conversation.teamId ? await this.db.team.findFirst({ where: { id: conversation.teamId, organizationId: auth.organizationId } }) : null)
+      : await this.db.team.findFirst({ where: { id: requestedTeamId, organizationId: auth.organizationId } });
+    if (requestedTeamId !== undefined && !team) throw new BadRequestException('Fila inválida');
+    const assignee = await this.resolveConversationAssignee(auth, assigneeId, team?.id || null);
+    const assigneeChanged = conversation.assigneeId !== assigneeId;
+    const teamChanged = conversation.teamId !== (team?.id || null);
+    if (!assigneeChanged && !teamChanged) return conversation;
+    const eventText = assigneeId && assignee
+      ? `${auth.name} transferiu o atendimento para ${assignee.name} na fila ${team?.name || 'Sem fila'}`
+      : `${auth.name} transferiu o atendimento para a fila ${team?.name || 'Sem fila'}`;
+    const stopReason = 'Atendimento transferido manualmente';
     const [updated] = await this.db.$transaction([
       this.db.conversation.update({ where: { id }, data: {
         assigneeId,
+        teamId: team?.id || null,
         status: assigneeId ? 'OPEN' : 'WAITING',
         closedAt: null,
+      }, include: {
+        assignee: { select: { id: true, name: true } },
+        team: { select: { id: true, name: true, color: true, isDefault: true } },
       } }),
-      ...(assigneeId ? [this.db.chatbotSession.updateMany({
+      this.db.chatbotSession.updateMany({
         where: { conversationId: id, status: { in: ['ACTIVE', 'WAITING', 'HANDED_OFF'] } },
-        data: { status: 'STOPPED' as const, wakeAt: null, stopReason: 'Atendimento assumido por um usuário', completedAt: new Date() },
-      }), this.db.conversationAiGeneration.updateMany({
+        data: { status: 'STOPPED' as const, wakeAt: null, stopReason, completedAt: new Date() },
+      }),
+      this.db.conversationAiGeneration.updateMany({
         where: { conversationId: id, type: 'CHATBOT_REPLY', status: { in: ['PENDING', 'WAITING_INPUT', 'RUNNING'] } },
-        data: { status: 'CANCELLED' as const, error: 'Atendimento assumido por um usuário', completedAt: new Date() },
-      })] : []),
-      ...(event ? [this.conversationEvent(auth, id, event.type, event.text, { assigneeId })] : []),
+        data: { status: 'CANCELLED' as const, error: stopReason, completedAt: new Date() },
+      }),
+      this.conversationEvent(auth, id, 'transferred', eventText, {
+        previousAssigneeId: conversation.assigneeId,
+        assigneeId,
+        previousTeamId: conversation.teamId,
+        teamId: team?.id || null,
+      }),
       ...(assigneeId && assignee ? [
         this.db.conversationFollowUp.updateMany({
           where: { conversationId: id, status: { in: ['SCHEDULED', 'RUNNING'] } },
@@ -968,31 +1044,47 @@ export class EvolutionService {
         }),
         this.db.task.updateMany({
           where: { followUp: { conversationId: id, status: { in: ['SCHEDULED', 'RUNNING'] } } },
-          data: { assigneeId, teamId: assignee.teamId },
+          data: { assigneeId, teamId: team?.id || null },
         }),
       ] : []),
     ]);
-    if (assigneeId) await this.db.notification.create({ data: {
-      organizationId: auth.organizationId, userId: assigneeId, type: 'conversation.assigned',
-      title: `Conversa atribuída: ${conversation.remoteJid}`, actionUrl: `/inbox/${id}`,
-    } });
+    if (assigneeId) {
+      await this.db.notification.create({ data: {
+        organizationId: auth.organizationId, userId: assigneeId, type: 'conversation.assigned',
+        title: `Conversa atribuída: ${conversation.remoteJid}`, actionUrl: `/inbox/${id}`,
+      } });
+    } else if (team) {
+      const recipients = await this.db.user.findMany({
+        where: {
+          organizationId: auth.organizationId,
+          status: 'ACTIVE',
+          OR: [{ role: { key: 'admin' } }, { teamMemberships: { some: { teamId: team.id } } }],
+        },
+        select: { id: true },
+      });
+      if (recipients.length) await this.db.notification.createMany({ data: recipients.map((recipient) => ({
+        organizationId: auth.organizationId,
+        userId: recipient.id,
+        type: 'conversation.queued',
+        title: `Atendimento na fila ${team.name}`,
+        actionUrl: `/inbox/${id}`,
+      })) });
+    }
     this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId: id });
     if (assigneeId) this.realtime.notifyOrganization(auth.organizationId, 'tasks.updated', { conversationId: id });
     return updated;
   }
 
-  private async resolveConversationAssignee(auth: AuthContext, assigneeId: string | null) {
+  private async resolveConversationAssignee(auth: AuthContext, assigneeId: string | null, teamId: string | null) {
     if (!assigneeId) return null;
-    if (auth.roleKey !== 'admin' && !auth.teamId && assigneeId !== auth.userId) {
-      throw new BadRequestException('Responsável inválido');
-    }
+    if (!teamId) throw new BadRequestException('Selecione uma fila atribuída ao atendente');
     const assignee = await this.db.user.findFirst({ where: {
       id: assigneeId,
       organizationId: auth.organizationId,
       status: 'ACTIVE',
-      ...(auth.roleKey !== 'admin' && auth.teamId ? { teamId: auth.teamId } : {}),
-    }, select: { id: true, name: true, teamId: true } });
-    if (!assignee) throw new BadRequestException('Responsável inválido');
+      teamMemberships: { some: { teamId } },
+    }, select: { id: true, name: true } });
+    if (!assignee) throw new BadRequestException('A fila selecionada não está atribuída ao atendente');
     return assignee;
   }
 
@@ -1126,6 +1218,13 @@ export class EvolutionService {
   async setConversationStatus(auth: AuthContext, id: string, status: 'OPEN' | 'CLOSED') {
     const conversation = await this.assertConversation(auth, id);
     const { assigneeId: nextAssigneeId, nextStatus } = conversationStatusTransition(status, auth.userId, conversation.assigneeId);
+    const defaultTeam = nextStatus === 'OPEN' && !conversation.teamId
+      ? await this.defaultTeam(auth.organizationId)
+      : null;
+    if (defaultTeam && auth.roleKey !== 'admin' && !authTeamIds(auth).includes(defaultTeam.id)) {
+      throw new ForbiddenException('Você não tem acesso à fila Geral para reabrir este atendimento');
+    }
+    const nextTeamId = conversation.teamId || defaultTeam?.id || null;
     const tookOwnership = nextStatus === 'OPEN'
       && Boolean(nextAssigneeId)
       && nextAssigneeId !== conversation.assigneeId;
@@ -1136,9 +1235,13 @@ export class EvolutionService {
         data: {
           status: nextStatus,
           assigneeId: nextAssigneeId,
+          ...(nextTeamId !== conversation.teamId ? { teamId: nextTeamId } : {}),
           closedAt: nextStatus === 'CLOSED' ? new Date() : null,
         },
-        include: { assignee: { select: { id: true, name: true } } },
+        include: {
+          assignee: { select: { id: true, name: true } },
+          team: { select: { id: true, name: true, color: true, isDefault: true } },
+        },
       }),
       ...(nextStatus === 'CLOSED' ? [this.db.chatbotSession.updateMany({
         where: { conversationId: id, status: { in: ['ACTIVE', 'WAITING', 'HANDED_OFF', 'STOPPED'] } },
@@ -1154,6 +1257,8 @@ export class EvolutionService {
       ...(event ? [this.conversationEvent(auth, id, event.type, event.text, {
         previousAssigneeId: conversation.assigneeId,
         assigneeId: nextAssigneeId,
+        previousTeamId: conversation.teamId,
+        teamId: nextTeamId,
       })] : []),
       ...(tookOwnership && nextAssigneeId ? [
         this.db.conversationFollowUp.updateMany({
@@ -1162,7 +1267,7 @@ export class EvolutionService {
         }),
         this.db.task.updateMany({
           where: { followUp: { conversationId: id, status: { in: ['SCHEDULED', 'RUNNING'] } } },
-          data: { assigneeId: nextAssigneeId, teamId: auth.teamId || null },
+          data: { assigneeId: nextAssigneeId, teamId: nextTeamId },
         }),
       ] : []),
     ]);
@@ -1476,7 +1581,7 @@ export class EvolutionService {
 
   private getInstance(auth: AuthContext, id: string) {
     const scope = permissionScope(auth, 'integrations', 'write');
-    return this.db.whatsappInstance.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...teamAccessWhere(scope, auth.teamId) } }).then((instance) => {
+    return this.db.whatsappInstance.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...teamAccessWhere(scope, authTeamIds(auth)) } }).then((instance) => {
       if (!instance) throw new NotFoundException('Instância não encontrada');
       return instance;
     });
@@ -1545,12 +1650,21 @@ export class EvolutionService {
       organizationId: auth.organizationId,
       archivedAt: null,
       status: 'CONNECTED',
-      ...teamAccessWhere(scope, auth.teamId),
+      ...teamAccessWhere(scope, authTeamIds(auth)),
     };
   }
 
   private conversationScope(auth: AuthContext, _action = 'read') {
     return conversationVisibilityWhere(auth, auth.roleKey === 'admin');
+  }
+
+  private async defaultTeam(organizationId: string) {
+    const team = await this.db.team.findFirst({
+      where: { organizationId, isDefault: true },
+      select: { id: true, name: true, color: true },
+    });
+    if (!team) throw new BadRequestException('A equipe Geral não está configurada');
+    return team;
   }
 
   private conversationEvent(auth: AuthContext, conversationId: string, type: string, text: string, metadata: object = {}) {

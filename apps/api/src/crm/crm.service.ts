@@ -4,7 +4,8 @@ import { Prisma, type Contact } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { companyInputSchema, contactInputSchema, normalizeCnpj, normalizePhoneKey, opportunityInputSchema, opportunityStatusForStage, taskInputSchema } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
-import { permissionScope, scopedWhere } from '../auth/data-scope.js';
+import { authTeamIds, permissionScope, scopedWhere } from '../auth/data-scope.js';
+import { conversationVisibilitySql, conversationVisibilityWhere } from '../integrations/conversation-visibility.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { EXTERNAL_WEBHOOK_QUEUE } from '../queue/queue.module.js';
 import { MediaService } from '../media/media.service.js';
@@ -96,7 +97,7 @@ export class CrmService {
       this.db.opportunity.aggregate({ where: { organizationId: auth.organizationId, archivedAt: null, status: 'OPEN', ...opportunityScope }, _count: true, _sum: { valueCents: true } }),
       this.db.contact.count({ where: { organizationId: auth.organizationId, archivedAt: null, ...contactScope } }),
       this.db.task.count({ where: { organizationId: auth.organizationId, status: 'OPEN', dueAt: { lt: new Date() }, ...this.taskScope(auth) } }),
-      this.db.conversation.count({ where: { organizationId: auth.organizationId, status: { in: ['WAITING', 'OPEN'] } } }),
+      this.db.conversation.count({ where: { organizationId: auth.organizationId, status: { in: ['WAITING', 'OPEN'] }, ...conversationVisibilityWhere(auth, true) } }),
       this.db.opportunity.aggregate({ where: { organizationId: auth.organizationId, status: 'WON', wonAt: { gte: new Date(Date.now() - 30 * 86_400_000) }, ...opportunityScope }, _count: true, _sum: { valueCents: true } }),
       this.db.pipelineStage.findMany({
         where: { pipeline: { organizationId: auth.organizationId } }, orderBy: { position: 'asc' },
@@ -113,6 +114,7 @@ export class CrmService {
         FROM "Conversation"
         WHERE "organizationId" = ${auth.organizationId}::uuid
           AND ("createdAt" >= ${today} OR "closedAt" >= ${today})
+          AND ${conversationVisibilitySql(auth)}
       `),
       this.db.whatsappInstance.count({ where: { organizationId: auth.organizationId, status: 'CONNECTED' } }),
     ]);
@@ -211,8 +213,9 @@ export class CrmService {
       ] }, select: { id: true },
     }) : null;
     if (duplicate) throw new BadRequestException({ message: 'Possível empresa duplicada', duplicateId: duplicate.id });
+    const teamId = input.teamId || await this.defaultTeamId(auth.organizationId);
     const company = await this.db.company.create({ data: {
-      organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId: input.teamId || auth.teamId,
+      organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId,
       externalId: input.externalId, name: input.name, legalName: input.legalName,
       cnpj: input.cnpj ? this.normalizeCnpj(input.cnpj) : undefined, domain: input.domain, linkedinUrl: input.linkedinUrl,
       sector: input.sector, size: input.size, phone: input.phone, address: input.address as Prisma.InputJsonValue,
@@ -337,11 +340,12 @@ export class CrmService {
       email: input.email.toLowerCase(),
     }, select: { id: true } }) : null;
     if (duplicate) throw new BadRequestException({ message: 'Possível contato duplicado', duplicateId: duplicate.id });
+    const teamId = input.teamId || await this.defaultTeamId(auth.organizationId);
     let contact: Contact;
     try {
       contact = await this.db.$transaction(async (tx) => {
         const created = await tx.contact.create({ data: {
-          organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId: input.teamId || auth.teamId,
+          organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId,
           primaryCompanyId: input.companyId, externalId: input.externalId, name: input.name,
           jobTitle: input.jobTitle, email: input.email?.toLowerCase(), phone: input.phone, phoneKey, source: input.source,
           consentStatus: input.consentStatus.toUpperCase() as never, consentSource: input.consentSource,
@@ -493,9 +497,10 @@ export class CrmService {
     }
     const stage = await this.db.pipelineStage.findFirst({ where: { id: input.stageId, pipelineId: input.pipelineId, pipeline: { organizationId: auth.organizationId } } });
     if (!stage) throw new BadRequestException('Etapa inválida');
+    const teamId = input.teamId || await this.defaultTeamId(auth.organizationId);
     const opportunity = await this.db.opportunity.create({ data: {
       organizationId: auth.organizationId, title: input.title, pipelineId: input.pipelineId, stageId: input.stageId,
-      companyId: input.companyId, teamId: input.teamId || auth.teamId, ownerId: input.ownerId || auth.userId,
+      companyId: input.companyId, teamId, ownerId: input.ownerId || auth.userId,
       externalId: input.externalId, valueCents: input.valueCents, probability: input.probability || stage.probability,
       expectedCloseAt: input.expectedCloseAt, source: input.source, customFields: input.customFields as Prisma.InputJsonValue,
       ...(input.contactId ? { contacts: { create: { contactId: input.contactId, isPrimary: true } } } : {}),
@@ -623,7 +628,7 @@ export class CrmService {
     const input = this.parse(taskInputSchema, raw);
     let createdById = auth.userId;
     let assigneeId = input.assigneeId || auth.userId;
-    let teamId = auth.teamId;
+    let teamId: string;
     if (auth.type === 'apiKey') {
       if (!input.assigneeId) throw new BadRequestException('Informe o responsável pela tarefa');
       const assignee = await this.db.user.findFirst({
@@ -633,9 +638,9 @@ export class CrmService {
       if (!assignee) throw new BadRequestException('Responsável pela tarefa inválido');
       createdById = assignee.id;
       assigneeId = assignee.id;
-      teamId = assignee.teamId;
     }
     if (!createdById || !assigneeId) throw new BadRequestException('Tarefa exige usuário');
+    teamId = await this.defaultTeamId(auth.organizationId);
     const task = await this.db.task.create({ data: {
       organizationId: auth.organizationId, teamId, createdById,
       title: input.title, description: input.description, dueAt: input.dueAt,
@@ -784,7 +789,10 @@ export class CrmService {
   private taskScope(auth: AuthContext, action = 'read') {
     const scope = permissionScope(auth, 'tasks', action);
     if (scope === 'ALL') return {};
-    if (scope === 'TEAM') return auth.teamId ? { teamId: auth.teamId } : { id: '__none__' };
+    if (scope === 'TEAM') {
+      const teamIds = authTeamIds(auth);
+      return teamIds.length ? { teamId: { in: teamIds } } : { id: '__none__' };
+    }
     return auth.userId ? { assigneeId: auth.userId } : { id: '__none__' };
   }
 
@@ -890,6 +898,12 @@ export class CrmService {
       resource = await this.db.customFieldDefinition.findFirst({ where: { id, organizationId }, select: { id: true } });
     }
     if (!resource) throw new NotFoundException('Recurso não encontrado');
+  }
+
+  private async defaultTeamId(organizationId: string) {
+    const team = await this.db.team.findFirst({ where: { organizationId, isDefault: true }, select: { id: true } });
+    if (!team) throw new BadRequestException('A equipe Geral não está configurada');
+    return team.id;
   }
 
   private parse<T>(schema: { safeParse: (value: unknown) => { success: boolean; data?: T; error?: { flatten(): unknown } } }, value: unknown): T {

@@ -25,6 +25,18 @@ const aiGraph = {
   ],
 };
 
+const queueGraph = {
+  nodes: [
+    { id: 'trigger', type: 'trigger', data: {} },
+    { id: 'queue', type: 'assign_queue', data: { teamId: 'team-2' } },
+    { id: 'end', type: 'handoff', data: {} },
+  ],
+  edges: [
+    { source: 'trigger', target: 'queue' },
+    { source: 'queue', target: 'end' },
+  ],
+};
+
 function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
   return {
     id: 'inbound-1',
@@ -51,6 +63,56 @@ function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
 }
 
 describe('espera do chatbot', () => {
+  it('atribui a fila, remove atendente incompatível e continua para o próximo bloco', async () => {
+    const updateConversation = vi.fn().mockResolvedValue({});
+    const createEvent = vi.fn().mockResolvedValue({});
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(inboundMessage()) },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'RULES' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: queueGraph }) },
+      chatbotSession: {
+        upsert: vi.fn().mockResolvedValue({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'trigger' }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      chatbotStepExecution: { upsert: vi.fn().mockResolvedValue({}) },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-2', name: 'Gerência', organizationId: 'organization-1' }) },
+      userTeam: { findUnique: vi.fn().mockResolvedValue(null) },
+      conversation: {
+        findUnique: vi.fn()
+          .mockResolvedValueOnce({ id: 'conversation-1', organizationId: 'organization-1', teamId: 'team-1', assigneeId: 'user-1' })
+          .mockResolvedValueOnce({ id: 'conversation-1', organizationId: 'organization-1', teamId: 'team-2', assigneeId: null, contact: { name: 'Maria' } }),
+        update: updateConversation,
+      },
+      conversationEvent: { create: createEvent },
+      user: { findMany: vi.fn().mockResolvedValue([{ id: 'user-2' }]) },
+      notification: { createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const processor = new ChatbotProcessor(db as never, { add: vi.fn() } as never, { add: vi.fn() } as never);
+
+    await processor.process({ data: { messageId: 'inbound-1' } } as never);
+
+    expect(updateConversation).toHaveBeenCalledWith({
+      where: { id: 'conversation-1' },
+      data: { teamId: 'team-2', assigneeId: null, status: 'WAITING' },
+    });
+    expect(createEvent).toHaveBeenCalledWith({ data: expect.objectContaining({
+      type: 'chatbot_queue_assigned',
+      metadata: { previousTeamId: 'team-1', teamId: 'team-2', removedAssigneeId: 'user-1' },
+    }) });
+    expect(db.chatbotSession.update).toHaveBeenCalledWith({
+      where: { id: 'session-1' },
+      data: { currentNodeId: 'end' },
+    });
+    expect(db.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
+      OR: [{ teamMemberships: { some: { teamId: 'team-2' } } }, { role: { key: 'admin' } }],
+    }) }));
+    expect(updateConversation).toHaveBeenCalledWith({
+      where: { id: 'conversation-1' },
+      data: { status: 'WAITING', assigneeId: null, closedAt: null },
+    });
+  });
+
   it('cancela uma geração anterior quando chega uma mensagem mais recente ao bloco de IA', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const db = {

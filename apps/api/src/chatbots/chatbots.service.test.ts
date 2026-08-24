@@ -15,6 +15,25 @@ describe('validação do mapa do chatbot', () => {
     }, true)).not.toThrow();
   });
 
+  it('aceita Atendimento por IA, Atribuir fila e Transferir em sequência', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'ai', type: 'ai_conversation', data: { objective: 'Qualificar', maxInteractions: 6, minimumConfidence: 65 } },
+        { id: 'queue', type: 'assign_queue', data: { teamId: 'team-1' } },
+        { id: 'handoff', type: 'handoff' },
+      ],
+      edges: [{ source: 'start', target: 'ai' }, { source: 'ai', target: 'queue' }, { source: 'queue', target: 'handoff' }],
+    }, true)).not.toThrow();
+  });
+
+  it('exige uma fila no novo bloco', () => {
+    expect(() => service.validateShape({
+      nodes: [{ id: 'start', type: 'trigger' }, { id: 'queue', type: 'assign_queue', data: {} }, { id: 'handoff', type: 'handoff' }],
+      edges: [{ source: 'start', target: 'queue' }, { source: 'queue', target: 'handoff' }],
+    }, true)).toThrow(/Selecione a fila/);
+  });
+
   it('bloqueia um bloco de IA que não conduz diretamente à transferência', () => {
     expect(() => service.validateShape({
       nodes: [

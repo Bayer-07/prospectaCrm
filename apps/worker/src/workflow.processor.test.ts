@@ -214,3 +214,45 @@ describe('logs da automação na conversa', () => {
     });
   });
 });
+
+describe('atribuição de fila pela automação', () => {
+  const enrollment = (context: object) => ({
+    id: 'enrollment-queue', workflowId: 'workflow-1', status: 'ACTIVE', currentNodeId: 'queue-1', contactId: 'contact-1', context,
+    contact: { id: 'contact-1' },
+    workflow: { id: 'workflow-1', name: 'Roteamento', status: 'PUBLISHED', organizationId: 'organization-1' },
+    version: { graph: { nodes: [{ id: 'queue-1', type: 'assign_queue', data: { teamId: 'team-2' } }, { id: 'end-1', type: 'end' }], edges: [{ source: 'queue-1', target: 'end-1' }] } },
+  });
+
+  it('atribui a fila, remove atendente incompatível e continua o fluxo', async () => {
+    const item = enrollment({ conversationId: 'conversation-1' });
+    const conversationUpdate = vi.fn().mockResolvedValue({});
+    const db = {
+      workflowEnrollment: { findUnique: vi.fn().mockResolvedValue(item), update: vi.fn().mockResolvedValue(item) },
+      workflowStepExecution: { create: vi.fn().mockResolvedValue({}), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-2', name: 'Gerência' }) },
+      conversation: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', teamId: 'team-1', assigneeId: 'user-1', status: 'OPEN', team: { name: 'Geral' } }),
+        update: conversationUpdate,
+      },
+      userTeam: { findUnique: vi.fn().mockResolvedValue(null) },
+      conversationEvent: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const queue = { add: vi.fn().mockResolvedValue({}) };
+    const processor = new WorkflowProcessor(db as never, queue as never, { add: vi.fn() } as never);
+    await expect(processor.process({ data: { enrollmentId: item.id } } as never)).resolves.toEqual({ organizationId: 'organization-1', event: 'inbox.updated', payload: { conversationId: 'conversation-1' } });
+    expect(conversationUpdate).toHaveBeenCalledWith({ where: { id: 'conversation-1' }, data: { teamId: 'team-2', assigneeId: null, status: 'WAITING' } });
+    expect(queue.add).toHaveBeenCalledWith('execute-workflow', { enrollmentId: item.id }, expect.any(Object));
+  });
+
+  it('falha explicitamente quando não existe ticket no contexto', async () => {
+    const item = enrollment({ source: 'manual' });
+    const failed = { ...item, status: 'FAILED', stopReason: 'Atribuir fila exige uma conversa no contexto' };
+    const db = {
+      workflowEnrollment: { findUnique: vi.fn().mockResolvedValue(item), update: vi.fn().mockResolvedValue(failed) },
+      workflowStepExecution: { create: vi.fn().mockResolvedValue({}), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+    };
+    const processor = new WorkflowProcessor(db as never, { add: vi.fn() } as never, { add: vi.fn() } as never);
+    await expect(processor.process({ data: { enrollmentId: item.id } } as never)).rejects.toThrow('Atribuir fila exige uma conversa no contexto');
+  });
+});

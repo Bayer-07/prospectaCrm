@@ -28,6 +28,15 @@ describe('validação do grafo de automação', () => {
     expect(() => service.validateShape(graph(1), true)).not.toThrow();
     expect(() => service.validateShape(graph(0), true)).toThrow(/tempo de espera válido/);
   });
+
+  it('valida a fila configurada no bloco de atendimento', () => {
+    const graph = (teamId?: string) => ({
+      nodes: [{ id: 'start', type: 'trigger' }, { id: 'queue', type: 'assign_queue', data: { teamId } }, { id: 'end', type: 'end' }],
+      edges: [{ source: 'start', target: 'queue' }, { source: 'queue', target: 'end' }],
+    });
+    expect(() => service.validateShape(graph('team-1'), true)).not.toThrow();
+    expect(() => service.validateShape(graph(), true)).toThrow(/Configure a fila/);
+  });
 });
 
 describe('inscrição manual em automações', () => {

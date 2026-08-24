@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiGenerationStatuses, aiGenerationTypes, aiProposalStatuses, aiSummaryScopes, campaignCadenceSchema, canSendWhatsapp, chatbotNodeTypes, chatbotResponseProviders, companyInputSchema, contactInputSchema, contactsAreDuplicates, extractSharedWhatsappContacts, formatCnpj, isOptOutMessage, isValidCnpj, nextWarmupCap, normalizeEvolutionInstanceStatus, normalizePhoneKey, opportunityStatusForStage, phoneSchema } from './index.js';
+import { aiGenerationStatuses, aiGenerationTypes, aiProposalStatuses, aiSummaryScopes, campaignCadenceSchema, canSendWhatsapp, chatbotNodeTypes, chatbotResponseProviders, companyInputSchema, contactInputSchema, contactsAreDuplicates, extractSharedWhatsappContacts, formatCnpj, isOptOutMessage, isValidCnpj, nextWarmupCap, normalizeEvolutionInstanceStatus, normalizePhoneKey, opportunityStatusForStage, phoneSchema, workflowNodeTypes } from './index.js';
 
 describe('contratos', () => {
   it('expõe os contratos versionados do assistente e do chatbot OpenAI', () => {
@@ -9,6 +9,11 @@ describe('contratos', () => {
     expect(aiGenerationStatuses).toContain('WAITING_INPUT');
     expect(aiSummaryScopes).toEqual(['CURRENT_ATTENDANCE', 'FULL_CONVERSATION']);
     expect(aiProposalStatuses).toContain('PARTIALLY_APPLIED');
+  });
+
+  it('expõe a atribuição de fila nos contratos de chatbot e automação', () => {
+    expect(chatbotNodeTypes).toContain('assign_queue');
+    expect(workflowNodeTypes).toContain('assign_queue');
   });
   it('normaliza e valida empresa', () => {
     const result = companyInputSchema.parse({

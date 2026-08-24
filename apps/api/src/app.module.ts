@@ -19,12 +19,13 @@ import { EmailModule } from './email/email.module.js';
 import { McpModule } from './mcp/mcp.module.js';
 import { QuickRepliesModule } from './quick-replies/quick-replies.module.js';
 import { AiModule } from './ai/ai.module.js';
+import { TeamsModule } from './teams/teams.module.js';
 
 @Module({
   imports: [
     PrismaModule, QueueModule, AuthModule, UsersModule, CrmModule, IntegrationsModule,
     CampaignsModule, ChatbotsModule, WorkflowsModule, ReportsModule, RealtimeModule, MediaModule, EmailModule, McpModule,
-    QuickRepliesModule, AiModule,
+    QuickRepliesModule, AiModule, TeamsModule,
   ],
   controllers: [HealthController],
   providers: [

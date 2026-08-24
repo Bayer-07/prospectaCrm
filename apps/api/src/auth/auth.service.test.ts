@@ -13,7 +13,7 @@ describe('permissionScope', () => {
 
   it('gera filtros diferentes para equipe e registros próprios', () => {
     const base = { type: 'session' as const, organizationId: 'o', userId: 'u', teamId: 't', name: 'Teste' };
-    expect(scopedWhere({ ...base, permissions: [{ resource: 'contacts', action: 'read', scope: 'TEAM' }] }, 'contacts')).toEqual({ teamId: 't' });
+    expect(scopedWhere({ ...base, permissions: [{ resource: 'contacts', action: 'read', scope: 'TEAM' }] }, 'contacts')).toEqual({ teamId: { in: ['t'] } });
     expect(scopedWhere({ ...base, permissions: [{ resource: 'contacts', action: 'read', scope: 'OWN' }] }, 'contacts')).toEqual({ ownerId: 'u' });
     expect(scopedWhere({ ...base, permissions: [{ resource: '*', action: '*', scope: 'ALL' }] }, 'contacts')).toEqual({});
   });

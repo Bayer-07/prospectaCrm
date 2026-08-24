@@ -13,7 +13,10 @@ const auth: AuthContext = {
 function dependencies(queueAdd = vi.fn().mockResolvedValue({ id: 'job-1' })) {
   const db: any = {
     role: { findFirst: vi.fn().mockResolvedValue({ id: 'role-1', name: 'Vendedor' }) },
-    team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-1' }) },
+    team: {
+      findFirst: vi.fn().mockResolvedValue({ id: 'team-1' }),
+      findMany: vi.fn().mockResolvedValue([{ id: 'team-1' }]),
+    },
     user: {
       findFirst: vi.fn().mockResolvedValue(null),
       create: vi.fn().mockResolvedValue({ id: 'user-1' }),
@@ -41,7 +44,7 @@ describe('convite de usuário por e-mail', () => {
       name: 'Novo Usuário',
       email: 'NOVO.USUARIO@example.com',
       roleId: 'role-1',
-      teamId: 'team-1',
+      teamIds: ['team-1'],
     });
 
     expect(result).toEqual(expect.objectContaining({
@@ -78,7 +81,7 @@ describe('convite de usuário por e-mail', () => {
       name: 'Novo Usuário',
       email: 'novo.usuario@example.com',
       roleId: 'role-1',
-      teamId: 'team-1',
+      teamIds: ['team-1'],
     })).rejects.toThrow('não foi possível agendar o e-mail');
 
     expect(db.inviteToken.update).toHaveBeenCalledWith({
@@ -101,7 +104,7 @@ describe('convite de usuário por e-mail', () => {
       name: 'Usuário recriado',
       email: 'REUTILIZADO@example.com',
       roleId: 'role-1',
-      teamId: 'team-1',
+      teamIds: ['team-1'],
     })).resolves.toEqual(expect.objectContaining({
       userId: 'new-user-1',
       email: 'reutilizado@example.com',
@@ -182,6 +185,7 @@ describe('gestão de usuários', () => {
       status: 'ACTIVE',
       roleId: 'role-old',
       teamId: 'team-old',
+      teamMemberships: [{ teamId: 'team-old' }],
       role: { id: 'role-old', key: 'seller', name: 'Vendedor' },
     };
     const updated = {
@@ -190,15 +194,21 @@ describe('gestão de usuários', () => {
       email: 'novo@example.com',
       status: 'ACTIVE',
       role: { id: 'role-new', key: 'manager', name: 'Gestor' },
-      team: { id: 'team-new', name: 'Prospecção', color: '#123456' },
+      teamMemberships: [{ team: { id: 'team-new', name: 'Prospecção', color: '#123456', isDefault: false } }],
     };
     const db = {
       user: {
         findFirst: vi.fn().mockResolvedValueOnce(target).mockResolvedValueOnce(null),
         update: vi.fn().mockResolvedValue(updated),
+        findUniqueOrThrow: vi.fn().mockResolvedValue(updated),
       },
       role: { findFirst: vi.fn().mockResolvedValue({ id: 'role-new', key: 'manager', name: 'Gestor' }) },
-      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-new' }) },
+      team: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'team-default' }),
+        findMany: vi.fn().mockResolvedValue([{ id: 'team-new' }]),
+      },
+      userTeam: { deleteMany: vi.fn().mockResolvedValue({ count: 1 }), createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      conversation: { findMany: vi.fn().mockResolvedValue([]) },
       auditLog: { create: vi.fn().mockResolvedValue({}) },
       $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
     };
@@ -209,12 +219,15 @@ describe('gestão de usuários', () => {
       name: ' Nome novo ',
       email: 'NOVO@example.com',
       roleId: 'role-new',
-      teamId: 'team-new',
-    })).resolves.toEqual(updated);
+      teamIds: ['team-new'],
+    })).resolves.toEqual(expect.objectContaining({
+      id: 'user-1',
+      teams: [{ id: 'team-new', name: 'Prospecção', color: '#123456', isDefault: false }],
+    }));
 
     expect(db.user.update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'user-1' },
-      data: { name: 'Nome novo', email: 'novo@example.com', roleId: 'role-new', teamId: 'team-new' },
+      data: { name: 'Nome novo', email: 'novo@example.com', roleId: 'role-new', teamId: 'team-default' },
     }));
     expect(db.auditLog.create).toHaveBeenCalledWith({
       data: expect.objectContaining({
@@ -225,6 +238,39 @@ describe('gestão de usuários', () => {
       }),
     });
     expect(authCache.invalidateUser).toHaveBeenCalledWith('user-1');
+  });
+
+  it('retira atribuições abertas e encerradas ao remover uma equipe do usuário', async () => {
+    const target = {
+      id: 'user-1', organizationId: 'organization-1', name: 'Atendente', email: 'atendente@example.com',
+      status: 'ACTIVE', roleId: 'role-1', role: { id: 'role-1', key: 'seller', name: 'Vendedor' },
+      teamMemberships: [{ teamId: 'team-old' }, { teamId: 'team-new' }],
+    };
+    const conversationUpdateMany = vi.fn().mockResolvedValue({ count: 2 });
+    const db = {
+      user: {
+        findFirst: vi.fn().mockResolvedValueOnce(target).mockResolvedValueOnce(null),
+        update: vi.fn().mockResolvedValue({}),
+        findUniqueOrThrow: vi.fn().mockResolvedValue({ id: 'user-1', name: 'Atendente', email: 'atendente@example.com', status: 'ACTIVE', role: target.role, teamMemberships: [] }),
+      },
+      role: { findFirst: vi.fn().mockResolvedValue(target.role) },
+      team: { findMany: vi.fn().mockResolvedValue([{ id: 'team-new' }]), findFirst: vi.fn().mockResolvedValue({ id: 'team-geral' }) },
+      userTeam: { deleteMany: vi.fn().mockResolvedValue({ count: 2 }), createMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      conversation: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'open-1', status: 'OPEN', team: { id: 'team-old', name: 'Suporte' } },
+          { id: 'closed-1', status: 'CLOSED', team: { id: 'team-old', name: 'Suporte' } },
+        ]),
+        updateMany: conversationUpdateMany,
+      },
+      conversationEvent: { createMany: vi.fn().mockResolvedValue({ count: 2 }) },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const service = new UsersService(db as never, { add: vi.fn() } as never, { invalidateUser: vi.fn() } as never, { notifyOrganization: vi.fn() } as never);
+    await service.updateUser(auth, 'user-1', { name: 'Atendente', email: 'atendente@example.com', roleId: 'role-1', teamIds: ['team-new'] });
+    expect(conversationUpdateMany).toHaveBeenCalledWith({ where: { id: { in: ['open-1', 'closed-1'] } }, data: { assigneeId: null } });
+    expect(conversationUpdateMany).toHaveBeenCalledWith({ where: { id: { in: ['open-1'] } }, data: { status: 'WAITING' } });
   });
 
   it('exclui logicamente o usuário, revoga sessões e libera atribuições', async () => {

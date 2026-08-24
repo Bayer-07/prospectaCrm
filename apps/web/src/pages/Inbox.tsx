@@ -24,7 +24,8 @@ import { composerCommandSearch, detectComposerCommand } from '../lib/composer-co
 
 type WhatsappInstance = { id: string; name: string; phone?: string; status: string };
 type ConversationHistoryPage = { messages: Message[]; events: ConversationEvent[]; nextCursor: string | null };
-type ConversationAssignee = { id: string; name: string; email: string; team?: { id: string; name: string; color: string } };
+type TeamOption = { id: string; name: string; color: string; isDefault?: boolean };
+type ConversationAssignee = { id: string; name: string; email: string; teams: TeamOption[] };
 type WorkflowShortcut = { id: string; name: string; description?: string; status: string; publishedVersion?: number };
 type WorkflowEnrollmentResult = { requested: number; enrolled: number; skipped: number };
 type QuickReplyShortcut = {
@@ -36,10 +37,11 @@ type QuickReplyShortcut = {
 };
 type ContactInlineField = 'phone' | 'email' | 'companyId';
 type TicketContextMenuState = { conversation: Conversation; top: number; left: number };
-type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string };
+type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string; teamId: string };
 type ConversationFilterOptions = {
   instances: WhatsappInstance[];
-  users: Array<{ id: string; name: string; email: string }>;
+  users: Array<{ id: string; name: string; email: string; teams: TeamOption[] }>;
+  teams: TeamOption[];
 };
 type MessageLinkPreviewData = {
   url: string;
@@ -79,12 +81,14 @@ const EMPTY_CONVERSATION_FILTERS: ConversationListFilters = {
   lastInteractionTo: '',
   instanceId: '',
   assigneeId: '',
+  teamId: '',
 };
 
 function conversationFiltersQuery(filters: ConversationListFilters) {
   const params = new URLSearchParams();
   if (filters.instanceId) params.set('instanceId', filters.instanceId);
   if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
+  if (filters.teamId) params.set('teamId', filters.teamId);
   if (filters.lastInteractionFrom) {
     params.set('lastInteractionFrom', new Date(`${filters.lastInteractionFrom}T00:00:00`).toISOString());
   }
@@ -199,6 +203,10 @@ function conversationListPreview(conversation: Conversation) {
   return 'Mídia ou nova conversa';
 }
 
+function QueueBadge({ team }: Readonly<{ team?: TeamOption | null }>) {
+  return <span className={`queue-badge${team ? '' : ' neutral'}`} style={team ? { '--queue-color': team.color } as React.CSSProperties : undefined}><i />{team?.name || 'Sem fila'}</span>;
+}
+
 type InboxFilterPanelProps = Readonly<{
   draft: ConversationListFilters;
   activeCount: number;
@@ -226,9 +234,31 @@ function InboxFilterPanel(props: InboxFilterPanelProps) {
       {invalidDateRange && <p>A data final deve ser igual ou posterior à inicial.</p>}
     </div>
     <label className="conversation-filter-field"><span>Conexão Evolution</span><select value={draft.instanceId} onChange={(event) => props.onChange('instanceId', event.target.value)}><option value="">Todas as conexões</option>{optionsLoading && <option disabled>Carregando conexões…</option>}{(options?.instances || []).map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''} · {instance.status === 'CONNECTED' ? 'Conectada' : 'Desconectada'}</option>)}</select></label>
+    <label className="conversation-filter-field"><span>Equipe / fila</span><select value={draft.teamId} onChange={(event) => props.onChange('teamId', event.target.value)}><option value="">Todas as filas</option>{(options?.teams || []).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
     <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draft.assigneeId} onChange={(event) => props.onChange('assigneeId', event.target.value)}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{optionsLoading && <option disabled>Carregando usuários…</option>}{(options?.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
     {optionsError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
     <footer><button type="button" className="conversation-filter-clear" onClick={props.onClear} disabled={!activeCount && !hasDraftFilters}>Limpar</button><Button type="button" onClick={props.onApply} disabled={invalidDateRange}>Aplicar filtros</Button></footer>
+  </div>;
+}
+
+function TransferSelection(props: Readonly<{
+  mode: 'assignee' | 'queue';
+  assignees: ConversationAssignee[];
+  teams: TeamOption[];
+  assigneeId: string;
+  teamId: string;
+  loading: boolean;
+  onMode(mode: 'assignee' | 'queue'): void;
+  onAssignee(id: string): void;
+  onTeam(id: string): void;
+}>) {
+  const selectedAssignee = props.assignees.find((assignee) => assignee.id === props.assigneeId);
+  const availableTeams = props.mode === 'assignee' ? selectedAssignee?.teams || [] : props.teams;
+  const selectedTeam = availableTeams.find((team) => team.id === props.teamId);
+  return <div className="conversation-transfer">
+    <div className="segmented transfer-mode"><button type="button" className={props.mode === 'assignee' ? 'active' : ''} onClick={() => props.onMode('assignee')}>Atendente</button><button type="button" className={props.mode === 'queue' ? 'active' : ''} onClick={() => props.onMode('queue')}>Somente fila</button></div>
+    {props.mode === 'assignee' && <>{props.loading ? <div className="conversation-transfer-empty"><strong>Carregando atendentes e filas…</strong></div> : <div className="conversation-assignee-list">{props.assignees.map((assignee) => <button type="button" key={assignee.id} className={props.assigneeId === assignee.id ? 'selected' : ''} onClick={() => props.onAssignee(assignee.id)}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><span className="team-badge-list">{assignee.teams.length ? assignee.teams.map((team) => <span key={team.id} className="team-badge" style={{ '--team-color': team.color } as React.CSSProperties}><i />{team.name}</span>) : <small>Sem filas atribuídas</small>}</span></div>{props.assigneeId === assignee.id && <Check size={18} />}</button>)}</div>}<SelectField label="Fila atribuída ao atendente" value={props.teamId} onChange={(event) => props.onTeam(event.target.value)} disabled={!selectedAssignee}><option value="">Selecione a fila</option>{availableTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>{selectedTeam && <QueueBadge team={selectedTeam} />}</>}
+    {props.mode === 'queue' && <><div className="conversation-transfer-intro"><UsersRound size={20} /><div><strong>Encaminhar sem atendente</strong><p>O ticket ficará em Aguardando e os membros da fila serão notificados.</p></div></div><SelectField label="Fila de destino" value={props.teamId} onChange={(event) => props.onTeam(event.target.value)}><option value="">Selecione a fila</option>{availableTeams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>{selectedTeam && <QueueBadge team={selectedTeam} />}</>}
   </div>;
 }
 
@@ -256,7 +286,7 @@ function InboxConversationList(props: InboxConversationListProps) {
     className={`${item.id === props.selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
     onClick={() => props.onSelect(item.id)}
     onContextMenu={(event) => props.onContextMenu(event, item)}
-  ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{conversationListPreview(item)}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>)}</>;
+  ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{conversationListPreview(item)}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small><QueueBadge team={item.team} /></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>)}</>;
 }
 
 type InboxSidebarProps = Readonly<{
@@ -554,10 +584,10 @@ export function InboxPage() {
     const result = await history.fetchNextPage();
     if (result.isError) throw result.error;
   };
-  const transferConversation = async (assigneeId: string) => {
+  const transferConversation = async (input: { assigneeId: string | null; teamId: string }) => {
     if (!selectedConversation) return;
-    const response = await api<Envelope<Conversation>>(`/conversations/${selectedConversation.id}/assign`, { method: 'PATCH', body: JSON.stringify({ assigneeId }) });
-    if (!isAdmin && assigneeId !== user?.userId) {
+    const response = await api<Envelope<Conversation>>(`/conversations/${selectedConversation.id}/assign`, { method: 'PATCH', body: JSON.stringify(input) });
+    if (!isAdmin && input.assigneeId !== user?.userId) {
       setFilter('open');
       navigate('/inbox', { replace: true });
       invalidate();
@@ -664,6 +694,8 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowU
   const [opportunityContact, setOpportunityContact] = useState<Contact | null>(null);
   const [transferConversation, setTransferConversation] = useState<Conversation | null>(null);
   const [transferTarget, setTransferTarget] = useState('');
+  const [transferTeam, setTransferTeam] = useState('');
+  const [transferMode, setTransferMode] = useState<'assignee' | 'queue'>('assignee');
   const canCreateOpportunity = Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
     (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
   const canScheduleFollowUp = canWriteResource(user, 'conversations') && canWriteResource(user, 'tasks');
@@ -673,10 +705,7 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowU
     enabled: Boolean(transferConversation),
     staleTime: 60_000,
   });
-  const transferTargets = useMemo(
-    () => (assignees.data?.data || []).filter((assignee) => assignee.id !== transferConversation?.assignee?.id),
-    [assignees.data?.data, transferConversation?.assignee?.id],
-  );
+  const teams = useQuery({ queryKey: ['conversation-teams'], queryFn: () => api<Envelope<TeamOption[]>>('/conversations/teams'), enabled: Boolean(transferConversation), staleTime: 60_000 });
   const pin = useMutation({
     mutationFn: (conversation: Conversation) => api<Envelope<{ id: string; isPinned: boolean }>>(`/conversations/${conversation.id}/pin`, {
       method: 'PATCH',
@@ -700,13 +729,14 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowU
     onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível finalizar o atendimento')),
   });
   const transfer = useMutation({
-    mutationFn: ({ conversationId, assigneeId }: { conversationId: string; assigneeId: string }) => api<Envelope<Conversation>>(`/conversations/${conversationId}/assign`, {
+    mutationFn: ({ conversationId, assigneeId, teamId }: { conversationId: string; assigneeId: string | null; teamId: string }) => api<Envelope<Conversation>>(`/conversations/${conversationId}/assign`, {
       method: 'PATCH',
-      body: JSON.stringify({ assigneeId }),
+      body: JSON.stringify({ assigneeId, teamId }),
     }),
     onSuccess: () => {
       setTransferConversation(null);
       setTransferTarget('');
+      setTransferTeam('');
       toast.success('Atendimento transferido.');
       onUpdated();
     },
@@ -735,12 +765,6 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowU
     },
     onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível exportar o atendimento')),
   });
-  let transferTargetContent: ReactNode = <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>;
-  if (assignees.isLoading) transferTargetContent = <PageLoading />;
-  else if (!assignees.isError && transferTargets.length) {
-    transferTargetContent = <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div>;
-  }
-
   return <>
     {menu && createPortal(<>
       <button type="button" className="message-menu-scrim" onClick={onClose} aria-label="Fechar ações do ticket" />
@@ -752,7 +776,7 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowU
           ? <a role="menuitem" href={`tel:${menu.conversation.contact.phone}`} onClick={onClose}><Phone size={17} /><span>Ligar</span></a>
           : <button type="button" role="menuitem" disabled title="O contato não possui telefone cadastrado"><Phone size={17} /><span>Ligar</span></button>}
         <button type="button" role="menuitem" disabled={!canCreateOpportunity} title={!canCreateOpportunity ? 'Você não possui permissão para criar oportunidades' : undefined} onClick={() => { const contact = menu.conversation.contact; onClose(); setOpportunityContact(contact); }}><BriefcaseBusiness size={17} /><span>Criar oportunidade</span></button>
-        <button type="button" role="menuitem" disabled={menu.conversation.status === 'CLOSED'} title={menu.conversation.status === 'CLOSED' ? 'Reabra a conversa antes de transferir' : undefined} onClick={() => { const item = menu.conversation; onClose(); setTransferTarget(''); setTransferConversation(item); }}><ArrowRightLeft size={17} /><span>Transferir</span></button>
+        <button type="button" role="menuitem" disabled={menu.conversation.status === 'CLOSED'} title={menu.conversation.status === 'CLOSED' ? 'Reabra a conversa antes de transferir' : undefined} onClick={() => { const item = menu.conversation; onClose(); setTransferTarget(''); setTransferTeam(''); setTransferMode('assignee'); setTransferConversation(item); }}><ArrowRightLeft size={17} /><span>Transferir</span></button>
         <button type="button" role="menuitem" disabled={exportPdf.isPending} onClick={() => { const item = menu.conversation; onClose(); exportPdf.mutate(item); }}><Download size={17} /><span>{exportPdf.isPending ? 'Exportando PDF…' : 'Exportar para PDF'}</span></button>
       </div>
     </>, document.body)}
@@ -765,12 +789,9 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowU
         onUpdated();
       }}
     />}
-    {transferConversation && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferConversation(null); setTransferTarget(''); } }} width={540}>
-      <div className="conversation-transfer">
-        <div className="conversation-transfer-intro"><ArrowRightLeft size={20} /><div><strong>Escolha o novo atendente</strong><p>A conversa será removida da sua fila e o novo responsável receberá uma notificação.</p></div></div>
-        {transferTargetContent}
-      </div>
-      <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferConversation(null); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate({ conversationId: transferConversation.id, assigneeId: transferTarget })} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
+    {transferConversation && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferConversation(null); setTransferTarget(''); setTransferTeam(''); } }} width={540}>
+      <TransferSelection mode={transferMode} assignees={assignees.data?.data || []} teams={teams.data?.data || []} assigneeId={transferTarget} teamId={transferTeam} loading={assignees.isLoading || teams.isLoading} onMode={(mode) => { setTransferMode(mode); setTransferTarget(''); setTransferTeam(''); }} onAssignee={(id) => { setTransferTarget(id); setTransferTeam(''); }} onTeam={setTransferTeam} />
+      <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferConversation(null); setTransferTarget(''); setTransferTeam(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTeam && transfer.mutate({ conversationId: transferConversation.id, assigneeId: transferMode === 'assignee' ? transferTarget : null, teamId: transferTeam })} loading={transfer.isPending} disabled={!transferTeam || (transferMode === 'assignee' && !transferTarget)}><ArrowRightLeft size={16} />Transferir</Button></div>
     </Modal>}
   </>;
 }
@@ -970,7 +991,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   onLoadOlderMessages(): Promise<void>;
   onSend(): void;
   onAssign(): void;
-  onTransfer(assigneeId: string): Promise<void>;
+  onTransfer(input: { assigneeId: string | null; teamId: string }): Promise<void>;
   onClose(): void;
 }>) {
   const { user, refresh } = useAuth();
@@ -988,6 +1009,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [conversationMenu, setConversationMenu] = useState<{ top: number; left: number } | null>(null);
   const [transferOpen, setTransferOpen] = useState(false);
   const [transferTarget, setTransferTarget] = useState('');
+  const [transferTeam, setTransferTeam] = useState('');
+  const [transferMode, setTransferMode] = useState<'assignee' | 'queue'>('assignee');
   const [instanceChangeOpen, setInstanceChangeOpen] = useState(false);
   const [instanceTarget, setInstanceTarget] = useState('');
   const [opportunityOpen, setOpportunityOpen] = useState(false);
@@ -1285,11 +1308,13 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     enabled: transferOpen,
     staleTime: 60_000,
   });
+  const transferTeams = useQuery({ queryKey: ['conversation-teams'], queryFn: () => api<Envelope<TeamOption[]>>('/conversations/teams'), enabled: transferOpen, staleTime: 60_000 });
   const transfer = useMutation({
-    mutationFn: (assigneeId: string) => onTransfer(assigneeId),
+    mutationFn: (input: { assigneeId: string | null; teamId: string }) => onTransfer(input),
     onSuccess: () => {
       setTransferOpen(false);
       setTransferTarget('');
+      setTransferTeam('');
       setActionNotice('Atendimento transferido');
       onSend();
     },
@@ -1832,13 +1857,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     });
   };
   const grouped = useMemo(() => groupTimeline(conversation.messages, conversation.events || []), [conversation.messages, conversation.events]);
-  const transferTargets = useMemo(() => (assignees.data?.data || []).filter((assignee) => assignee.id !== conversation.assignee?.id), [assignees.data?.data, conversation.assignee?.id]);
   const retryMessage = useCallback((messageId: string) => retry.mutate(messageId), [retry.mutate]);
-  let transferTargetContent: ReactNode = <div className="conversation-transfer-empty"><UsersRound size={22} /><strong>Nenhum outro atendente disponível</strong><span>Não há outro usuário ativo na equipe para receber esta conversa.</span></div>;
-  if (assignees.isLoading) transferTargetContent = <PageLoading />;
-  else if (!assignees.isError && transferTargets.length) {
-    transferTargetContent = <div className="conversation-assignee-list">{transferTargets.map((assignee) => <button type="button" key={assignee.id} className={transferTarget === assignee.id ? 'selected' : ''} onClick={() => { setTransferTarget(assignee.id); transfer.reset(); }}><span className="contact-avatar">{initials(assignee.name)}</span><div><strong>{assignee.name}</strong><small>{assignee.team?.name || assignee.email}</small></div>{transferTarget === assignee.id && <Check size={18} />}</button>)}</div>;
-  }
   let instanceOptionContent: ReactNode = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Nenhuma conexão ativa disponível</strong><span>Conecte outro número para conseguir continuar esta conversa.</span></div>;
   if (availableInstances.isLoading) instanceOptionContent = <PageLoading />;
   else if (availableInstances.isError) instanceOptionContent = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>;
@@ -1879,7 +1898,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const renderHeader = () => <header className="conversation-header">
     <button type="button" className="conversation-person conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
       <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
-      <div><strong>{conversation.contact.name}</strong><span><i /> {formatPhone(conversation.contact.phone) || 'Sem telefone'} · {conversation.instance.name}</span></div>
+      <div><strong>{conversation.contact.name}</strong><span><i /> {formatPhone(conversation.contact.phone) || 'Sem telefone'} · {conversation.instance.name}</span><QueueBadge team={conversation.team} /></div>
     </button>
     <div className="conversation-actions">
       {connectionUnavailable && <button type="button" className="button button-secondary conversation-change-instance-button" onClick={() => { setInstanceTarget(''); changeInstance.reset(); setInstanceChangeOpen(true); }} title="Escolher outra conexão para as próximas mensagens"><Cable size={15} /><span>Trocar conexão</span></button>}
@@ -1947,7 +1966,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
           : <button type="button" role="menuitem" disabled title="O contato não possui telefone cadastrado"><Phone size={17} /><span>Ligar</span></button>}
         <button type="button" role="menuitem" disabled={!canCreateOpportunity} title={!canCreateOpportunity ? 'Você não possui permissão para criar oportunidades' : undefined} onClick={() => { setConversationMenu(null); setOpportunityOpen(true); }}><BriefcaseBusiness size={17} /><span>Criar oportunidade</span></button>
         <button type="button" role="menuitem" disabled={!conversation.assignee || !canScheduleFollowUp} title={followUpDisabledReason(conversation, canScheduleFollowUp)} onClick={() => { setConversationMenu(null); setFollowUpOpen(true); }}><Clock size={17} /><span>{conversation.followUps?.length ? 'Ver/editar follow-up' : 'Agendar follow-up automático'}</span></button>
-        <button type="button" role="menuitem" disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa antes de transferir' : undefined} onClick={() => { setConversationMenu(null); setTransferTarget(''); transfer.reset(); setTransferOpen(true); }}><ArrowRightLeft size={17} /><span>Transferir para atendente</span></button>
+        <button type="button" role="menuitem" disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa antes de transferir' : undefined} onClick={() => { setConversationMenu(null); setTransferTarget(''); setTransferTeam(''); setTransferMode('assignee'); transfer.reset(); setTransferOpen(true); }}><ArrowRightLeft size={17} /><span>Transferir atendimento</span></button>
         <button type="button" role="menuitem" disabled={exportPdf.isPending} onClick={() => { setConversationMenu(null); setActionError(''); exportPdf.mutate(); }}><Download size={17} /><span>{exportPdf.isPending ? 'Exportando PDF…' : 'Exportar para PDF'}</span></button>
       </div>
     </>, document.body);
@@ -1979,12 +1998,9 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       <div className="delete-message-confirmation"><div className="delete-message-icon"><Trash2 size={22} /></div><div><strong>Apagar para todos</strong><p>A mensagem será removida desta conversa e também do WhatsApp do contato.</p><blockquote>{messagePreview(deletingMessage)}</blockquote></div></div>
       <div className="modal-actions"><Button variant="secondary" onClick={() => setDeletingMessage(null)} disabled={remove.isPending}>Cancelar</Button><Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate(deletingMessage.id)}><Trash2 size={16} />Apagar para todos</Button></div>
     </Modal>}
-    {transferOpen && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferOpen(false); setTransferTarget(''); } }} width={540}>
-      <div className="conversation-transfer">
-        <div className="conversation-transfer-intro"><ArrowRightLeft size={20} /><div><strong>Escolha o novo atendente</strong><p>A conversa será removida da sua fila e o novo responsável receberá uma notificação.</p></div></div>
-        {transferTargetContent}
-      </div>
-      <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferOpen(false); setTransferTarget(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTarget && transfer.mutate(transferTarget)} loading={transfer.isPending} disabled={!transferTarget}><ArrowRightLeft size={16} />Transferir</Button></div>
+    {transferOpen && <Modal title="Transferir atendimento" onClose={() => { if (!transfer.isPending) { setTransferOpen(false); setTransferTarget(''); setTransferTeam(''); } }} width={540}>
+      <TransferSelection mode={transferMode} assignees={assignees.data?.data || []} teams={transferTeams.data?.data || []} assigneeId={transferTarget} teamId={transferTeam} loading={assignees.isLoading || transferTeams.isLoading} onMode={(mode) => { setTransferMode(mode); setTransferTarget(''); setTransferTeam(''); }} onAssignee={(id) => { setTransferTarget(id); setTransferTeam(''); }} onTeam={setTransferTeam} />
+      <div className="modal-actions"><Button variant="secondary" onClick={() => { setTransferOpen(false); setTransferTarget(''); setTransferTeam(''); }} disabled={transfer.isPending}>Cancelar</Button><Button onClick={() => transferTeam && transfer.mutate({ assigneeId: transferMode === 'assignee' ? transferTarget : null, teamId: transferTeam })} loading={transfer.isPending} disabled={!transferTeam || (transferMode === 'assignee' && !transferTarget)}><ArrowRightLeft size={16} />Transferir</Button></div>
     </Modal>}
   </>;
   const renderInstanceChangeModal = () => instanceChangeOpen && <Modal title="Trocar conexão da conversa" onClose={() => {

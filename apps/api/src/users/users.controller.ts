@@ -51,7 +51,7 @@ export class UsersController {
 
   @RequirePermission('users', 'write')
   @Post('invite')
-  async invite(@CurrentUser() auth: AuthContext, @Body() body: { name: string; email: string; roleId: string; teamId?: string }) {
+  async invite(@CurrentUser() auth: AuthContext, @Body() body: { name: string; email: string; roleId: string; teamIds?: string[] }) {
     return { data: await this.users.createInvite(auth, body) };
   }
 
@@ -60,7 +60,7 @@ export class UsersController {
   async update(
     @CurrentUser() auth: AuthContext,
     @Param('id') id: string,
-    @Body() body: { name: string; email: string; roleId: string; teamId?: string | null },
+    @Body() body: { name: string; email: string; roleId: string; teamIds?: string[] },
   ) {
     return { data: await this.users.updateUser(auth, id, body) };
   }

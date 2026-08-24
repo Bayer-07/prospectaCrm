@@ -3,6 +3,7 @@ import type { Prisma } from '@prisma/client';
 import { followUpInputSchema, type FollowUpInput } from '@prospecta/contracts';
 import type { Queue } from 'bullmq';
 import type { AuthContext } from '../auth/types.js';
+import { authTeamIds } from '../auth/data-scope.js';
 import { conversationVisibilityWhere } from '../integrations/conversation-visibility.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import { FOLLOW_UP_QUEUE } from '../queue/queue.module.js';
@@ -343,7 +344,10 @@ function permissionScope(auth: AuthContext, resource: string, action: string) {
 
 function workflowAccessWhere(auth: AuthContext, scope: 'ALL' | 'TEAM' | 'OWN'): Prisma.WorkflowWhereInput {
   if (scope === 'ALL') return {};
-  if (scope === 'TEAM') return auth.teamId ? { createdBy: { teamId: auth.teamId } } : { id: '__none__' };
+  if (scope === 'TEAM') {
+    const teamIds = authTeamIds(auth);
+    return teamIds.length ? { createdBy: { teamMemberships: { some: { teamId: { in: teamIds } } } } } : { id: '__none__' };
+  }
   return auth.userId ? { createdById: auth.userId } : { id: '__none__' };
 }
 

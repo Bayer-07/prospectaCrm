@@ -885,7 +885,7 @@ export class InboundProcessor {
     const { instance, ensuredContact, knownConversation } = context;
     const currentConversation = knownConversation || await this.db.conversation.findFirst({
       where: { instanceId: instance.id, contactId: ensuredContact.id },
-      select: { id: true, status: true, assigneeId: true, lastMessageAt: true },
+      select: { id: true, status: true, assigneeId: true, teamId: true, lastMessageAt: true },
       orderBy: { updatedAt: 'desc' },
     });
     if (currentConversation) return this.updateInboundConversation(context, currentConversation);
@@ -895,10 +895,12 @@ export class InboundProcessor {
   private async updateInboundConversation(context: AnyObject, currentConversation: AnyObject) {
     const { instance, ensuredContact, occurredAt, fromMe } = context;
     const incomingRoute = incomingConversationRoute(currentConversation.status, currentConversation.assigneeId);
+    const defaultTeamId = currentConversation.teamId || await this.defaultTeamId(instance.organizationId);
     const conversation = await this.db.conversation.update({
       where: { id: currentConversation.id },
       data: {
         contactId: ensuredContact.id,
+        teamId: defaultTeamId,
         lastMessageAt: !currentConversation.lastMessageAt || occurredAt > currentConversation.lastMessageAt ? occurredAt : currentConversation.lastMessageAt,
         ...(!fromMe ? {
           status: incomingRoute.status,
@@ -918,11 +920,13 @@ export class InboundProcessor {
 
   private async createInboundConversation(context: AnyObject) {
     const { instance, ensuredContact, remoteJid, occurredAt, fromMe } = context;
+    const teamId = await this.defaultTeamId(instance.organizationId);
     const conversation = await this.db.conversation.create({
       data: {
         organizationId: instance.organizationId,
         instanceId: instance.id,
         contactId: ensuredContact.id,
+        teamId,
         remoteJid,
         phoneJid: remoteJid.includes('@s.whatsapp.net') ? remoteJid : null,
         status: incomingConversationStatus(null),
@@ -938,6 +942,12 @@ export class InboundProcessor {
 
   private createConversationStartEvent(organizationId: string, conversationId: string, createdAt: Date, text: string) {
     return this.db.conversationEvent.create({ data: { organizationId, conversationId, type: 'started', text, createdAt } });
+  }
+
+  private async defaultTeamId(organizationId: string) {
+    const team = await this.db.team.findFirst({ where: { organizationId, isDefault: true }, select: { id: true } });
+    if (!team) throw new Error('A equipe Geral não está configurada');
+    return team.id;
   }
 
   private async storeInboundMessage(context: AnyObject) {

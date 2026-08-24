@@ -554,6 +554,33 @@ tbody tr:last-child td { border-bottom: 0; } tbody tr:hover { background: #fcfbf
 .invite-fallback-link button { width: 28px; height: 28px; border: 0; border-radius: 7px; background: var(--violet-soft); color: var(--violet); display: grid; place-items: center; }
 .invite-fallback-link p { margin-top: 8px; color: var(--muted); font-size: 10px; line-height: 1.45; }
 
+/* Equipes e filas */
+.team-badge-list { display: flex; flex-wrap: wrap; gap: 5px; }
+.team-badge, .queue-badge { --team-color: #94a3b8; --queue-color: var(--team-color); width: max-content; max-width: 150px; padding: 3px 7px; border: 1px solid color-mix(in srgb, var(--queue-color) 38%, var(--line)); border-radius: 999px; background: color-mix(in srgb, var(--queue-color) 10%, var(--surface)); color: var(--ink); display: inline-flex; align-items: center; gap: 5px; font-size: 10px; font-weight: 650; line-height: 1.2; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-badge { --queue-color: var(--team-color); }
+.team-badge i, .queue-badge i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--queue-color); }
+.team-badge.neutral, .queue-badge.neutral { --queue-color: #94a3b8; color: var(--muted); }
+.conversation-list .queue-badge { margin-top: 6px; }
+.conversation-person .queue-badge { margin-top: 2px; }
+.conversation-person > div > .queue-badge { display: inline-flex; }
+.team-name-cell { display: flex; align-items: center; gap: 9px; }
+.team-name-cell > div { display: flex; flex-direction: column; gap: 2px; }
+.team-name-cell small { color: var(--muted); font-size: 10px; }
+.team-color-dot { width: 11px; height: 11px; flex: none; border-radius: 50%; box-shadow: 0 0 0 2px color-mix(in srgb, currentColor 12%, transparent); }
+.table-row-actions { display: flex; justify-content: flex-end; align-items: center; gap: 7px; }
+.team-color-input { display: grid; grid-template-columns: 48px 1fr; gap: 8px; }
+.team-color-input input[type="color"] { width: 48px; height: 38px; padding: 3px; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); }
+.team-multi-select { padding: 0; border: 0; }
+.team-multi-select legend { margin-bottom: 7px; color: var(--muted); font-size: 11px; font-weight: 650; }
+.team-multi-select > div { max-height: 190px; padding: 6px; overflow-y: auto; border: 1px solid var(--line); border-radius: 9px; background: var(--surface-soft); display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 5px; }
+.team-multi-select label { min-height: 34px; padding: 6px 8px; border-radius: 7px; background: var(--surface); display: flex; align-items: center; gap: 7px; cursor: pointer; }
+.team-multi-select label:hover { background: var(--violet-soft); }
+.team-multi-select label strong { min-width: 0; flex: 1; font-size: 11px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-multi-select label small { color: var(--violet); font-size: 9px; }
+.team-multi-select > p { margin-top: 6px; color: var(--muted); font-size: 10px; }
+.transfer-mode { align-self: stretch; }
+.transfer-mode button { flex: 1; }
+
 /* Email */
 .channel-disabled { border-color: #d7d2ef; background: #f5f3ff; color: var(--violet); }.channel-disabled > span { width: 33px; height: 33px; border-radius: 9px; background: var(--violet-soft); display: grid; place-items: center; }.template-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }.template-grid article { min-height: 190px; padding: 15px; border: 1px solid var(--line); border-radius: 11px; background: white; box-shadow: var(--shadow); }.template-grid article > span { width: 32px; height: 32px; margin-bottom: 12px; border-radius: 9px; background: var(--blue-soft); color: var(--blue); display: grid; place-items: center; }.template-grid h3 { font-size: 10px; }.template-grid > article > strong { display: block; margin-top: 8px; font-size: 9px; }.template-grid p { margin-top: 5px; color: var(--muted); font-size: 8px; line-height: 1.5; }.template-grid footer { margin-top: 15px; padding-top: 10px; border-top: 1px solid var(--line); display: flex; align-items: center; justify-content: space-between; gap: 8px; }.template-grid small { color: var(--subtle); font-size: 7px; }.template-card-actions { display: flex; align-items: center; gap: 6px; }
 .channel-disabled.channel-enabled { border-color: color-mix(in srgb, var(--green) 38%, var(--line)); background: var(--green-soft); color: var(--green); }

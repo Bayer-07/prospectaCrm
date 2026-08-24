@@ -1,7 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { chatbotNodeTypes } from '@prospecta/contracts';
-import { permissionScope } from '../auth/data-scope.js';
+import { authTeamIds, permissionScope } from '../auth/data-scope.js';
 import type { AuthContext } from '../auth/types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -19,10 +19,14 @@ function nodeLabel(node: ChatbotNode) {
 
 function instanceTeamFilter(auth: AuthContext, scope: string) {
   if (scope === 'ALL') return {};
-  return auth.teamId ? { teams: { some: { teamId: auth.teamId } } } : { id: '__none__' };
+  const teamIds = authTeamIds(auth);
+  return teamIds.length ? { teams: { some: { teamId: { in: teamIds } } } } : { id: '__none__' };
 }
 
 function validateNodeText(node: ChatbotNode) {
+  if (node.type === 'assign_queue' && !primitiveText(node.data?.teamId).trim()) {
+    throw new BadRequestException(`Selecione a fila no bloco ${nodeLabel(node)}`);
+  }
   if (['message', 'question'].includes(node.type) && !primitiveText(node.data?.text).trim()) {
     throw new BadRequestException(`Preencha o texto do bloco ${nodeLabel(node)}`);
   }
@@ -133,13 +137,14 @@ export class ChatbotsService {
   async metadata(auth: AuthContext) {
     const scope = permissionScope(auth, 'workflows', 'read');
     const teamFilter = instanceTeamFilter(auth, scope);
-    const [instances, tags, aiSettings] = await Promise.all([
+    const [instances, tags, teams, aiSettings] = await Promise.all([
       this.db.whatsappInstance.findMany({
         where: { organizationId: auth.organizationId, archivedAt: null, ...teamFilter },
         select: { id: true, name: true, phone: true, status: true },
         orderBy: { name: 'asc' },
       }),
       this.db.tag.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, color: true }, orderBy: { name: 'asc' } }),
+      this.db.team.findMany({ where: { organizationId: auth.organizationId }, select: { id: true, name: true, color: true, isDefault: true }, orderBy: [{ isDefault: 'desc' }, { name: 'asc' }] }),
       this.db.organizationAiSettings.findUnique({
         where: { organizationId: auth.organizationId },
         select: { openAiApiKeyEncrypted: true },
@@ -147,7 +152,7 @@ export class ChatbotsService {
     ]);
     const openAiAvailable = process.env.AI_ASSISTANT_ENABLED === 'true'
       && Boolean(aiSettings?.openAiApiKeyEncrypted || process.env.OPENAI_API_KEY?.trim());
-    return { instances, tags, responseProviders: [{ key: 'RULES', name: 'Regras', available: true }, { key: 'OPENAI', name: 'OpenAI', available: openAiAvailable }] };
+    return { instances, tags, teams, responseProviders: [{ key: 'RULES', name: 'Regras', available: true }, { key: 'OPENAI', name: 'OpenAI', available: openAiAvailable }] };
   }
 
   async get(auth: AuthContext, id: string) {
@@ -206,6 +211,7 @@ export class ChatbotsService {
     if (latest.publishedAt) throw new BadRequestException('Salve uma nova versão antes de publicar novamente');
     const graph = latest.graph as unknown as ChatbotGraph;
     this.validateShape(graph, true);
+    await this.assertQueueReferences(auth.organizationId, graph);
     if (graph.nodes.some((node) => node.type === 'ai_conversation') && chatbot.responseProvider !== 'OPENAI') {
       throw new BadRequestException('Blocos de atendimento por IA exigem o motor OpenAI');
     }
@@ -287,9 +293,13 @@ export class ChatbotsService {
     if (!graph.nodes.some((node) => ['handoff', 'close', 'end'].includes(node.type))) throw new BadRequestException('Adicione ao menos um bloco de transferência, encerramento ou fim');
     validateNodeConnections(graph);
     for (const aiNode of graph.nodes.filter((node) => node.type === 'ai_conversation')) {
-      const targetId = graph.edges.find((edge) => edge.source === aiNode.id)?.target;
-      if (graph.nodes.find((node) => node.id === targetId)?.type !== 'handoff') {
-        throw new BadRequestException(`O bloco ${nodeLabel(aiNode)} deve seguir diretamente para Transferir`);
+      const firstTargetId = graph.edges.find((edge) => edge.source === aiNode.id)?.target;
+      const firstTarget = graph.nodes.find((node) => node.id === firstTargetId);
+      const handoffTargetId = firstTarget?.type === 'assign_queue'
+        ? graph.edges.find((edge) => edge.source === firstTarget.id)?.target
+        : firstTargetId;
+      if (graph.nodes.find((node) => node.id === handoffTargetId)?.type !== 'handoff') {
+        throw new BadRequestException(`O bloco ${nodeLabel(aiNode)} deve seguir diretamente para Transferir ou passar antes por Atribuir fila`);
       }
     }
     const adjacency = graphAdjacency(graph, ids);
@@ -339,10 +349,23 @@ export class ChatbotsService {
     }
   }
 
+  private async assertQueueReferences(organizationId: string, graph: ChatbotGraph) {
+    const teamIds = [...new Set(graph.nodes
+      .filter((node) => node.type === 'assign_queue')
+      .map((node) => primitiveText(node.data?.teamId).trim())
+      .filter(Boolean))];
+    if (!teamIds.length) return;
+    const count = await this.db.team.count({ where: { organizationId, id: { in: teamIds } } });
+    if (count !== teamIds.length) throw new BadRequestException('Uma fila usada pelo chatbot não existe mais');
+  }
+
   private scope(auth: AuthContext) {
     const scope = permissionScope(auth, 'workflows');
     if (scope === 'ALL') return {};
-    if (scope === 'TEAM') return auth.teamId ? { createdBy: { teamId: auth.teamId } } : { id: '__none__' };
+    if (scope === 'TEAM') {
+      const teamIds = authTeamIds(auth);
+      return teamIds.length ? { createdBy: { teamMemberships: { some: { teamId: { in: teamIds } } } } } : { id: '__none__' };
+    }
     return auth.userId ? { createdById: auth.userId } : { id: '__none__' };
   }
 }

@@ -52,6 +52,7 @@ export class IntegrationsController {
     limit?: string;
     instanceId?: string;
     assigneeId?: string;
+    teamId?: string;
     lastInteractionFrom?: string;
     lastInteractionTo?: string;
   }) { return { data: await this.evolution.conversations(auth, query) }; }
@@ -79,6 +80,10 @@ export class IntegrationsController {
   @RequirePermission('conversations', 'write')
   @Get('conversations/assignees')
   async conversationAssignees(@CurrentUser() auth: AuthContext) { return { data: await this.evolution.conversationAssignees(auth) }; }
+
+  @RequirePermission('conversations', 'write')
+  @Get('conversations/teams')
+  async conversationTeams(@CurrentUser() auth: AuthContext) { return { data: await this.evolution.conversationTeams(auth) }; }
 
   @RequirePermission('conversations', 'read')
   @Get('conversations/:id')
@@ -150,9 +155,9 @@ export class IntegrationsController {
 
   @RequirePermission('conversations', 'write')
   @Patch('conversations/:id/assign')
-  async assign(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { assigneeId: string | null }) {
+  async assign(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { assigneeId: string | null; teamId?: string }) {
     const assigneeId = body.assigneeId === 'self' ? auth.userId || null : body.assigneeId;
-    return { data: await this.evolution.assign(auth, id, assigneeId) };
+    return { data: await this.evolution.assign(auth, id, assigneeId, body.teamId) };
   }
 
   @RequirePermission('conversations', 'write')

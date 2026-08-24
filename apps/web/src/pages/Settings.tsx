@@ -8,11 +8,12 @@ import { useAuth } from '../App';
 import { toast } from '../lib/toast';
 import { UserAvatar } from '../components/UserAvatar';
 
-type User = { id: string; name: string; email: string; status: string; lastLoginAt?: string; profilePhotoId?: string | null; profilePhoto?: { createdAt?: string } | null; role: { id: string; key: string; name: string }; team?: { id: string; name: string; color: string } };
+type Team = { id: string; name: string; color: string; isDefault?: boolean; _count?: { memberships: number; conversations: number; instanceAccess: number } };
+type User = { id: string; name: string; email: string; status: string; lastLoginAt?: string; profilePhotoId?: string | null; profilePhoto?: { createdAt?: string } | null; role: { id: string; key: string; name: string }; teams: Team[] };
 type RolePermission = { resource: string; action: string; scope: 'ALL' | 'TEAM' | 'OWN' };
-type Metadata = { teams: Array<{ id: string; name: string }>; roles: Array<{ id: string; key: string; name: string; permissions: RolePermission[] }> };
+type Metadata = { teams: Team[]; roles: Array<{ id: string; key: string; name: string; permissions: RolePermission[] }> };
 type Instance = { id: string; name: string; instanceKey: string; phone?: string; status: string; lastEventAt?: string; teams: Array<{ team: { name: string } }>; warmupProfile: { currentDailyCap: number; sentToday: number; maximumDailyCap: number }; _count?: { conversations: number } };
-type InviteResult = { userId: string; email: string; inviteUrl: string; expiresInHours: number; emailDelivery: 'QUEUED' };
+type InviteResult = { userId: string; email: string; teams: Team[]; inviteUrl: string; expiresInHours: number; emailDelivery: 'QUEUED' };
 type UserMenu = { user: User; top: number; right: number };
 type WebhookActionOption = { value: string; label: string; group: string };
 type OutboundWebhook = {
@@ -42,9 +43,9 @@ export function SettingsPage() {
   if (requestedTab === 'webhooks') return <Navigate to="/integracoes/webhooks" replace />;
   if (requestedTab === 'api-docs') return <Navigate to="/integracoes/swagger" replace />;
   if (requestedTab === 'whatsapp') return <Navigate to="/conexoes" replace />;
-  const tab = requestedTab && ['users', 'roles'].includes(requestedTab) ? requestedTab : 'users';
+  const tab = requestedTab && ['users', 'teams', 'roles'].includes(requestedTab) ? requestedTab : 'users';
   const selectTab = (next: string) => setSearchParams({ tab: next }, { replace: true });
-  return <div className="settings-layout"><aside className="settings-nav"><button type="button" className={tab === 'users' ? 'active' : ''} onClick={() => selectTab('users')}><Users size={16} />Usuários e equipes</button><button type="button" className={tab === 'roles' ? 'active' : ''} onClick={() => selectTab('roles')}><ShieldCheck size={16} />Papéis e permissões</button></aside><section className="settings-content">{tab === 'users' && <UsersSettings />}{tab === 'roles' && <RolesSettings />}</section></div>;
+  return <div className="settings-layout"><aside className="settings-nav"><button type="button" className={tab === 'users' ? 'active' : ''} onClick={() => selectTab('users')}><Users size={16} />Usuários</button><button type="button" className={tab === 'teams' ? 'active' : ''} onClick={() => selectTab('teams')}><Network size={16} />Equipes e filas</button><button type="button" className={tab === 'roles' ? 'active' : ''} onClick={() => selectTab('roles')}><ShieldCheck size={16} />Papéis e permissões</button></aside><section className="settings-content">{tab === 'users' && <UsersSettings />}{tab === 'teams' && <TeamsSettings />}{tab === 'roles' && <RolesSettings />}</section></div>;
 }
 
 export function ConnectionsPage() {
@@ -364,11 +365,11 @@ function UsersSettings() {
       <Button onClick={() => setModal(true)}><UserPlus size={15} />Convidar usuário</Button>
     </div>
     <div className="settings-table"><table>
-      <thead><tr><th>Usuário</th><th>Papel</th><th>Equipe</th><th>Status</th><th>Último acesso</th><th /></tr></thead>
+      <thead><tr><th>Usuário</th><th>Papel</th><th>Equipes</th><th>Status</th><th>Último acesso</th><th /></tr></thead>
       <tbody>{users.data?.data.map((user) => <tr key={user.id}>
         <td><div className="entity-cell"><UserAvatar user={user} className="contact-avatar" /><div><strong>{user.name}</strong><small>{user.email}</small></div></div></td>
         <td>{user.role.name}</td>
-        <td>{user.team?.name || 'Sem equipe'}</td>
+        <td><div className="team-badge-list">{user.teams.length ? user.teams.map((team) => <span key={team.id} className="team-badge" style={{ '--team-color': team.color } as React.CSSProperties}><i />{team.name}</span>) : <span className="team-badge neutral"><i />Sem equipe</span>}</div></td>
         <td><Status value={user.status} /></td>
         <td>{dateTime(user.lastLoginAt)}</td>
         <td className="user-actions-cell"><button type="button" className="icon-button" onClick={(event) => openMenu(event, user)} aria-label={`Ações de ${user.name}`} aria-haspopup="menu" aria-expanded={menu?.user.id === user.id}><MoreHorizontal size={17} /></button></td>
@@ -386,6 +387,51 @@ function UsersSettings() {
     {editing && <EditUserModal user={editing} metadata={settingsMetadata} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
     {deleting && <DeleteUserModal user={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); refresh(); }} />}
   </>;
+}
+
+function TeamsSettings() {
+  const client = useQueryClient();
+  const [editing, setEditing] = useState<Team | null | undefined>(undefined);
+  const teams = useQuery({ queryKey: ['teams'], queryFn: () => api<Envelope<Team[]>>('/teams') });
+  const remove = useMutation({
+    mutationFn: (team: Team) => api(`/teams/${team.id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      toast.success('Equipe excluída. Os tickets permaneceram com atendente e status preservados.');
+      void client.invalidateQueries({ queryKey: ['teams'] });
+      void client.invalidateQueries({ queryKey: ['user-metadata'] });
+      void client.invalidateQueries({ queryKey: ['users'] });
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+    },
+  });
+  if (teams.isLoading) return <PageLoading />;
+  if (teams.error) return null;
+  const refresh = () => {
+    setEditing(undefined);
+    void client.invalidateQueries({ queryKey: ['teams'] });
+    void client.invalidateQueries({ queryKey: ['user-metadata'] });
+  };
+  return <>
+    <div className="settings-heading"><div><h2>Equipes e filas</h2><p>Crie setores, escolha uma cor e associe cada usuário a quantas filas precisar.</p></div><Button onClick={() => setEditing(null)}><Plus size={16} />Nova equipe</Button></div>
+    <div className="settings-table"><table><thead><tr><th>Equipe</th><th>Usuários</th><th>Tickets</th><th>Conexões</th><th /></tr></thead><tbody>{teams.data?.data.map((team) => <tr key={team.id}>
+      <td><div className="team-name-cell"><span className="team-color-dot" style={{ backgroundColor: team.color }} /><div><strong>{team.name}</strong><small>{team.color}{team.isDefault ? ' · fila padrão protegida' : ''}</small></div></div></td>
+      <td>{team._count?.memberships || 0}</td><td>{team._count?.conversations || 0}</td><td>{team._count?.instanceAccess || 0}</td>
+      <td><div className="table-row-actions"><Button variant="secondary" onClick={() => setEditing(team)}><Pencil size={14} />Editar</Button><button type="button" className="icon-button danger-icon" disabled={team.isDefault || remove.isPending} title={team.isDefault ? 'A equipe Geral não pode ser excluída' : 'Excluir equipe'} onClick={() => { if (window.confirm(`Excluir a equipe “${team.name}”? Os tickets ficarão sem fila.`)) remove.mutate(team); }}><Trash2 size={17} /></button></div></td>
+    </tr>)}</tbody></table></div>
+    {editing !== undefined && <TeamModal team={editing} onClose={() => setEditing(undefined)} onSaved={refresh} />}
+  </>;
+}
+
+function TeamModal({ team, onClose, onSaved }: Readonly<{ team: Team | null; onClose(): void; onSaved(): void }>) {
+  const [form, setForm] = useState({ name: team?.name || '', color: team?.color || '#64748b' });
+  const mutation = useMutation({
+    mutationFn: () => api(team ? `/teams/${team.id}` : '/teams', { method: team ? 'PATCH' : 'POST', body: JSON.stringify(form) }),
+    onSuccess: () => { toast.success(team ? 'Equipe atualizada.' : 'Equipe criada.'); onSaved(); },
+  });
+  return <Modal title={team ? 'Editar equipe' : 'Nova equipe'} onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}>
+    <Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
+    <label className="field"><span>Cor de identificação</span><div className="team-color-input"><input type="color" value={form.color} onChange={(event) => setForm({ ...form, color: event.target.value })} /><input value={form.color} pattern="#[0-9a-fA-F]{6}" onChange={(event) => setForm({ ...form, color: event.target.value })} required /></div><small>Usada nos tickets e nos usuários.</small></label>
+    <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Salvar equipe</Button></div>
+  </form></Modal>;
 }
 
 const permissionRows = [
@@ -413,9 +459,9 @@ function RolePermissionsModal({ role, onClose, onSaved }: Readonly<{ role: Metad
 }
 
 function InviteModal({ metadata, onClose, onCreated }: Readonly<{ metadata: Metadata; onClose(): void; onCreated(result: InviteResult): void }>) {
-  const [form, setForm] = useState({ name: '', email: '', roleId: metadata.roles[0]?.id || '', teamId: metadata.teams[0]?.id || '' });
+  const [form, setForm] = useState({ name: '', email: '', roleId: metadata.roles[0]?.id || '', teamIds: metadata.teams.filter((team) => team.isDefault).map((team) => team.id) });
   const mutation = useMutation({ mutationFn: () => api<Envelope<InviteResult>>('/users/invite', { method: 'POST', body: JSON.stringify(form) }), onSuccess: (result) => { toast.success(`Convite enviado para ${result.data.email}.`); onCreated(result.data); } });
-  return <Modal title="Convidar usuário" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /><Field label="E-mail" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /><div className="form-grid"><SelectField label="Papel" value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>{metadata.roles.map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}</SelectField><SelectField label="Equipe" value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{metadata.teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</SelectField></div><div className="consent-note"><Mail size={17} /><p><strong>Envio automático por e-mail</strong><span>O usuário receberá um convite pessoal para criar a senha. O link será válido por 72 horas.</span></p></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Enviar convite</Button></div></form></Modal>;
+  return <Modal title="Convidar usuário" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required /><Field label="E-mail" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required /><SelectField label="Papel" value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>{metadata.roles.map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}</SelectField><TeamMultiSelect teams={metadata.teams} value={form.teamIds} onChange={(teamIds) => setForm({ ...form, teamIds })} /><div className="consent-note"><Mail size={17} /><p><strong>Envio automático por e-mail</strong><span>O usuário receberá um convite pessoal para criar a senha. O link será válido por 72 horas.</span></p></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Enviar convite</Button></div></form></Modal>;
 }
 
 function EditUserModal({ user, metadata, onClose, onSaved }: Readonly<{ user: User; metadata: Metadata; onClose(): void; onSaved(): void }>) {
@@ -423,12 +469,12 @@ function EditUserModal({ user, metadata, onClose, onSaved }: Readonly<{ user: Us
     name: user.name,
     email: user.email,
     roleId: user.role.id,
-    teamId: user.team?.id || '',
+    teamIds: user.teams.map((team) => team.id),
   });
   const mutation = useMutation({
     mutationFn: () => api<Envelope<User>>(`/users/${user.id}`, {
       method: 'PATCH',
-      body: JSON.stringify({ ...form, teamId: form.teamId || null }),
+      body: JSON.stringify(form),
     }),
     onSuccess: () => { toast.success('Usuário atualizado.'); onSaved(); },
   });
@@ -436,21 +482,20 @@ function EditUserModal({ user, metadata, onClose, onSaved }: Readonly<{ user: Us
     <form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}>
       <Field label="Nome" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
       <Field label="E-mail" type="email" value={form.email} onChange={(event) => setForm({ ...form, email: event.target.value })} required />
-      <div className="form-grid">
-        <SelectField label="Papel" value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>
+      <SelectField label="Papel" value={form.roleId} onChange={(event) => setForm({ ...form, roleId: event.target.value })}>
           {metadata.roles.map((role) => <option value={role.id} key={role.id}>{role.name}</option>)}
-        </SelectField>
-        <SelectField label="Equipe" value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>
-          <option value="">Sem equipe</option>
-          {metadata.teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}
-        </SelectField>
-      </div>
+      </SelectField>
+      <TeamMultiSelect teams={metadata.teams} value={form.teamIds} onChange={(teamIds) => setForm({ ...form, teamIds })} />
       <div className="modal-actions">
         <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
         <Button type="submit" loading={mutation.isPending}><Pencil size={16} />Salvar alterações</Button>
       </div>
     </form>
   </Modal>;
+}
+
+function TeamMultiSelect({ teams, value, onChange }: Readonly<{ teams: Team[]; value: string[]; onChange(teamIds: string[]): void }>) {
+  return <fieldset className="team-multi-select"><legend>Equipes e filas</legend><div>{teams.map((team) => <label key={team.id}><input type="checkbox" checked={value.includes(team.id)} onChange={(event) => onChange(event.target.checked ? [...value, team.id] : value.filter((id) => id !== team.id))} /><span className="team-color-dot" style={{ backgroundColor: team.color }} /><strong>{team.name}</strong>{team.isDefault && <small>Padrão</small>}</label>)}</div><p>Selecione todas as filas que este usuário poderá visualizar e receber.</p></fieldset>;
 }
 
 function DeleteUserModal({ user, onClose, onDeleted }: Readonly<{ user: User; onClose(): void; onDeleted(): void }>) {

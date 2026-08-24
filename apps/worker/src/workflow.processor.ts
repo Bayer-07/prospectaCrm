@@ -110,6 +110,11 @@ export class WorkflowProcessor {
       await this.db.workflowEnrollment.update({ where: { id: enrollment.id }, data: { currentNodeId: nextEdge.target, status: 'ACTIVE' } });
       await this.queue.add('execute-workflow', { enrollmentId: enrollment.id }, { jobId: `workflow-${enrollment.id}-${nextEdge.target}-${Date.now()}`, removeOnComplete: 1000 });
       await this.completeStep(enrollment.id, current.id, { nextNodeId: nextEdge.target });
+      if (current.type === 'assign_queue') {
+        const updatedContext = await this.db.workflowEnrollment.findUnique({ where: { id: enrollment.id }, select: { context: true } });
+        const conversationId = this.workflowContext(updatedContext?.context).conversationId;
+        if (conversationId) return { organizationId: enrollment.workflow.organizationId, event: 'inbox.updated' as const, payload: { conversationId } };
+      }
     } catch (error) {
       await this.completeStep(enrollment.id, current.id, {}, error instanceof Error ? error.message : String(error));
       await this.stop(enrollment.id, 'FAILED', error instanceof Error ? error.message : String(error));
@@ -126,6 +131,7 @@ export class WorkflowProcessor {
     else if (node.type === 'send_whatsapp') await this.executeWhatsapp(enrollment, node, data, context);
     else if (node.type === 'add_tag' || node.type === 'remove_tag') await this.executeTagChange(enrollment, node.type, data);
     else if (node.type === 'assign') await this.executeAssignment(enrollment, data);
+    else if (node.type === 'assign_queue') await this.executeQueueAssignment(enrollment, data, context);
     else if (node.type === 'update_record') await this.executeRecordUpdate(enrollment, data);
     else if (node.type === 'move_stage') await this.executeMoveStage(enrollment, data);
     else if (node.type === 'create_task') await this.executeCreateTask(enrollment, data, context);
@@ -160,6 +166,12 @@ export class WorkflowProcessor {
     if (!instance || !enrollment.contact.phone) throw new Error('Instância ou telefone não disponível');
     const remoteJid = `${enrollment.contact.phone.replace(/\D/g, '')}@s.whatsapp.net`;
     const conversation = await this.workflowConversation(enrollment, context, instanceId, remoteJid);
+    if (context.conversationId !== conversation.id || context.instanceId !== instanceId) {
+      await this.db.workflowEnrollment.update({
+        where: { id: enrollment.id },
+        data: { context: { ...context, conversationId: conversation.id, instanceId } as Prisma.InputJsonValue },
+      });
+    }
     const initiatingUser = await this.workflowInitiatingUser(enrollment, context);
     const rawText = renderTemplateVariables(String(data.text || ''), contactTemplateVariables(enrollment.contact));
     const signature = initiatingUser?.messageSignatureEnabled
@@ -195,12 +207,21 @@ export class WorkflowProcessor {
       throw new Error('O número está vinculado a outro contato nesta instância');
     }
     const existing = contextualConversation || remoteConversation;
-    if (existing) return existing;
+    if (existing && existing.teamId !== null) return existing;
+    const defaultTeam = await this.db.team.findFirst({
+      where: { organizationId: enrollment.workflow.organizationId, isDefault: true },
+      select: { id: true },
+    });
+    if (!defaultTeam) throw new Error('A equipe Geral não está configurada');
+    if (existing) {
+      return this.db.conversation.update({ where: { id: existing.id }, data: { teamId: defaultTeam.id } });
+    }
     const conversation = await this.db.conversation.create({ data: {
       organizationId: enrollment.workflow.organizationId,
       instanceId,
       contactId: enrollment.contactId,
       remoteJid,
+      teamId: defaultTeam.id,
     } });
     await this.db.conversationEvent.create({ data: {
       organizationId: enrollment.workflow.organizationId,
@@ -243,6 +264,58 @@ export class WorkflowProcessor {
       if (!team) throw new Error('Equipe configurada não encontrada');
     }
     await this.db.contact.update({ where: { id: enrollment.contactId }, data: { ownerId, teamId } });
+  }
+
+  private async executeQueueAssignment(enrollment: any, data: Record<string, any>, context: WorkflowContext) {
+    if (!context.conversationId) {
+      throw new Error('Atribuir fila exige uma conversa no contexto; envie uma mensagem no WhatsApp antes deste bloco ou inicie a automação pelo atendimento');
+    }
+    const teamId = String(data.teamId || '');
+    const [team, conversation] = await Promise.all([
+      this.db.team.findFirst({
+        where: { id: teamId, organizationId: enrollment.workflow.organizationId },
+        select: { id: true, name: true },
+      }),
+      this.db.conversation.findFirst({
+        where: {
+          id: context.conversationId,
+          organizationId: enrollment.workflow.organizationId,
+          contactId: enrollment.contactId,
+        },
+        select: { id: true, teamId: true, assigneeId: true, status: true, team: { select: { name: true } } },
+      }),
+    ]);
+    if (!team) throw new Error('Fila configurada não encontrada');
+    if (!conversation) throw new Error('A conversa do contexto não foi encontrada');
+    const assigneeKeepsTicket = conversation.assigneeId
+      ? Boolean(await this.db.userTeam.findUnique({
+          where: { userId_teamId: { userId: conversation.assigneeId, teamId: team.id } },
+          select: { userId: true },
+        }))
+      : false;
+    const removeAssignee = Boolean(conversation.assigneeId && !assigneeKeepsTicket);
+    await this.db.$transaction([
+      this.db.conversation.update({
+        where: { id: conversation.id },
+        data: {
+          teamId: team.id,
+          ...(removeAssignee ? { assigneeId: null, status: 'WAITING' } : {}),
+        },
+      }),
+      this.db.conversationEvent.create({ data: {
+        organizationId: enrollment.workflow.organizationId,
+        conversationId: conversation.id,
+        type: 'workflow_queue_assigned',
+        text: `Automação “${enrollment.workflow.name}” atribuiu o atendimento à fila ${team.name}`,
+        metadata: {
+          workflowId: enrollment.workflow.id,
+          enrollmentId: enrollment.id,
+          previousTeamId: conversation.teamId,
+          teamId: team.id,
+          removedAssigneeId: removeAssignee ? conversation.assigneeId : null,
+        },
+      } }),
+    ]);
   }
 
   private async executeRecordUpdate(enrollment: any, data: Record<string, any>) {

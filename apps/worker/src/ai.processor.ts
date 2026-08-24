@@ -565,8 +565,8 @@ export class AiGenerationProcessor {
       this.db.conversation.update({ where: { id: conversation.id }, data: { status: 'WAITING', assigneeId: null, closedAt: null } }),
       this.db.conversationEvent.create({ data: { organizationId: generation.organizationId, conversationId: conversation.id, type: 'ai_handoff', text: 'IA transferiu o atendimento para a fila de espera', metadata: { generationId: generation.id, reason } } }),
     ]);
-    const recipients = conversation.contact.teamId
-      ? { OR: [{ teamId: conversation.contact.teamId }, { role: { key: 'admin' } }] }
+    const recipients = conversation.teamId
+      ? { OR: [{ teamMemberships: { some: { teamId: conversation.teamId } } }, { role: { key: 'admin' } }] }
       : { role: { key: 'admin' } };
     const users = await this.db.user.findMany({ where: { organizationId: generation.organizationId, status: 'ACTIVE', ...recipients }, select: { id: true } });
     if (users.length) await this.db.notification.createMany({ data: users.map((user) => ({ organizationId: generation.organizationId, userId: user.id, type: 'ai.handoff', title: `IA transferiu ${conversation.contact.name}`, body: reason, actionUrl: `/inbox/${conversation.id}` })) });

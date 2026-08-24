@@ -316,8 +316,16 @@ export class CampaignProcessor {
     const mediaUrl = bubble.mediaKey && !mediaBase64 ? await signedMediaUrl(bubble.mediaKey) : undefined;
     let conversation = await this.db.conversation.findFirst({
       where: { instanceId: campaign.instanceId, contactId: contact.id },
-      select: { id: true, remoteJid: true },
+      select: { id: true, remoteJid: true, teamId: true },
     });
+    if (conversation?.teamId === null) {
+      const teamId = await this.defaultTeamId(campaign.organizationId);
+      conversation = await this.db.conversation.update({
+        where: { id: conversation.id },
+        data: { teamId },
+        select: { id: true, remoteJid: true, teamId: true },
+      });
+    }
     const result = await this.evolution.send(campaign.instance.instanceKey, {
       number: conversation?.remoteJid.includes('@lid') ? conversation.remoteJid : contact.phone,
       type: bubble.type,
@@ -338,12 +346,13 @@ export class CampaignProcessor {
   }
 
   private async createCampaignConversation(campaign: any, contact: any) {
+    const teamId = await this.defaultTeamId(campaign.organizationId);
     const conversation = await this.db.conversation.create({
       data: {
         organizationId: campaign.organizationId, instanceId: campaign.instanceId, contactId: contact.id,
-        remoteJid: `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`, lastMessageAt: new Date(),
+        remoteJid: `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`, lastMessageAt: new Date(), teamId,
       },
-      select: { id: true, remoteJid: true },
+      select: { id: true, remoteJid: true, teamId: true },
     });
     await this.db.conversationEvent.create({ data: {
       organizationId: campaign.organizationId,
@@ -353,6 +362,12 @@ export class CampaignProcessor {
       metadata: { campaignId: campaign.id },
     } });
     return conversation;
+  }
+
+  private async defaultTeamId(organizationId: string) {
+    const team = await this.db.team.findFirst({ where: { organizationId, isDefault: true }, select: { id: true } });
+    if (!team) throw new Error('A equipe Geral não está configurada');
+    return team.id;
   }
 
   private async handleWhatsappSendError(recipientId: string, campaign: any, job: Job, error: unknown) {
