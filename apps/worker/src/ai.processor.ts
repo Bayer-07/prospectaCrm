@@ -14,7 +14,7 @@ type ChatbotDecision = {
   proposal?: { name?: string; email?: string; jobTitle?: string; companyName?: string; qualificationNote?: string };
 };
 type AiJob = { generationId: string };
-type TranscriptMessage = Pick<Message, 'id' | 'direction' | 'type' | 'text' | 'transcriptionText' | 'createdAt'> & { media: Array<{ filename: string; contentType: string }> };
+type TranscriptMessage = Pick<Message, 'id' | 'direction' | 'type' | 'text' | 'transcriptionStatus' | 'transcriptionText' | 'transcriptionError' | 'createdAt'> & { media: Array<{ filename: string; contentType: string }> };
 
 const summarySchema = {
   type: 'object', additionalProperties: false,
@@ -445,14 +445,26 @@ export class AiGenerationProcessor {
   }
 
   private async waitForAudio(generation: ConversationAiGeneration, messages: TranscriptMessage[]) {
-    const pending = messages.filter((message) => message.type === 'audio' && !message.transcriptionText);
+    const relevantMessages = generation.type === 'CHATBOT_REPLY'
+      ? messages.filter((message) => message.id === generation.sourceLastMessageId)
+      : messages;
+    const failed = relevantMessages.find((message) => message.type === 'audio'
+      && !message.transcriptionText
+      && message.transcriptionStatus === 'FAILED');
+    if (failed) throw new Error(`Não foi possível transcrever o áudio do cliente: ${failed.transcriptionError || 'erro desconhecido'}`);
+    const pending = relevantMessages.filter((message) => message.type === 'audio' && !message.transcriptionText);
     if (!pending.length) return false;
     await Promise.all(pending.map((message) => this.transcriptionQueue.add('transcribe-audio', { messageId: message.id }, {
       jobId: `transcription-${message.id}`, attempts: 3, backoff: { type: 'exponential', delay: 5_000 },
     }).catch(() => undefined)));
     const input = objectValue(generation.input);
     const waitCount = Number(input.waitCount) || 0;
-    if (waitCount >= 20) throw new Error('A transcrição de áudio não ficou pronta a tempo');
+    const configuredWaitMs = Number(process.env.AI_AUDIO_TRANSCRIPTION_WAIT_TIMEOUT_MS);
+    const maximumWaitMs = Math.min(
+      Math.max(Number.isFinite(configuredWaitMs) && configuredWaitMs > 0 ? configuredWaitMs : 15 * 60_000, 30_000),
+      30 * 60_000,
+    );
+    if (waitCount * 5_000 >= maximumWaitMs) throw new Error('A transcrição de áudio não ficou pronta a tempo');
     await this.db.conversationAiGeneration.update({
       where: { id: generation.id }, data: { status: 'WAITING_INPUT', input: { ...input, waitCount: waitCount + 1 }, progress: 0 },
     });

@@ -8,12 +8,14 @@ type Edge = { source: string; target: string; sourceHandle?: string | null };
 type Graph = { nodes: Node[]; edges: Edge[] };
 type SessionContext = ChatbotRuleContext & { previousMessage?: string };
 type NodeExecution = { nextNodeId: string | null; shouldStop: boolean };
-type ChatbotInboundJob = { messageId: string };
+type ChatbotInboundJob = { messageId: string; audioWaitCount?: number };
 type ChatbotDelayJob = { sessionId: string; nodeId: string; inboundMessageId: string; wakeAt: string };
 type ChatbotAiResumeJob = { sessionId: string; generationId: string; nextNodeId: string };
 type ChatbotJob = ChatbotInboundJob | ChatbotDelayJob | ChatbotAiResumeJob;
 
 const MAX_WAIT_SECONDS = 31_536_000;
+const AUDIO_TRANSCRIPTION_POLL_MS = 5_000;
+const DEFAULT_AUDIO_TRANSCRIPTION_WAIT_MS = 15 * 60_000;
 
 export class ChatbotProcessor {
   private readonly providers: Map<string, ChatbotResponseProvider>;
@@ -23,6 +25,7 @@ export class ChatbotProcessor {
     private readonly chatbotQueue: Queue,
     private readonly outboundQueue: Queue,
     private readonly aiQueue?: Queue,
+    private readonly transcriptionQueue?: Queue,
     providers: ChatbotResponseProvider[] = [new RulesResponseProvider(), new OpenAiResponseProvider()],
   ) {
     this.providers = new Map(providers.map((provider) => [provider.key, provider]));
@@ -31,7 +34,7 @@ export class ChatbotProcessor {
   async process(job: Job<ChatbotJob>) {
     if ('generationId' in job.data) return this.resumeAi(job.data);
     if ('sessionId' in job.data) return this.resumeDelay(job.data);
-    return this.processInbound(job.data.messageId);
+    return this.processInbound(job.data.messageId, job.data.audioWaitCount);
   }
 
   async reconcileDelays(reference = new Date()) {
@@ -57,13 +60,17 @@ export class ChatbotProcessor {
     return { scheduled: sessions.length };
   }
 
-  private async processInbound(messageId: string) {
+  private async processInbound(messageId: string, audioWaitCount = 0) {
     const inbound = await this.db.message.findUnique({
       where: { id: messageId },
       select: {
         id: true,
         direction: true,
+        type: true,
         text: true,
+        transcriptionStatus: true,
+        transcriptionText: true,
+        transcriptionError: true,
         conversation: {
           select: {
             id: true,
@@ -94,6 +101,14 @@ export class ChatbotProcessor {
     if (inbound?.direction !== 'INBOUND') return;
     const conversation = inbound.conversation;
     if (conversation.assigneeId || conversation.status === 'CLOSED' || conversation.contact.consentStatus === 'REVOKED') return;
+    if (audioWaitCount > 0) {
+      const latestInbound = await this.db.message.findFirst({
+        where: { conversationId: conversation.id, direction: 'INBOUND' },
+        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+        select: { id: true },
+      });
+      if (latestInbound?.id !== inbound.id) return;
+    }
 
     const chatbot = await this.db.chatbot.findFirst({
       where: { instanceId: conversation.instanceId, organizationId: conversation.organizationId, status: 'PUBLISHED', publishedVersion: { not: null } },
@@ -108,13 +123,17 @@ export class ChatbotProcessor {
     if (!version) return;
     const provider = this.providers.get(chatbot.responseProvider);
     if (!provider) return;
+    if (chatbot.responseProvider === 'OPENAI'
+      && inbound.type === 'audio'
+      && !inbound.transcriptionText
+      && await this.waitForAudioTranscription(inbound, audioWaitCount)) return;
     const graph = version.graph as unknown as Graph;
     const trigger = graph.nodes.find((node) => node.type === 'trigger');
     if (!trigger) return;
 
     const oldContext = (conversation.chatbotSession?.context || {}) as Partial<SessionContext>;
     const context: SessionContext = {
-      lastMessage: inbound.text || '',
+      lastMessage: inbound.transcriptionText || inbound.text || '',
       previousMessage: oldContext.lastMessage,
       contactName: conversation.contact.name,
       contactPhone: conversation.contact.phone,
@@ -143,6 +162,76 @@ export class ChatbotProcessor {
       await this.fail(session.id, error instanceof Error ? error.message : String(error));
       throw error;
     }
+  }
+
+  private async waitForAudioTranscription(
+    inbound: {
+      id: string;
+      transcriptionStatus: string | null;
+      transcriptionError: string | null;
+    },
+    waitCount: number,
+  ) {
+    if (inbound.transcriptionStatus === 'FAILED' || !this.transcriptionQueue) return false;
+    const configuredWaitMs = Number(process.env.AI_AUDIO_TRANSCRIPTION_WAIT_TIMEOUT_MS);
+    const maximumWaitMs = Math.min(
+      Math.max(Number.isFinite(configuredWaitMs) && configuredWaitMs > 0 ? configuredWaitMs : DEFAULT_AUDIO_TRANSCRIPTION_WAIT_MS, 30_000),
+      30 * 60_000,
+    );
+    if (waitCount * AUDIO_TRANSCRIPTION_POLL_MS >= maximumWaitMs) {
+      await this.db.message.update({
+        where: { id: inbound.id },
+        data: {
+          transcriptionStatus: 'FAILED',
+          transcriptionError: `A transcrição não ficou pronta em até ${Math.round(maximumWaitMs / 60_000)} minutos`,
+        },
+      });
+      return false;
+    }
+
+    if (inbound.transcriptionStatus !== 'PROCESSING') {
+      await this.db.message.update({
+        where: { id: inbound.id },
+        data: {
+          transcriptionStatus: 'PROCESSING',
+          transcriptionText: null,
+          transcriptionError: null,
+          transcriptionProvider: null,
+          transcribedAt: null,
+        },
+      });
+    }
+    try {
+      await this.transcriptionQueue.add('transcribe-audio', { messageId: inbound.id }, {
+        jobId: `transcription-${inbound.id}`,
+        attempts: 3,
+        backoff: { type: 'exponential', delay: 5_000 },
+        removeOnComplete: 1_000,
+        removeOnFail: 5_000,
+      });
+    } catch (error) {
+      const detail = error instanceof Error ? error.message : String(error);
+      await this.db.message.update({
+        where: { id: inbound.id },
+        data: {
+          transcriptionStatus: 'FAILED',
+          transcriptionError: `Não foi possível enfileirar a transcrição: ${detail}`.slice(0, 1_000),
+        },
+      });
+      return false;
+    }
+    await this.chatbotQueue.add('process-chatbot-message', {
+      messageId: inbound.id,
+      audioWaitCount: waitCount + 1,
+    }, {
+      jobId: `chatbot-audio-wait-${inbound.id}-${waitCount + 1}`,
+      delay: AUDIO_TRANSCRIPTION_POLL_MS,
+      attempts: 3,
+      backoff: { type: 'exponential', delay: 2_000 },
+      removeOnComplete: 1_000,
+      removeOnFail: 5_000,
+    });
+    return true;
   }
 
   private async resumeDelay(data: ChatbotDelayJob) {

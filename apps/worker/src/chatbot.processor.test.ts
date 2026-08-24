@@ -63,6 +63,136 @@ function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
 }
 
 describe('espera do chatbot', () => {
+  it('transcreve o áudio antes de iniciar o atendimento por IA', async () => {
+    const audio = {
+      ...inboundMessage(),
+      type: 'audio',
+      text: null,
+      transcriptionStatus: null,
+      transcriptionText: null,
+      transcriptionError: null,
+    };
+    const updateMessage = vi.fn().mockResolvedValue({});
+    const chatbotQueue = { add: vi.fn().mockResolvedValue({}) };
+    const transcriptionQueue = { add: vi.fn().mockResolvedValue({}) };
+    const aiQueue = { add: vi.fn().mockResolvedValue({}) };
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(audio), update: updateMessage },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'OPENAI' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: aiGraph }) },
+      chatbotSession: { upsert: vi.fn() },
+    };
+    const processor = new ChatbotProcessor(
+      db as never,
+      chatbotQueue as never,
+      { add: vi.fn() } as never,
+      aiQueue as never,
+      transcriptionQueue as never,
+    );
+
+    await expect(processor.process({ data: { messageId: 'inbound-1' } } as never)).resolves.toBeUndefined();
+
+    expect(updateMessage).toHaveBeenCalledWith({
+      where: { id: 'inbound-1' },
+      data: expect.objectContaining({ transcriptionStatus: 'PROCESSING', transcriptionText: null }),
+    });
+    expect(transcriptionQueue.add).toHaveBeenCalledWith(
+      'transcribe-audio',
+      { messageId: 'inbound-1' },
+      expect.objectContaining({ jobId: 'transcription-inbound-1', attempts: 3 }),
+    );
+    expect(chatbotQueue.add).toHaveBeenCalledWith(
+      'process-chatbot-message',
+      { messageId: 'inbound-1', audioWaitCount: 1 },
+      expect.objectContaining({ delay: 5_000 }),
+    );
+    expect(db.chatbotSession.upsert).not.toHaveBeenCalled();
+    expect(aiQueue.add).not.toHaveBeenCalled();
+  });
+
+  it('usa a transcrição como mensagem atual ao acionar a IA', async () => {
+    const transcribedAudio = {
+      ...inboundMessage(),
+      type: 'audio',
+      text: null,
+      transcriptionStatus: 'COMPLETED',
+      transcriptionText: 'Preciso integrar o WhatsApp ao meu sistema.',
+      transcriptionError: null,
+    };
+    const upsertSession = vi.fn().mockResolvedValue({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'trigger' });
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(transcribedAudio) },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'OPENAI' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: aiGraph }) },
+      chatbotSession: {
+        upsert: upsertSession,
+        update: vi.fn().mockResolvedValue({}),
+        findUnique: vi.fn().mockResolvedValue({ context: {} }),
+      },
+      chatbotStepExecution: { upsert: vi.fn().mockResolvedValue({}) },
+      conversation: { findUnique: vi.fn().mockResolvedValue({ organizationId: 'organization-1', assigneeId: null }) },
+      conversationAiGeneration: {
+        updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+        upsert: vi.fn().mockResolvedValue({ id: 'generation-audio' }),
+      },
+      $transaction: vi.fn().mockResolvedValue([]),
+    };
+    const aiQueue = { add: vi.fn().mockResolvedValue({}) };
+    const processor = new ChatbotProcessor(
+      db as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      aiQueue as never,
+      { add: vi.fn() } as never,
+    );
+
+    await processor.process({ data: { messageId: 'inbound-1' } } as never);
+
+    expect(upsertSession).toHaveBeenCalledWith(expect.objectContaining({
+      create: expect.objectContaining({
+        context: expect.objectContaining({ lastMessage: 'Preciso integrar o WhatsApp ao meu sistema.' }),
+      }),
+    }));
+    expect(aiQueue.add).toHaveBeenCalledWith(
+      'generate',
+      { generationId: 'generation-audio' },
+      expect.objectContaining({ priority: 1 }),
+    );
+  });
+
+  it('não responde fora de ordem quando outra mensagem chega durante a transcrição', async () => {
+    const audio = {
+      ...inboundMessage(),
+      type: 'audio',
+      text: null,
+      transcriptionStatus: 'COMPLETED',
+      transcriptionText: 'Mensagem antiga já transcrita.',
+      transcriptionError: null,
+    };
+    const findChatbot = vi.fn();
+    const db = {
+      message: {
+        findUnique: vi.fn().mockResolvedValue(audio),
+        findFirst: vi.fn().mockResolvedValue({ id: 'inbound-2' }),
+      },
+      chatbot: { findFirst: findChatbot },
+    };
+    const processor = new ChatbotProcessor(
+      db as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+    );
+
+    await expect(processor.process({ data: { messageId: 'inbound-1', audioWaitCount: 1 } } as never)).resolves.toBeUndefined();
+
+    expect(db.message.findFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: { conversationId: 'conversation-1', direction: 'INBOUND' },
+    }));
+    expect(findChatbot).not.toHaveBeenCalled();
+  });
+
   it('atribui a fila, remove atendente incompatível e continua para o próximo bloco', async () => {
     const updateConversation = vi.fn().mockResolvedValue({});
     const createEvent = vi.fn().mockResolvedValue({});

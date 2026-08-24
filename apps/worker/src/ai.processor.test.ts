@@ -92,6 +92,93 @@ describe('processamento estruturado da IA', () => {
     expect(ai.generate).not.toHaveBeenCalled();
   });
 
+  it('gera e enfileira a resposta do chatbot a partir do áudio transcrito', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    const startedAt = new Date('2026-08-24T18:00:00.000Z');
+    const audio = {
+      id: 'audio-1', direction: 'INBOUND', type: 'audio', text: null,
+      transcriptionStatus: 'COMPLETED',
+      transcriptionText: 'Preciso integrar o WhatsApp ao meu sistema.',
+      transcriptionError: null,
+      createdAt: startedAt,
+      media: [{ filename: 'audio.ogg', contentType: 'audio/ogg' }],
+    };
+    const generation = {
+      id: 'generation-audio', organizationId: 'org-1', conversationId: 'conversation-1', chatbotSessionId: 'session-1',
+      type: 'CHATBOT_REPLY', status: 'PENDING',
+      input: { nodeId: 'ai-1', nextNodeId: 'handoff-1', turnCount: 1, maxInteractions: 6, minimumConfidence: 65 },
+      sourceLastMessageId: 'audio-1',
+    };
+    const conversation = {
+      id: 'conversation-1', organizationId: 'org-1', instanceId: 'instance-1', assigneeId: null, teamId: null,
+      contact: { id: 'contact-1', name: 'Maria', phone: '+5545999999999', email: null, jobTitle: null, companies: [] },
+      chatbotSession: { id: 'session-1', context: {}, startedAt },
+    };
+    const generationUpdate = vi.fn().mockResolvedValue({});
+    const messageCreate = vi.fn().mockResolvedValue({});
+    const db = {
+      conversationAiGeneration: {
+        findUnique: vi.fn().mockImplementation((query) => query.select ? { status: 'RUNNING' } : generation),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update: generationUpdate,
+      },
+      conversation: {
+        findUnique: vi.fn().mockImplementation((query) => query.include
+          ? conversation
+          : query.select?.contact
+            ? conversation
+            : { assigneeId: null }),
+      },
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, globalInstructions: '', model: 'gpt-5.6-luna' }) },
+      aiKnowledgeDocument: { findFirst: vi.fn().mockResolvedValue(null) },
+      message: {
+        findFirst: vi.fn().mockResolvedValue({ id: 'audio-1' }),
+        findMany: vi.fn().mockResolvedValue([audio]),
+        create: messageCreate,
+      },
+      chatbotSession: { update: vi.fn().mockResolvedValue({}) },
+    };
+    const outboundQueue = { add: vi.fn().mockResolvedValue({}) };
+    const transcriptionQueue = { add: vi.fn().mockResolvedValue({}) };
+    const ai = {
+      generate: vi.fn().mockResolvedValue({
+        data: { reply: 'Claro! Qual sistema você usa hoje?', action: 'continue', confidence: 0.92, proposal: null },
+        model: 'gpt-5.6-luna', metrics: {}, sources: [],
+      }),
+    };
+    const processor = new AiGenerationProcessor(
+      db as never,
+      { add: vi.fn() } as never,
+      outboundQueue as never,
+      { add: vi.fn() } as never,
+      transcriptionQueue as never,
+      ai as never,
+    );
+
+    await expect(processor.process({ data: { generationId: 'generation-audio' } } as never)).resolves.toMatchObject({
+      payload: { status: 'COMPLETED' },
+    });
+
+    expect(ai.generate).toHaveBeenCalledWith(expect.objectContaining({
+      prompt: expect.stringContaining('Cliente: Preciso integrar o WhatsApp ao meu sistema.'),
+    }));
+    expect(transcriptionQueue.add).not.toHaveBeenCalled();
+    expect(messageCreate).toHaveBeenCalledWith({ data: expect.objectContaining({
+      direction: 'OUTBOUND',
+      type: 'text',
+      text: 'Claro! Qual sistema você usa hoje?',
+    }) });
+    expect(outboundQueue.add).toHaveBeenCalledWith(
+      'send-message',
+      expect.objectContaining({ messageId: expect.any(String) }),
+      expect.objectContaining({ attempts: 5 }),
+    );
+    expect(generationUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'generation-audio' },
+      data: expect.objectContaining({ status: 'COMPLETED' }),
+    }));
+  });
+
   it('descarta a resposta automática se um atendente assumir durante a geração', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
     vi.stubEnv('ENCRYPTION_KEY', 'segredo-de-criptografia-do-teste');
