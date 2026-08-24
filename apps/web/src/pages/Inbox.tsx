@@ -1898,7 +1898,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const renderHeader = () => <header className="conversation-header">
     <button type="button" className="conversation-person conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
       <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
-      <div><strong>{conversation.contact.name}</strong><div className="conversation-person-details"><span><i /> {formatPhone(conversation.contact.phone) || 'Sem telefone'} · {conversation.instance.name}</span><QueueBadge team={conversation.team} /></div></div>
+      <div><strong>{conversation.contact.name}</strong><div className="conversation-person-details"><span className="conversation-person-phone"><i />{formatPhone(conversation.contact.phone) || 'Sem telefone'}</span><span className="conversation-instance-badge">{conversation.instance.name}</span><QueueBadge team={conversation.team} /></div></div>
     </button>
     <div className="conversation-actions">
       {connectionUnavailable && <button type="button" className="button button-secondary conversation-change-instance-button" onClick={() => { setInstanceTarget(''); changeInstance.reset(); setInstanceChangeOpen(true); }} title="Escolher outra conexão para as próximas mensagens"><Cable size={15} /><span>Trocar conexão</span></button>}

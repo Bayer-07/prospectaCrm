@@ -561,9 +561,11 @@ tbody tr:last-child td { border-bottom: 0; } tbody tr:hover { background: #fcfbf
 .team-badge i, .queue-badge i { width: 7px; height: 7px; flex: none; border-radius: 50%; background: var(--queue-color); }
 .team-badge.neutral, .queue-badge.neutral { --queue-color: #94a3b8; color: var(--muted); }
 .conversation-list .queue-badge { margin-top: 6px; }
-.conversation-person-details { min-width: 0; display: flex; align-items: center; gap: 7px; }
+.conversation-person-details { min-width: 0; display: flex; align-items: center; gap: 9px; }
 .conversation-person-details > span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-.conversation-person-details .queue-badge { max-width: 110px; flex: 0 1 auto; padding: 2px 6px; color: var(--ink); font-size: 9px; }
+.conversation-person-details .conversation-person-phone { flex: 0 1 auto; font-size: 9.5px; }
+.conversation-instance-badge { max-width: 120px; flex: 0 1 auto; padding: 2px 7px; border: 1px solid var(--line-strong); border-radius: 999px; background: var(--surface-soft); color: var(--ink) !important; font-size: 9.5px !important; font-weight: 650; line-height: 1.2; }
+.conversation-person-details .queue-badge { max-width: 110px; flex: 0 1 auto; padding: 2px 7px; color: var(--ink); font-size: 9.5px; }
 .conversation-person-details .queue-badge i { width: 6px; height: 6px; margin-right: 0; background: var(--queue-color); }
 .team-name-cell { display: flex; align-items: center; gap: 9px; }
 .team-name-cell > div { display: flex; flex-direction: column; gap: 2px; }
