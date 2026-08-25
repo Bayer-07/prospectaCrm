@@ -123,7 +123,7 @@ describe('documentos em campanhas de WhatsApp', () => {
 });
 
 describe('campanhas de e-mail', () => {
-  it('renderiza o modelo e envia pelo Gmail configurado para campanhas', async () => {
+  it('renderiza o modelo e envia pelo SMTP configurado para campanhas', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const campaignUpdate = vi.fn().mockResolvedValue({ sentRecipientCount: 1 });
     const tx = { campaignRecipient: { updateMany }, campaign: { update: campaignUpdate } };
@@ -163,7 +163,7 @@ describe('campanhas de e-mail', () => {
       $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
     };
     const add = vi.fn().mockResolvedValue({});
-    const send = vi.fn().mockResolvedValue({ id: 'gmail-message-id' });
+    const send = vi.fn().mockResolvedValue({ id: 'smtp-message-id' });
     const processor = new CampaignProcessor(db as never, { add } as never, {} as never, { send } as never);
 
     await processor.process({ name: 'send-campaign-email', data: { recipientId: 'recipient-1' } } as never);
@@ -177,7 +177,7 @@ describe('campanhas de e-mail', () => {
     expect(send.mock.calls[0]?.[0]?.text).not.toContain('.hidden');
     expect(send.mock.calls[0]?.[0]?.text).not.toContain('Prévia invisível');
     expect(updateMany).toHaveBeenCalledWith(expect.objectContaining({
-      data: expect.objectContaining({ status: 'SENT', providerMessageId: 'gmail-message-id' }),
+      data: expect.objectContaining({ status: 'SENT', providerMessageId: 'smtp-message-id' }),
     }));
     expect(add).toHaveBeenCalledWith('dispatch-campaign', { campaignId: 'campaign-1' }, expect.any(Object));
   });

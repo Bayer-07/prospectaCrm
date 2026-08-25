@@ -419,7 +419,7 @@ export class CampaignsService {
     if (campaign.channel === 'EMAIL') {
       const provider = campaignEmailConfigurationStatus();
       if (!provider.configured) {
-        throw new BadRequestException(`Gmail de campanhas não configurado. Preencha: ${provider.missing.join(', ')}`);
+        throw new BadRequestException(`SMTP de campanhas não configurado. Preencha: ${provider.missing.join(', ')}`);
       }
     }
     if (!['DRAFT', 'PAUSED'].includes(campaign.status)) throw new BadRequestException('Estado inválido para iniciar campanha');
@@ -442,7 +442,7 @@ export class CampaignsService {
     const campaign = await this.getForAction(auth, id);
     const map = { pause: 'PAUSED', resume: 'RUNNING', cancel: 'CANCELLED' } as const;
     if (action === 'resume' && campaign.channel === 'EMAIL' && !campaignEmailConfigurationStatus().configured) {
-      throw new BadRequestException('Gmail de campanhas não configurado');
+      throw new BadRequestException('SMTP de campanhas não configurado');
     }
     const updated = await this.db.campaign.update({ where: { id }, data: { status: map[action] } });
     if (action === 'resume') await this.queue.add('dispatch-campaign', { campaignId: id }, { jobId: `campaign-${id}-resume-${Date.now()}`, removeOnComplete: 1000 });

@@ -6,7 +6,8 @@
   "scripts": {
     "dev": "node --env-file-if-exists=../../.env --import tsx src/main.ts",
     "verify:mailgun": "node --env-file-if-exists=../../.env --import tsx src/verify-mailgun.ts",
-    "verify:gmail": "node --env-file-if-exists=../../.env --import tsx src/verify-gmail-campaign.ts",
+    "verify:smtp": "node --env-file-if-exists=../../.env --import tsx src/verify-smtp-campaign.ts",
+    "verify:gmail": "pnpm verify:smtp",
     "replay:evolution": "node --env-file-if-exists=../../.env --import tsx src/replay-evolution-events.ts",
     "repair:media": "node --env-file-if-exists=../../.env --import tsx src/repair-inbound-media.ts",
     "build": "tsc -p tsconfig.build.json",
@@ -23,6 +24,7 @@
     "@prospecta/database": "workspace:*",
     "bullmq": "^5.56.0",
     "form-data": "4.0.6",
+    "imapflow": "1.6.5",
     "ioredis": "^5.6.0",
     "mailgun.js": "11.1.0",
     "nodemailer": "9.0.1"

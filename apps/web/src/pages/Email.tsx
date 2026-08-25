@@ -14,7 +14,7 @@ import {
 
 type Template = { id: string; name: string; subject: string; html: string; text?: string; updatedAt: string };
 type Provider = {
-  provider: 'gmail';
+  provider: 'smtp' | 'gmail';
   configured: boolean;
   fromEmail: string | null;
   fromName: string;
@@ -147,7 +147,7 @@ export function EmailPage() {
       <div className="campaign-info"><div><strong>{campaign.name}</strong><Status value={campaign.status} /></div><p>{campaign.emailSubject || 'Sem assunto'}</p><small>Criada em {dateTime(campaign.createdAt)}</small></div>
       <div className="campaign-numbers"><div><span>Destinatários</span><strong>{campaign.stats?.audience ?? campaign._count?.recipients ?? 0}</strong></div><div><span>Elegíveis</span><strong>{campaign.stats?.eligible ?? 0}</strong></div><div><span>Enviados</span><strong>{campaign.sentRecipientCount || 0}</strong></div></div>
       <div className="campaign-actions">
-        {campaign.status === 'DRAFT' && <button type="button" className="campaign-start-button" title={providerData?.configured ? 'Validar e iniciar' : 'Configure o Gmail para iniciar'} disabled={!providerData?.configured || schedule.isPending} onClick={() => schedule.mutate(campaign.id)}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
+        {campaign.status === 'DRAFT' && <button type="button" className="campaign-start-button" title={providerData?.configured ? 'Validar e iniciar' : 'Configure o SMTP para iniciar'} disabled={!providerData?.configured || schedule.isPending} onClick={() => schedule.mutate(campaign.id)}>{schedule.isPending && schedule.variables === campaign.id ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
         {campaign.status === 'RUNNING' && <button type="button" title="Pausar" onClick={() => status.mutate({ id: campaign.id, action: 'pause' })}><Pause size={16} /></button>}
         {campaign.status === 'PAUSED' && <button type="button" title="Retomar" disabled={!providerData?.configured} onClick={() => status.mutate({ id: campaign.id, action: 'resume' })}><Play size={16} /></button>}
         <button type="button" className="campaign-delete-button" title="Excluir campanha" aria-label={`Excluir campanha ${campaign.name}`} onClick={() => setDeleting({ type: 'campaign', id: campaign.id, name: campaign.name, status: campaign.status })}><Trash2 size={16} /></button>

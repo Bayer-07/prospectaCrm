@@ -317,34 +317,39 @@ Maria;(45) 99922-5389;Olá Maria, tudo bem?;Posso te apresentar nossa solução?
 
 Ao carregar o arquivo, o sistema consulta a Evolution API e mostra separadamente os números com e sem WhatsApp. Antes do envio, a pré-validação repete essa consulta e ignora números sem WhatsApp, contatos duplicados, bloqueados ou descadastrados.
 
-## Configurar campanhas de e-mail com Gmail
+## Configurar campanhas de e-mail por SMTP
 
-As campanhas de e-mail criadas manualmente no BZS One usam uma conta Gmail separada via SMTP. Convites de usuários, recuperação de senha e resumos de tarefas continuam sendo enviados pelo Mailgun.
+As campanhas de e-mail criadas manualmente no BZS One usam uma caixa separada via SMTP. Convites de usuários, recuperação de senha e resumos de tarefas continuam sendo enviados pelo Mailgun. Quando o IMAP está habilitado, o worker salva em **Enviados** o mesmo conteúdo MIME entregue ao servidor SMTP.
 
-Na conta Google que será usada nas campanhas:
-
-1. ative a verificação em duas etapas;
-2. abra [Senhas de app](https://myaccount.google.com/apppasswords);
-3. crie uma senha para o BZS One e copie o código de 16 caracteres;
-4. preencha o `.env` da raiz:
+Para a caixa `comercial@bzs.com.br` da UOL Host, preencha o `.env` da raiz:
 
 ```dotenv
-CAMPAIGN_GMAIL_USER=seu-email@gmail.com
-CAMPAIGN_GMAIL_APP_PASSWORD=xxxx-xxxx-xxxx-xxxx
-CAMPAIGN_GMAIL_FROM_NAME=BZS Tecnologia
+CAMPAIGN_SMTP_HOST=smtps.uhserver.com
+CAMPAIGN_SMTP_PORT=587
+CAMPAIGN_SMTP_SECURE=false
+CAMPAIGN_SMTP_REQUIRE_TLS=true
+CAMPAIGN_SMTP_USER=comercial@bzs.com.br
+CAMPAIGN_SMTP_PASSWORD=sua-senha
+CAMPAIGN_SMTP_FROM_EMAIL=comercial@bzs.com.br
+CAMPAIGN_SMTP_FROM_NAME=Gabriel da BZS Tecnologia
+CAMPAIGN_SMTP_REPLY_TO=comercial@bzs.com.br
+CAMPAIGN_IMAP_SAVE_SENT=true
+CAMPAIGN_IMAP_HOST=imap.uhserver.com
+CAMPAIGN_IMAP_PORT=993
+CAMPAIGN_IMAP_SECURE=true
 ```
 
-O sistema remove automaticamente os espaços exibidos pelo Google. A conta autenticada será sempre o remetente, pois o Gmail reescreve o campo `From` para o endereço conectado.
+O usuário e a senha do IMAP herdam os valores do SMTP. Só preencha `CAMPAIGN_IMAP_USER`, `CAMPAIGN_IMAP_PASSWORD` ou `CAMPAIGN_IMAP_SENT_MAILBOX` quando forem diferentes ou quando a descoberta automática da pasta não funcionar.
 
-Valide a autenticação sem enviar uma mensagem real:
+Valide a autenticação SMTP, o IMAP e a descoberta da pasta de enviados sem enviar uma mensagem real:
 
 ```powershell
-corepack pnpm gmail:verify
+corepack pnpm smtp:verify
 ```
 
-Depois de alterar o `.env`, reinicie a API e o worker. O SMTP do Gmail confirma a aceitação da mensagem, mas não fornece ao BZS One eventos de abertura, clique ou entrega. O Gmail também possui limites de envio e não é indicado para disparos de alto volume.
+Depois de alterar o `.env`, reinicie a API e o worker. A aceitação SMTP não fornece ao BZS One eventos de abertura, clique ou entrega. Respeite os limites de envio e as políticas antispam da caixa contratada.
 
-Referências: [senhas de app do Google](https://support.google.com/accounts/answer/185833) e [configuração oficial do SMTP do Gmail](https://support.google.com/a/answer/176600).
+Referência: [servidores SMTP e IMAP do E-mail Profissional UOL Host](https://uolhost.uol.com.br/blog/o-que-e-smtp-imap-e-pop-e-como-isso-afeta-no-seu-email/).
 
 ## Configurar envios internos com Mailgun
 
