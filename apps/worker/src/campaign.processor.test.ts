@@ -182,6 +182,91 @@ describe('campanhas de e-mail', () => {
     expect(add).toHaveBeenCalledWith('dispatch-campaign', { campaignId: 'campaign-1' }, expect.any(Object));
   });
 
+  it('avança para o próximo contato quando uma resposta interrompe a sequência', async () => {
+    const db = {
+      campaignRecipient: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'recipient-replied',
+          status: 'REPLIED',
+          contact: { id: 'contact-1' },
+          campaign: {
+            id: 'campaign-1',
+            status: 'RUNNING',
+            contactDelayMinSeconds: 5,
+            contactDelayMaxSeconds: 10,
+          },
+        }),
+        count: vi.fn().mockResolvedValue(1),
+      },
+      campaign: { findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING' }) },
+    };
+    const add = vi.fn().mockResolvedValue({});
+    const send = vi.fn();
+    const processor = new CampaignProcessor(db as never, { add } as never, { send } as never);
+
+    await processor.process({
+      name: 'send-campaign-bubble',
+      data: { recipientId: 'recipient-replied', position: 1 },
+    } as never);
+
+    expect(send).not.toHaveBeenCalled();
+    expect(add).toHaveBeenCalledWith('dispatch-campaign', { campaignId: 'campaign-1' }, expect.any(Object));
+  });
+
+  it('conclui como respondido depois de enviar toda a sequência configurada para continuar', async () => {
+    const recipientUpdateMany = vi.fn().mockResolvedValue({ count: 1 });
+    const campaignUpdate = vi.fn().mockResolvedValue({ sentRecipientCount: 1 });
+    const tx = {
+      campaignRecipient: { updateMany: recipientUpdateMany },
+      warmupProfile: { update: vi.fn().mockResolvedValue({}) },
+      campaign: { update: campaignUpdate },
+    };
+    const db = {
+      campaignRecipient: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'recipient-continue',
+          status: 'QUEUED',
+          repliedAt: new Date('2026-08-27T12:00:00.000Z'),
+          messages: [],
+          contact: {
+            id: 'contact-1',
+            phone: '+5545999999999',
+            campaignsBlocked: false,
+            suppressions: [],
+          },
+          campaign: {
+            id: 'campaign-1',
+            instanceId: 'instance-1',
+            status: 'RUNNING',
+            bubbles: [],
+            instance: { instanceKey: 'instance-key', status: 'CONNECTED' },
+            contactDelayMinSeconds: 5,
+            contactDelayMaxSeconds: 10,
+            batchSize: 20,
+            batchPauseMinSeconds: 120,
+            batchPauseMaxSeconds: 300,
+          },
+        }),
+        count: vi.fn().mockResolvedValue(0),
+      },
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({ status: 'RUNNING' }),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
+    };
+    const processor = new CampaignProcessor(db as never, { add: vi.fn() } as never, {} as never);
+
+    await processor.process({
+      name: 'send-campaign-bubble',
+      data: { recipientId: 'recipient-continue', position: 0 },
+    } as never);
+
+    expect(recipientUpdateMany).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ status: 'REPLIED' }),
+    }));
+  });
+
   it.each([
     { channel: 'EMAIL', jobName: 'send-campaign-email' },
     { channel: 'WHATSAPP', jobName: 'send-campaign-bubble' },

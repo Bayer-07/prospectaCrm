@@ -1013,6 +1013,7 @@ model Campaign {
   sendingWindowStart     String              @default("00:00")
   sendingWindowEnd       String              @default("23:59")
   sendingDays            Json                @default("[0,1,2,3,4,5,6]")
+  skipRemainingMessagesOnReply Boolean       @default(true)
   sentRecipientCount     Int                 @default(0)
   stats                  Json                @default("{}")
   archivedAt             DateTime?

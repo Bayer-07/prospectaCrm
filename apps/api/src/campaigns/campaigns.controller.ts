@@ -21,6 +21,12 @@ function numberQuery(value: unknown) {
   return Number.isFinite(parsed) ? parsed : undefined;
 }
 
+function booleanQuery(value: unknown) {
+  if (value === 'true') return true;
+  if (value === 'false') return false;
+  return undefined;
+}
+
 function csvCampaignInput(query: Record<string, unknown>, csv: string): CreateCampaignInput {
   if (typeof query.name !== 'string' || typeof query.instanceId !== 'string') {
     throw new BadRequestException('Informe o título e o número de envio');
@@ -28,6 +34,7 @@ function csvCampaignInput(query: Record<string, unknown>, csv: string): CreateCa
   return {
     name: query.name,
     instanceId: query.instanceId,
+    skipRemainingMessagesOnReply: booleanQuery(query.skipRemainingMessagesOnReply),
     audience: { source: 'csv', csv },
     bubbles: [],
     cadence: {

@@ -96,6 +96,10 @@ export function campaignSendingSchedule(input: Pick<CreateCampaignInput, 'sendin
   };
 }
 
+export function campaignSkipRemainingMessagesOnReply(value?: boolean) {
+  return value !== false;
+}
+
 function csvCell(value: string) {
   return /[;"\r\n]/.test(value) ? `"${value.replaceAll('"', '""')}"` : value;
 }
@@ -151,6 +155,7 @@ export type CreateCampaignInput = {
   sendingWindowStart?: string;
   sendingWindowEnd?: string;
   sendingDays?: number[];
+  skipRemainingMessagesOnReply?: boolean;
 };
 
 @Injectable()
@@ -327,6 +332,7 @@ export class CampaignsService {
         batchSize: cadence.batchSize, batchPauseMinSeconds: cadence.batchPauseMinSeconds, batchPauseMaxSeconds: cadence.batchPauseMaxSeconds,
         sendingWindowStart: sendingSchedule.start, sendingWindowEnd: sendingSchedule.end,
         sendingDays: sendingSchedule.days as Prisma.InputJsonValue,
+        skipRemainingMessagesOnReply: campaignSkipRemainingMessagesOnReply(input.skipRemainingMessagesOnReply),
         stats: {
           filters: input.filters || {},
           audienceSource: input.audience?.source || 'filters',

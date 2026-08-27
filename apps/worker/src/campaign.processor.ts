@@ -279,14 +279,20 @@ export class CampaignProcessor {
         },
       },
     });
-    if (recipient?.campaign.status !== 'RUNNING' || recipient.status !== 'QUEUED') return;
+    if (recipient?.campaign.status !== 'RUNNING') return;
     const { campaign, contact } = recipient;
+    if (recipient.status !== 'QUEUED') {
+      if (['REPLIED', 'OPTED_OUT'].includes(recipient.status)) {
+        return this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
+      }
+      return;
+    }
     if (await this.pauseDisconnectedCampaign(recipientId, campaign)) return;
     if (await this.skipBlockedWhatsappRecipient(recipientId, campaign, contact)) return;
     const sequence = campaignMessageSequence(recipient.messages, campaign.bubbles);
     const bubble = sequence[position];
     if (!bubble) {
-      return this.completeWhatsappRecipient(recipientId, position, campaign);
+      return this.completeWhatsappRecipient(recipientId, position, campaign, Boolean(recipient.repliedAt));
     }
     try {
       if (!await this.verifyWhatsappRecipient(recipientId, position, recipient, campaign, contact)) return;
@@ -450,11 +456,11 @@ export class CampaignProcessor {
     return true;
   }
 
-  private async completeWhatsappRecipient(recipientId: string, position: number, campaign: any) {
+  private async completeWhatsappRecipient(recipientId: string, position: number, campaign: any, replied: boolean) {
     const completion = await this.db.$transaction(async (tx) => {
       const updated = await tx.campaignRecipient.updateMany({
         where: { id: recipientId, status: 'QUEUED' },
-        data: { status: 'SENT', sentAt: new Date(), lastBubblePosition: position - 1 },
+        data: { status: replied ? 'REPLIED' : 'SENT', sentAt: new Date(), lastBubblePosition: position - 1 },
       });
       if (!updated.count) return null;
       await tx.warmupProfile.update({ where: { instanceId: campaign.instanceId }, data: { sentToday: { increment: 1 } } });
@@ -464,7 +470,7 @@ export class CampaignProcessor {
         select: { sentRecipientCount: true },
       });
     });
-    if (!completion) return;
+    if (!completion) return this.continueOrComplete(campaign.id, campaign.contactDelayMinSeconds, campaign.contactDelayMaxSeconds);
     const completed = completion.sentRecipientCount;
     const batchPause = completed > 0 && completed % campaign.batchSize === 0;
     return this.continueOrComplete(

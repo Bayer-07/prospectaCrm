@@ -10,7 +10,10 @@ function setup(status: 'SCHEDULED' | 'RUNNING') {
     task: { update: vi.fn().mockResolvedValue({}) },
     conversationEvent: { create: vi.fn().mockResolvedValue({}) },
     notification: { create: vi.fn().mockResolvedValue({}) },
-    campaignRecipient: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+    campaignRecipient: {
+      findMany: vi.fn().mockResolvedValue([]),
+      updateMany: vi.fn().mockResolvedValue({ count: 0 }),
+    },
     conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
     workflowEnrollment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
     contact: { update: vi.fn() },

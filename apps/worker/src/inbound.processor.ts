@@ -492,6 +492,28 @@ export const editedMessagePayload = (
   };
 };
 
+type CampaignReplyCandidate = {
+  id: string;
+  campaignId: string;
+  status: MessageStatus;
+  campaign: { skipRemainingMessagesOnReply: boolean };
+};
+
+export function campaignReplyActions(recipients: CampaignReplyCandidate[], optOut: boolean) {
+  const stopRecipientIds: string[] = [];
+  const continueRecipientIds: string[] = [];
+  for (const recipient of recipients) {
+    const active = ['PENDING', 'QUEUED'].includes(recipient.status);
+    const completed = ['SENT', 'DELIVERED', 'READ'].includes(recipient.status);
+    if (optOut || completed || (active && recipient.campaign.skipRemainingMessagesOnReply)) {
+      stopRecipientIds.push(recipient.id);
+    } else if (active) {
+      continueRecipientIds.push(recipient.id);
+    }
+  }
+  return { stopRecipientIds, continueRecipientIds };
+}
+
 export class InboundProcessor {
   private connectedInstancesCache?: { expiresAt: number; instances: SyncInstance[] };
   private readonly recentSyncState = new Map<string, RecentSyncState>();
@@ -1008,12 +1030,38 @@ export class InboundProcessor {
   ) {
     const optOut = this.isOptOut(text);
     const followUpResult = await this.db.$transaction(async (tx) => {
+      const repliedAt = new Date();
       if (optOut) {
         await tx.contact.update({ where: { id: contact.id }, data: { consentStatus: 'REVOKED', consentRevokedAt: new Date() } });
         await tx.consentEvent.create({ data: { contactId: contact.id, status: 'REVOKED', source: 'WhatsApp', evidence: text || 'Palavra de descadastro' } });
         await tx.suppression.upsert({ where: { contactId_channel: { contactId: contact.id, channel: 'WHATSAPP' } }, update: { reason: `Opt-out: ${text}` }, create: { contactId: contact.id, channel: 'WHATSAPP', reason: `Opt-out: ${text}` } });
       }
-      await tx.campaignRecipient.updateMany({ where: { contactId: contact.id, status: { in: ['PENDING', 'QUEUED', 'SENT', 'DELIVERED', 'READ'] } }, data: { status: optOut ? 'OPTED_OUT' : 'REPLIED', repliedAt: new Date(), exclusionReason: optOut ? 'Descadastro recebido' : null } });
+      const campaignRecipients = await tx.campaignRecipient.findMany({
+        where: {
+          contactId: contact.id,
+          status: { in: ['PENDING', 'QUEUED', 'SENT', 'DELIVERED', 'READ'] },
+          campaign: { channel: 'WHATSAPP' },
+        },
+        select: {
+          id: true,
+          campaignId: true,
+          status: true,
+          campaign: { select: { skipRemainingMessagesOnReply: true } },
+        },
+      });
+      const campaignReply = campaignReplyActions(campaignRecipients, optOut);
+      if (campaignReply.stopRecipientIds.length) await tx.campaignRecipient.updateMany({
+        where: { id: { in: campaignReply.stopRecipientIds } },
+        data: {
+          status: optOut ? 'OPTED_OUT' : 'REPLIED',
+          repliedAt,
+          exclusionReason: optOut ? 'Descadastro recebido' : null,
+        },
+      });
+      if (campaignReply.continueRecipientIds.length) await tx.campaignRecipient.updateMany({
+        where: { id: { in: campaignReply.continueRecipientIds }, repliedAt: null },
+        data: { repliedAt },
+      });
       await tx.conversationAiGeneration.updateMany({
         where: { conversationId: conversation.id, type: 'SUMMARY', status: 'COMPLETED' },
         data: { status: 'STALE' },

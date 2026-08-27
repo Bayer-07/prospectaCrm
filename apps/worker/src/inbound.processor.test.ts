@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { createCipheriv, hkdfSync } from 'node:crypto';
-import { advanceEvolutionMessageStatus, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
+import { advanceEvolutionMessageStatus, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
 
 describe('normalização dos eventos da Evolution', () => {
   it.each([
@@ -80,6 +80,27 @@ describe('reações da Evolution', () => {
 });
 
 describe('respostas recebidas pela Evolution', () => {
+  it('interrompe apenas campanhas configuradas para pular o restante', () => {
+    expect(campaignReplyActions([
+      { id: 'skip', campaignId: 'campaign-skip', status: 'QUEUED', campaign: { skipRemainingMessagesOnReply: true } },
+      { id: 'continue', campaignId: 'campaign-continue', status: 'QUEUED', campaign: { skipRemainingMessagesOnReply: false } },
+      { id: 'sent', campaignId: 'campaign-sent', status: 'SENT', campaign: { skipRemainingMessagesOnReply: false } },
+    ], false)).toEqual({
+      stopRecipientIds: ['skip', 'sent'],
+      continueRecipientIds: ['continue'],
+    });
+  });
+
+  it('interrompe todas as campanhas de WhatsApp em caso de descadastro', () => {
+    expect(campaignReplyActions([
+      { id: 'skip', campaignId: 'campaign-skip', status: 'PENDING', campaign: { skipRemainingMessagesOnReply: true } },
+      { id: 'continue', campaignId: 'campaign-continue', status: 'QUEUED', campaign: { skipRemainingMessagesOnReply: false } },
+    ], true)).toEqual({
+      stopRecipientIds: ['skip', 'continue'],
+      continueRecipientIds: [],
+    });
+  });
+
   it('extrai o ID da mensagem citada no contextInfo do evento', () => {
     expect(evolutionReplyProviderMessageId({
       contextInfo: {

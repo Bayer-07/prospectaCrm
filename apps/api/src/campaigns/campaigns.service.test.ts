@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../auth/types.js';
-import { CampaignsService, campaignProgressFromStatusCounts, campaignSendingSchedule, invalidWhatsappRecipientsCsv, renderCampaignContent } from './campaigns.service.js';
+import { CampaignsService, campaignProgressFromStatusCounts, campaignSendingSchedule, campaignSkipRemainingMessagesOnReply, invalidWhatsappRecipientsCsv, renderCampaignContent } from './campaigns.service.js';
 
 const auth: AuthContext = {
   type: 'session',
@@ -55,6 +55,12 @@ describe('pré-validação de campanhas', () => {
       end: '17:00',
       days: [1, 2, 3, 4, 5],
     });
+  });
+
+  it('preserva a interrupção por resposta como padrão e permite desativá-la', () => {
+    expect(campaignSkipRemainingMessagesOnReply()).toBe(true);
+    expect(campaignSkipRemainingMessagesOnReply(true)).toBe(true);
+    expect(campaignSkipRemainingMessagesOnReply(false)).toBe(false);
   });
 
   it('gera CSV compatível com Excel contendo somente nome e número', () => {

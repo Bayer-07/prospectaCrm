@@ -43,6 +43,7 @@ type Campaign = {
   name: string;
   channel: string;
   status: string;
+  skipRemainingMessagesOnReply: boolean;
   scheduledAt?: string;
   createdAt: string;
   stats: Record<string, any>;
@@ -448,6 +449,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
     batchSize: 20,
     pauseMin: 120,
     pauseMax: 300,
+    skipRemainingMessagesOnReply: true,
   });
   const contacts = useQuery({
     queryKey: ['campaign-contacts', debouncedSearch],
@@ -481,6 +483,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
         const query = new URLSearchParams({
           name: form.name,
           instanceId: form.instanceId,
+          skipRemainingMessagesOnReply: String(form.skipRemainingMessagesOnReply),
           ...Object.fromEntries(Object.entries(cadence).map(([key, value]) => [key, String(value)])),
         });
         return api(`/campaigns/csv?${query}`, {
@@ -504,6 +507,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
             .filter((message) => message.content.trim())
             .map((message) => ({ type: 'text', content: message.content })),
           cadence,
+          skipRemainingMessagesOnReply: form.skipRemainingMessagesOnReply,
         }),
       });
     },
@@ -716,7 +720,24 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
       </section>}
 
       <section className="campaign-form-section">
-        <div className="campaign-form-section-title"><span>{source === 'contacts' ? '4' : '3'}</span><div><h3>Intervalos de envio</h3><p>Defina tempos aleatórios para deixar a cadência mais natural.</p></div></div>
+        <div className="campaign-form-section-title"><span>{source === 'contacts' ? '4' : '3'}</span><div><h3>Resposta do contato</h3><p>Escolha como a sequência deve se comportar quando o contato responder.</p></div></div>
+        <label className={`campaign-reply-option${form.skipRemainingMessagesOnReply ? ' active' : ''}`}>
+          <input
+            type="checkbox"
+            checked={form.skipRemainingMessagesOnReply}
+            onChange={(event) => setForm({ ...form, skipRemainingMessagesOnReply: event.target.checked })}
+          />
+          <span>
+            <strong>Pular próximas mensagens quando o contato responder</strong>
+            <small>{form.skipRemainingMessagesOnReply
+              ? 'A sequência desse contato será interrompida e a campanha seguirá para o próximo contato.'
+              : 'Todas as mensagens programadas serão enviadas, mesmo que o contato já tenha respondido.'}</small>
+          </span>
+        </label>
+      </section>
+
+      <section className="campaign-form-section">
+        <div className="campaign-form-section-title"><span>{source === 'contacts' ? '5' : '4'}</span><div><h3>Intervalos de envio</h3><p>Defina tempos aleatórios para deixar a cadência mais natural.</p></div></div>
         <div className="campaign-cadence-grid">
           <div><h4>Entre cada mensagem</h4><div className="form-grid"><Field label="Mínimo (segundos)" type="number" min={1} value={form.bubbleMin} onChange={(event) => setForm({ ...form, bubbleMin: Number(event.target.value) })} required /><Field label="Máximo (segundos)" type="number" min={1} value={form.bubbleMax} onChange={(event) => setForm({ ...form, bubbleMax: Number(event.target.value) })} required /></div></div>
           <div><h4>Entre cada contato</h4><div className="form-grid"><Field label="Mínimo (segundos)" type="number" min={1} value={form.contactMin} onChange={(event) => setForm({ ...form, contactMin: Number(event.target.value) })} required /><Field label="Máximo (segundos)" type="number" min={1} value={form.contactMax} onChange={(event) => setForm({ ...form, contactMax: Number(event.target.value) })} required /></div></div>
@@ -779,6 +800,7 @@ function CampaignDetailContent({
       <Status value={campaign.status} />
       <span>{campaign.instance?.name || 'Sem número de envio'}</span>
       <span>Agendada em {dateTime(campaign.scheduledAt)}</span>
+      <span>{campaign.skipRemainingMessagesOnReply ? 'Interrompe sequência após resposta' : 'Mantém sequência após resposta'}</span>
       <div className="campaign-detail-actions">
         {['RUNNING', 'SCHEDULED'].includes(campaign.status) && <span className="campaign-detail-live"><i />Atualização automática</span>}
         <Button type="button" variant="secondary" loading={downloadPending} onClick={onDownloadInvalid}>
