@@ -2,6 +2,7 @@ import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
 import { normalizeWhatsappDocumentMetadata } from '@prospecta/contracts/whatsapp-document';
+import { projectEmailRecipientActivity, projectWhatsappMessageActivity } from '@prospecta/database';
 import { randomInt, randomUUID } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
 import { CampaignEmailError, SmtpCampaignClient } from './smtp-campaign-client.js';
@@ -235,11 +236,13 @@ export class CampaignProcessor {
 
       const batchPause = completion.sentRecipientCount > 0
         && completion.sentRecipientCount % campaign.batchSize === 0;
-      return this.continueOrComplete(
+      const activity = await projectEmailRecipientActivity(this.db, recipientId);
+      await this.continueOrComplete(
         campaign.id,
         batchPause ? campaign.batchPauseMinSeconds : campaign.contactDelayMinSeconds,
         batchPause ? campaign.batchPauseMaxSeconds : campaign.contactDelayMaxSeconds,
       );
+      return activity ? { organizationId: activity.organizationId, campaignId: campaign.id, activityUpdated: true } : undefined;
     } catch (error) {
       const retryable = !(error instanceof CampaignEmailError) || error.retryable;
       const maximumAttempts = Number(job.opts.attempts || 1);
@@ -296,7 +299,7 @@ export class CampaignProcessor {
     }
     try {
       if (!await this.verifyWhatsappRecipient(recipientId, position, recipient, campaign, contact)) return;
-      await this.deliverWhatsappBubble(recipientId, position, bubble, campaign, contact);
+      return await this.deliverWhatsappBubble(recipientId, position, bubble, campaign, contact);
     } catch (error) {
       if (await this.handleWhatsappSendError(recipientId, campaign, job, error)) return;
       throw error;
@@ -362,14 +365,16 @@ export class CampaignProcessor {
     });
     const providerId = String(result.key?.id || result.messageId || randomUUID());
     if (!conversation) conversation = await this.createCampaignConversation(campaign, contact);
-    await this.db.message.create({ data: {
+    const message = await this.db.message.create({ data: {
       instanceId: campaign.instanceId, conversationId: conversation.id, providerMessageId: providerId,
       direction: 'OUTBOUND', type: bubble.type, text, status: 'SENT', sentAt: new Date(),
       payload: { campaignId: campaign.id, recipientId, bubbleId: bubble.id || null },
     } });
     await this.db.campaignRecipient.update({ where: { id: recipientId }, data: { lastBubblePosition: position } });
+    const activity = await projectWhatsappMessageActivity(this.db, message.id);
     const delay = randomBetween(campaign.bubbleDelayMinSeconds, campaign.bubbleDelayMaxSeconds) * 1000;
     await this.queue.add('send-campaign-bubble', { recipientId, position: position + 1 }, { delay, jobId: `recipient-${recipientId}-bubble-${position + 1}`, attempts: 3, backoff: { type: 'exponential', delay: 5000 } });
+    return activity ? { organizationId: activity.organizationId, campaignId: campaign.id, activityUpdated: true } : undefined;
   }
 
   private async createCampaignConversation(campaign: any, contact: any) {
@@ -520,7 +525,7 @@ export class CampaignProcessor {
           ...(providerMessageId ? [{ providerMessageId }] : []),
         ],
       },
-      select: { id: true, contactId: true, status: true },
+      select: { id: true, campaignId: true, contactId: true, status: true },
     });
     if (!recipient) return;
 
@@ -570,6 +575,8 @@ export class CampaignProcessor {
       const duplicateEvent = error && typeof error === 'object' && 'code' in error && error.code === 'P2002';
       if (!duplicateEvent) throw error;
     }
+    const activity = await projectEmailRecipientActivity(this.db, recipient.id);
+    return activity ? { organizationId: activity.organizationId, campaignId: recipient.campaignId, activityUpdated: true } : undefined;
   }
 
   private render(content: string, contact: Record<string, unknown>) {

@@ -8,6 +8,7 @@ import './styles.css';
 import './interface-v2.css';
 import './interface-components.css';
 import './apple-ui.css';
+import './activity.css';
 
 const queryClient = new QueryClient({
   defaultOptions: { queries: { staleTime: 20_000, retry: 1, refetchOnWindowFocus: false } },

@@ -1,6 +1,7 @@
 import { BadRequestException, ConflictException, ForbiddenException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import type { Prisma } from '@prisma/client';
 import { followUpInputSchema, type FollowUpInput } from '@prospecta/contracts';
+import { projectTaskActivity } from '@prospecta/database';
 import type { Queue } from 'bullmq';
 import type { AuthContext } from '../auth/types.js';
 import { authTeamIds } from '../auth/data-scope.js';
@@ -103,6 +104,7 @@ export class FollowUpsService {
         } });
         return created;
       });
+      await projectTaskActivity(this.db, followUp.taskId, 'AUTOMATION');
       await this.enqueue(followUp.id, followUp.revision, input.scheduledAt, followUp.steps[0]?.id);
       this.notify(auth.organizationId, conversationId);
       return followUp;
@@ -151,6 +153,7 @@ export class FollowUpsService {
       } });
       return record;
     });
+    await projectTaskActivity(this.db, existing.taskId, 'AUTOMATION');
     await this.enqueue(updated.id, revision, input.scheduledAt, updated.steps[0]?.id);
     this.notify(auth.organizationId, conversationId);
     return updated;
@@ -185,6 +188,7 @@ export class FollowUpsService {
       } });
       return tx.task.findUnique({ where: { id: taskId } });
     });
+    await projectTaskActivity(this.db, taskId, 'AUTOMATION');
     await this.enqueue(existing.id, revision, dueAt, existing.steps[0]?.id);
     this.notify(auth.organizationId, existing.conversationId);
     return updated;
@@ -199,13 +203,15 @@ export class FollowUpsService {
     if (ACTIVE_STATUSES.includes(existing.status as (typeof ACTIVE_STATUSES)[number])) {
       return this.cancelRecord(auth, existing.id, completed ? 'Tarefa concluída manualmente' : 'Tarefa cancelada manualmente', completed ? 'COMPLETED' : 'CANCELLED');
     }
-    return this.db.task.update({
+    const task = await this.db.task.update({
       where: { id: taskId },
       data: {
         status: completed ? 'COMPLETED' : 'CANCELLED',
         completedAt: completed ? new Date() : null,
       },
     });
+    await projectTaskActivity(this.db, taskId, 'AUTOMATION');
+    return task;
   }
 
   private async cancelRecord(auth: AuthContext, followUpId: string, reason: string, taskStatus: 'COMPLETED' | 'CANCELLED') {
@@ -230,6 +236,7 @@ export class FollowUpsService {
         metadata: { followUpId: existing.id, reason },
       } }),
     ]);
+    await projectTaskActivity(this.db, existing.taskId, 'AUTOMATION');
     this.notify(auth.organizationId, existing.conversationId);
     return task;
   }

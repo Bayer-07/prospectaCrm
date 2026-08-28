@@ -19,17 +19,17 @@ const permissions = {
   admin: [['*', '*', 'ALL']],
   manager: [
     ['companies', '*', 'TEAM'], ['contacts', '*', 'TEAM'], ['opportunities', '*', 'TEAM'],
-    ['tasks', '*', 'TEAM'], ['conversations', '*', 'TEAM'], ['campaigns', '*', 'TEAM'],
+    ['activities', '*', 'TEAM'], ['tasks', '*', 'TEAM'], ['conversations', '*', 'TEAM'], ['campaigns', '*', 'TEAM'],
     ['workflows', '*', 'TEAM'], ['reports', 'read', 'TEAM'], ['users', 'read', 'TEAM'],
   ],
   sdr: [
     ['companies', 'read', 'TEAM'], ['companies', 'write', 'OWN'], ['contacts', '*', 'TEAM'],
-    ['opportunities', '*', 'OWN'], ['tasks', '*', 'OWN'], ['conversations', '*', 'TEAM'],
+    ['opportunities', '*', 'OWN'], ['activities', 'read', 'TEAM'], ['activities', 'write', 'OWN'], ['tasks', '*', 'OWN'], ['conversations', '*', 'TEAM'],
     ['campaigns', 'read', 'TEAM'], ['campaigns', 'write', 'TEAM'], ['campaigns', 'launch', 'TEAM'],
   ],
   seller: [
     ['companies', 'read', 'TEAM'], ['contacts', 'read', 'TEAM'], ['opportunities', '*', 'OWN'],
-    ['tasks', '*', 'OWN'], ['conversations', '*', 'OWN'], ['reports', 'read', 'OWN'],
+    ['activities', '*', 'OWN'], ['tasks', '*', 'OWN'], ['conversations', '*', 'OWN'], ['reports', 'read', 'OWN'],
   ],
 } as const;
 

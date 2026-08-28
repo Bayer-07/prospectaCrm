@@ -1,4 +1,4 @@
-import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode } from 'react';
+import { useEffect, useRef, type ButtonHTMLAttributes, type InputHTMLAttributes, type ReactNode } from 'react';
 import { LoaderCircle, X } from 'lucide-react';
 
 export function Button({ children, variant = 'primary', loading, type = 'button', ...props }: Readonly<ButtonHTMLAttributes<HTMLButtonElement> & { variant?: 'primary' | 'secondary' | 'ghost' | 'danger'; loading?: boolean }>) {
@@ -14,9 +14,45 @@ export function SelectField({ label, children, ...props }: Readonly<React.Select
 }
 
 export function Modal({ title, children, onClose, width = 560 }: Readonly<{ title: string; children: ReactNode; onClose(): void; width?: number }>) {
+  const dialogRef = useRef<HTMLDialogElement>(null);
+  useEffect(() => {
+    const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    const dialog = dialogRef.current;
+    const focusTarget = dialog?.querySelector<HTMLElement>('[autofocus], input, select, textarea, button, a[href]');
+    window.requestAnimationFrame(() => focusTarget?.focus());
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        onClose();
+        return;
+      }
+      if (event.key !== 'Tab' || !dialog) return;
+      const focusable = [...dialog.querySelectorAll<HTMLElement>('button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])')]
+        .filter((element) => !element.hidden && element.getAttribute('aria-hidden') !== 'true');
+      if (!focusable.length) {
+        event.preventDefault();
+        dialog.focus();
+        return;
+      }
+      const first = focusable[0];
+      const last = focusable.at(-1)!;
+      if (event.shiftKey && document.activeElement === first) {
+        event.preventDefault();
+        last.focus();
+      } else if (!event.shiftKey && document.activeElement === last) {
+        event.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      previouslyFocused?.focus();
+    };
+  }, [onClose]);
   return <div className="modal-backdrop">
     <button type="button" className="modal-backdrop-dismiss" onMouseDown={onClose} aria-label={`Fechar ${title}`} />
-    <dialog open className="modal" style={{ maxWidth: width }} aria-label={title}>
+    <dialog ref={dialogRef} open className="modal" style={{ maxWidth: width }} aria-label={title} tabIndex={-1}>
       <header><div><span className="eyebrow">BZS One</span><h2>{title}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={18} /></button></header>
       {children}
     </dialog>

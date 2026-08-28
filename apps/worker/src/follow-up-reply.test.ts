@@ -1,6 +1,12 @@
 import { describe, expect, it, vi } from 'vitest';
 import { InboundProcessor } from './inbound.processor.js';
 
+vi.mock('@prospecta/database', () => ({
+  markLatestWhatsappActivityReplied: vi.fn().mockResolvedValue(null),
+  projectTaskActivity: vi.fn().mockResolvedValue(null),
+  projectWhatsappMessageActivity: vi.fn().mockResolvedValue(null),
+}));
+
 function setup(status: 'SCHEDULED' | 'RUNNING') {
   const active = { id: 'follow-up-1', status, taskId: 'task-1', responsibleId: 'user-1' };
   const tx = {

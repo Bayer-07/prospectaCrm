@@ -51,16 +51,30 @@ const workers = [
       if (event.payload && 'tasksUpdated' in event.payload && event.payload.tasksUpdated) {
         await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'tasks.updated', payload: event.payload }));
       }
+      if (event.payload && 'activityUpdated' in event.payload && event.payload.activityUpdated) {
+        await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'activities.updated', payload: event.payload }));
+      }
     }
   }, { connection, concurrency: 10 }),
   new Worker('outbound-messages', async (job) => {
     const event = await outbound.process(job);
     if (event?.organizationId) {
       await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'inbox.updated', payload: { conversationId: event.conversationId } }));
-      if (event.tasksUpdated) await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'tasks.updated', payload: { conversationId: event.conversationId } }));
+      if ('tasksUpdated' in event && event.tasksUpdated) await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'tasks.updated', payload: { conversationId: event.conversationId } }));
+      if (event.activityUpdated) await connection.publish('prospecta:realtime', JSON.stringify({ organizationId: event.organizationId, event: 'activities.updated', payload: { conversationId: event.conversationId } }));
     }
   }, { connection, concurrency: 5, limiter: { max: 20, duration: 1000 } }),
-  new Worker('campaigns', (job) => campaigns.process(job), { connection, concurrency: 10 }),
+  new Worker('campaigns', async (job) => {
+    const result = await campaigns.process(job);
+    if (result && 'organizationId' in result && result.organizationId && 'activityUpdated' in result && result.activityUpdated) {
+      await connection.publish('prospecta:realtime', JSON.stringify({
+        organizationId: result.organizationId,
+        event: 'activities.updated',
+        payload: { campaignId: 'campaignId' in result ? result.campaignId : undefined },
+      }));
+    }
+    return result;
+  }, { connection, concurrency: 10 }),
   new Worker('automations', async (job) => {
     const event = await workflows.process(job);
     if (event) await connection.publish('prospecta:realtime', JSON.stringify(event));

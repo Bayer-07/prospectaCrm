@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { Area, AreaChart, Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
+import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { ArrowUpRight, CircleDollarSign, Clock3, Download, MessageCircleMore, Target } from 'lucide-react';
 import { api, apiFetch, apiErrorMessage, money, type Envelope } from '../lib/api';
 import { PageLoading } from '../components/ui';
@@ -12,6 +12,7 @@ type Report = {
   funnel: Array<{ name: string; count: number; valueCents: number; color: string }>;
   inbox: { opened: number; currentlyOpen: number; averageFirstResponseMinutes: number | null };
   campaigns: { total: number; recipients: Record<string, number> };
+  activitySummary: { totals: { calls: number; connectionRate: number; whatsapp: number; emails: number; meetings: number; completedTasks: number }; series: Array<{ date: string; category: string; count: number }> } | null;
 };
 type ReportPeriod = '30' | '90' | 'year';
 
@@ -60,7 +61,12 @@ export function ReportsPage() {
   });
   if (query.isLoading) return <PageLoading />;
   const report = query.data!.data;
-  const trend = [{ name: 'Jan', valor: 220 }, { name: 'Fev', valor: 260 }, { name: 'Mar', valor: 245 }, { name: 'Abr', valor: 320 }, { name: 'Mai', valor: 380 }, { name: 'Jun', valor: Math.max(report.sales.wonValueCents / 100000, 410) }];
+  const activitySeries = Object.values((report.activitySummary?.series || []).reduce<Record<string, Record<string, string | number>>>((days, item) => {
+    const key = item.date.slice(0, 10);
+    days[key] ||= { date: key };
+    days[key][item.category] = Number(days[key][item.category] || 0) + item.count;
+    return days;
+  }, {}));
   return <div className="reports-page">
     <div className="report-toolbar">
       <div>
@@ -77,7 +83,7 @@ export function ReportsPage() {
       <article className="metric-card"><div className="metric-icon amber"><Clock3 /></div><span>Primeira resposta</span><strong>{report.inbox.averageFirstResponseMinutes !== null ? `${report.inbox.averageFirstResponseMinutes} min` : '—'}</strong><p>Média no período</p></article>
     </section>
     <div className="report-grid">
-      <section className="panel chart-panel wide"><header className="panel-header"><div><h2>Evolução da receita</h2><p>Valor ganho por mês, em milhares</p></div></header><ResponsiveContainer width="100%" height={250}><AreaChart data={trend}><defs><linearGradient id="reportGradient" x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="#7167dc" stopOpacity={0.28} /><stop offset="100%" stopColor="#7167dc" stopOpacity={0} /></linearGradient></defs><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eceaf2" /><XAxis dataKey="name" axisLine={false} tickLine={false} /><YAxis axisLine={false} tickLine={false} /><Tooltip /><Area type="monotone" dataKey="valor" stroke="#7167dc" strokeWidth={2.5} fill="url(#reportGradient)" /></AreaChart></ResponsiveContainer></section>
+      <section className="panel chart-panel wide"><header className="panel-header"><div><h2>Atividade comercial</h2><p>Registros reais por dia e canal</p></div></header><ResponsiveContainer width="100%" height={250}><BarChart data={activitySeries}><CartesianGrid strokeDasharray="3 3" vertical={false} stroke="#eceaf2" /><XAxis dataKey="date" tickFormatter={(value) => new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T12:00:00`))} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} axisLine={false} tickLine={false} /><Tooltip /><Bar dataKey="call" name="Ligações" stackId="activities" fill="#df8e12" /><Bar dataKey="meeting" name="Reuniões" stackId="activities" fill="#7167dc" /><Bar dataKey="task" name="Tarefas" stackId="activities" fill="#139b6b" /><Bar dataKey="whatsapp" name="WhatsApp" stackId="activities" fill="#2f80ed" /><Bar dataKey="email" name="E-mails" stackId="activities" fill="#7c3aed" /></BarChart></ResponsiveContainer></section>
       <section className="panel chart-panel"><header className="panel-header"><div><h2>Conversão por etapa</h2><p>Volume atual do funil</p></div></header><ResponsiveContainer width="100%" height={250}><BarChart data={report.funnel} layout="vertical"><CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="#eceaf2" /><XAxis type="number" hide /><YAxis type="category" dataKey="name" axisLine={false} tickLine={false} width={88} fontSize={11} /><Tooltip /><Bar dataKey="count" radius={[0, 5, 5, 0]}>{report.funnel.map((item) => <Cell key={item.name} fill={item.color} />)}</Bar></BarChart></ResponsiveContainer></section>
       <section className="panel campaign-report"><header className="panel-header"><div><h2>Campanhas WhatsApp</h2><p>Resultados no período</p></div></header><div className="delivery-funnel">{[['Enviadas', report.campaigns.recipients.sent || 0, '#7167dc'], ['Entregues', report.campaigns.recipients.delivered || 0, '#2f80ed'], ['Lidas', report.campaigns.recipients.read || 0, '#0f9f6e'], ['Respondidas', report.campaigns.recipients.replied || 0, '#f59e0b']].map(([label, value, color]) => <div key={String(label)}><span>{label}</span><div><i style={{ width: `${Math.max((Number(value) / Math.max(report.campaigns.recipients.sent || 1, 1)) * 100, 2)}%`, background: String(color) }} /></div><strong>{value}</strong></div>)}</div></section>
     </div>

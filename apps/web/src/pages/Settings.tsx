@@ -437,7 +437,7 @@ function TeamModal({ team, onClose, onSaved }: Readonly<{ team: Team | null; onC
 }
 
 const permissionRows = [
-  ['companies', 'Empresas'], ['contacts', 'Contatos'], ['opportunities', 'Oportunidades'], ['tasks', 'Tarefas'],
+  ['companies', 'Empresas'], ['contacts', 'Contatos'], ['opportunities', 'Oportunidades'], ['tasks', 'Tarefas'], ['activities', 'Atividades'],
   ['conversations', 'Conversas'], ['campaigns', 'Campanhas'], ['workflows', 'Automações'], ['reports', 'Relatórios'],
   ['users', 'Usuários'], ['integrations', 'Integrações'], ['api_keys', 'Chaves de API'], ['webhooks', 'Webhooks'],
 ] as const;

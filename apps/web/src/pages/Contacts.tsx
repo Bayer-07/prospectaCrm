@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { Building2, ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Plus, Search, Trash2, Upload, UserRound, X } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { api, formatPhone, initials, type Envelope } from '../lib/api';
 import type { Contact } from '../lib/types';
@@ -8,6 +8,7 @@ import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../compon
 import { ContactModal } from '../components/ContactModal';
 import { StartConversationModal } from '../components/StartConversationModal';
 import { ContactImportModal } from '../components/ContactImportModal';
+import { ActivityQuickActions, ActivityTimeline } from '../components/ActivityTimeline';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { toast } from '../lib/toast';
 import {
@@ -30,11 +31,13 @@ export function ContactsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSearch = searchParams.get('search') || '';
   const requestedCreate = searchParams.get('new') === '1';
+  const requestedContactId = searchParams.get('contact');
   const [search, setSearch] = useState(requestedSearch);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Contact | null>(null);
   const [deleting, setDeleting] = useState<Contact | null>(null);
   const [starting, setStarting] = useState<Contact | null>(null);
+  const [viewing, setViewing] = useState<Contact | null>(null);
   const [importing, setImporting] = useState(false);
   const [menu, setMenu] = useState<ContactMenu | null>(null);
   const [filterOpen, setFilterOpen] = useState(false);
@@ -44,6 +47,9 @@ export function ContactsPage() {
   useEffect(() => {
     if (requestedCreate) setCreating(true);
   }, [requestedCreate]);
+  useEffect(() => {
+    if (requestedContactId) setViewing({ id: requestedContactId, name: 'Contato', consentStatus: 'UNKNOWN' });
+  }, [requestedContactId]);
   const debouncedSearch = useDebouncedValue(search);
   const activeFilters = activeContactFilterCount(appliedFilters);
   const query = useInfiniteQuery({
@@ -82,6 +88,13 @@ export function ContactsPage() {
     if (!searchParams.has('new')) return;
     const next = new URLSearchParams(searchParams);
     next.delete('new');
+    setSearchParams(next, { replace: true });
+  };
+  const closeViewing = () => {
+    setViewing(null);
+    if (!searchParams.has('contact')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('contact');
     setSearchParams(next, { replace: true });
   };
   const toggleFilters = () => setFilterOpen((open) => {
@@ -163,7 +176,7 @@ export function ContactsPage() {
     {contacts.length ? <><div className="table-card"><table>
       <thead><tr><th>Contato</th><th>Empresa</th><th>Telefone</th><th>Responsável</th><th>Tags</th><th /></tr></thead>
       <tbody>{contacts.map((contact) => <tr key={contact.id}>
-        <td><div className="entity-cell"><span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong>{contact.email
+        <td><div className="entity-cell"><span className="contact-avatar">{initials(contact.name)}</span><div><button type="button" className="entity-name-button" onClick={() => setViewing(contact)}>{contact.name}</button>{contact.email
           ? <button type="button" className="contact-email-link" onClick={() => openEmailCampaign(contact)} title="Criar campanha de e-mail"><Mail size={12} />{contact.email}</button>
           : <small><Mail size={12} />{contact.jobTitle || 'Sem e-mail'}</small>}</div></div></td>
         <td>{contact.companies?.[0]?.company.name || 'Sem empresa'}</td>
@@ -189,9 +202,28 @@ export function ContactsPage() {
     {creating && <ContactModal onClose={closeCreating} onSaved={() => { closeCreating(); refresh(); }} />}
     {editing && <ContactModal contact={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
     {starting && <StartConversationModal contact={starting} onClose={() => setStarting(null)} />}
+    {viewing && <ContactDrawer contact={viewing} onClose={closeViewing} />}
     {importing && <ContactImportModal onClose={() => setImporting(false)} onImported={() => { setImporting(false); refresh(); }} />}
     {deleting && <DeleteContactModal contact={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); refresh(); }} />}
   </div>;
+}
+
+function ContactDrawer({ contact, onClose }: Readonly<{ contact: Contact; onClose(): void }>) {
+  const [tab, setTab] = useState<'overview' | 'activities' | 'opportunities'>('overview');
+  const details = useQuery({ queryKey: ['contact', contact.id], queryFn: () => api<Envelope<Contact>>(`/contacts/${contact.id}`) });
+  const data = details.data?.data;
+  const primaryCompany = data?.companies?.find((item) => item.isPrimary)?.company || data?.companies?.[0]?.company;
+  const association = { contactId: contact.id, contactName: data?.name || contact.name, companyId: primaryCompany?.id, companyName: primaryCompany?.name, phone: data?.phone || contact.phone };
+  return <><button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes do contato" /><aside className="opportunity-drawer contact-detail-drawer" aria-label="Detalhes do contato">
+    <header><div><span className="eyebrow">Contato</span><h2>{data?.name || contact.name}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header>
+    {details.isLoading ? <PageLoading /> : details.isError || !data ? <p className="drawer-error">Não foi possível carregar este contato.</p> : <div className="drawer-content contact-workspace">
+      <ActivityQuickActions association={association} compact />
+      <div className="drawer-tabs" role="tablist"><button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Visão geral</button><button type="button" className={tab === 'activities' ? 'active' : ''} onClick={() => setTab('activities')}>Atividades</button><button type="button" className={tab === 'opportunities' ? 'active' : ''} onClick={() => setTab('opportunities')}>Oportunidades</button></div>
+      {tab === 'activities' && <ActivityTimeline association={association} showActions={false} />}
+      {tab === 'overview' && <section className="drawer-grid"><div><h3><Mail size={17} />E-mail</h3><p>{data.email || 'Não informado'}</p></div><div><h3><Phone size={17} />Telefone</h3>{data.phone ? <a href={`tel:${data.phone}`}>{formatPhone(data.phone)}</a> : <p>Não informado</p>}</div><div><h3><UserRound size={17} />Responsável</h3><p>{data.owner?.name || 'Não atribuído'}</p></div><div><h3><Building2 size={17} />Empresa</h3><p>{primaryCompany?.name || 'Não vinculada'}</p></div></section>}
+      {tab === 'opportunities' && (data.opportunities?.length ? <div className="company-opportunity-list">{data.opportunities.map(({ opportunity }) => <div key={opportunity.id}><div><strong>{opportunity.title}</strong><small>{opportunity.owner?.name || 'Sem responsável'}</small></div><span>{opportunity.stage.name}</span></div>)}</div> : <p className="drawer-muted">Nenhuma oportunidade vinculada.</p>)}
+    </div>}
+  </aside></>;
 }
 
 function DeleteContactModal({ contact, onClose, onDeleted }: Readonly<{ contact: Contact; onClose(): void; onDeleted(): void }>) {

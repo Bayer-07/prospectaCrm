@@ -17,6 +17,10 @@ export type ReportPdfSummary = {
   campaigns: { total: number; recipients: Record<string, number> };
   activities: Array<{ _count: unknown }>;
   tasks: Array<{ status: string; _count: unknown }>;
+  activitySummary?: null | {
+    totals: { calls: number; connectedCalls: number; connectionRate: number; whatsapp: number; emails: number; meetings: number; notes: number; completedTasks: number };
+    origins: Record<string, number>;
+  };
 };
 
 export type ReportPdfInput = {
@@ -202,18 +206,18 @@ export async function buildReportPdf({ summary, generatedAt, generatedBy }: Repo
       if (index < items.length - 1) page.drawLine({ start: { x: x + 13, y: rowY - 8 }, end: { x: x + panelWidth - 13, y: rowY - 8 }, thickness: .4, color: LINE });
     });
   };
-  const recipients = summary.campaigns.recipients;
-  drawPanel(MARGIN, 'Atendimento', [
-    ['Conversas iniciadas', String(summary.inbox.opened)],
-    ['Conversas abertas', String(summary.inbox.currentlyOpen)],
-    ['Tempo de primeira resposta', summary.inbox.averageFirstResponseMinutes === null ? 'Não calculado' : `${summary.inbox.averageFirstResponseMinutes} min`],
-    ['Atividades registradas', String(summary.activities.reduce((total, item) => total + countGroup(item._count), 0))],
+  const activityTotals = summary.activitySummary?.totals;
+  drawPanel(MARGIN, 'Atividade comercial', [
+    ['Ligações', String(activityTotals?.calls || 0)],
+    ['Taxa de atendimento', `${activityTotals?.connectionRate || 0}%`],
+    ['WhatsApp enviados', String(activityTotals?.whatsapp || 0)],
+    ['E-mails enviados', String(activityTotals?.emails || 0)],
   ]);
-  drawPanel(MARGIN + panelWidth + 10, 'Campanhas WhatsApp', [
-    ['Campanhas', String(summary.campaigns.total)],
-    ['Enviadas', String(recipients.sent || 0)],
-    ['Entregues', String(recipients.delivered || 0)],
-    ['Respondidas', String(recipients.replied || 0)],
+  drawPanel(MARGIN + panelWidth + 10, 'Agenda e atendimento', [
+    ['Reuniões realizadas', String(activityTotals?.meetings || 0)],
+    ['Tarefas concluídas', String(activityTotals?.completedTasks || 0)],
+    ['Conversas iniciadas', String(summary.inbox.opened)],
+    ['Primeira resposta', summary.inbox.averageFirstResponseMinutes === null ? 'Não calculada' : `${summary.inbox.averageFirstResponseMinutes} min`],
   ]);
   y -= 130;
 

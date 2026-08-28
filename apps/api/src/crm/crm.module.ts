@@ -6,9 +6,10 @@ import { MediaModule } from '../media/media.module.js';
 import { CompanyLogoLookupService } from './company-logo-lookup.service.js';
 import { LinkPreviewService } from './link-preview.service.js';
 import { FollowUpsModule } from '../follow-ups/follow-ups.module.js';
+import { ActivitiesModule } from '../activities/activities.module.js';
 
 @Module({
-  imports: [MediaModule, FollowUpsModule],
+  imports: [MediaModule, FollowUpsModule, ActivitiesModule],
   controllers: [CrmController],
   providers: [CrmService, CompanyCnpjLookupService, CompanyLogoLookupService, LinkPreviewService],
   exports: [CrmService, LinkPreviewService],

@@ -30,6 +30,7 @@ import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../compon
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { toast } from '../lib/toast';
 import { StartConversationModal } from '../components/StartConversationModal';
+import { ActivityQuickActions, ActivityTimeline } from '../components/ActivityTimeline';
 import {
   activeCompanyFilterCount,
   companyListQuery,
@@ -190,6 +191,7 @@ export function CompaniesPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSearch = searchParams.get('search') || '';
   const requestedCreate = searchParams.get('new') === '1';
+  const requestedCompanyId = searchParams.get('company');
   const [search, setSearch] = useState(requestedSearch);
   const [creating, setCreating] = useState(false);
   const [editing, setEditing] = useState<Company | null>(null);
@@ -205,6 +207,9 @@ export function CompaniesPage() {
   useEffect(() => {
     if (requestedCreate) setCreating(true);
   }, [requestedCreate]);
+  useEffect(() => {
+    if (requestedCompanyId) setViewing({ id: requestedCompanyId, name: 'Empresa', updatedAt: '' });
+  }, [requestedCompanyId]);
   const debouncedSearch = useDebouncedValue(search);
   const activeFilters = activeCompanyFilterCount(appliedFilters);
   const query = useQuery({
@@ -244,6 +249,13 @@ export function CompaniesPage() {
     if (!searchParams.has('new')) return;
     const next = new URLSearchParams(searchParams);
     next.delete('new');
+    setSearchParams(next, { replace: true });
+  };
+  const closeViewing = () => {
+    setViewing(null);
+    if (!searchParams.has('company')) return;
+    const next = new URLSearchParams(searchParams);
+    next.delete('company');
     setSearchParams(next, { replace: true });
   };
   const openMenu = (event: React.MouseEvent<HTMLButtonElement>, company: Company) => {
@@ -366,7 +378,7 @@ export function CompaniesPage() {
 
     {creating && <CompanyModal onClose={closeCreating} onSaved={() => { closeCreating(); refresh(); }} />}
     {editing && <CompanyModal company={editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); refresh(); }} />}
-    {viewing && <CompanyDrawer company={viewing} onClose={() => setViewing(null)} />}
+    {viewing && <CompanyDrawer company={viewing} onClose={closeViewing} />}
     {viewingContacts && <CompanyContactsModal company={viewingContacts} onClose={() => setViewingContacts(null)} />}
     {deleting && <DeleteCompanyModal company={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); refresh(); }} />}
   </div>;
@@ -711,7 +723,18 @@ function CompanyDrawer({ company, onClose }: Readonly<{ company: Company; onClos
 }
 
 function CompanyDrawerContent({ data }: Readonly<{ data: CompanyDetails }>) {
-  return <div className="drawer-content">
+  const [tab, setTab] = useState<'overview' | 'activities' | 'contacts' | 'opportunities'>('overview');
+  const association = { companyId: data.id, companyName: data.name, phone: data.phone };
+  return <div className="drawer-content company-workspace">
+            <ActivityQuickActions association={association} compact />
+            <div className="drawer-tabs" role="tablist">
+              <button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Visão geral</button>
+              <button type="button" className={tab === 'activities' ? 'active' : ''} onClick={() => setTab('activities')}>Atividades</button>
+              <button type="button" className={tab === 'contacts' ? 'active' : ''} onClick={() => setTab('contacts')}>Contatos</button>
+              <button type="button" className={tab === 'opportunities' ? 'active' : ''} onClick={() => setTab('opportunities')}>Oportunidades</button>
+            </div>
+            {tab === 'activities' && <ActivityTimeline association={association} showActions={false} />}
+            {tab === 'overview' && <>
             <div className="drawer-summary">
               <div><span>Contatos</span><strong>{data.contacts.length}</strong></div>
               <div><span>Oportunidades</span><strong>{data.opportunities.length}</strong></div>
@@ -729,8 +752,8 @@ function CompanyDrawerContent({ data }: Readonly<{ data: CompanyDetails }>) {
               <div><h3><CalendarDays size={17} />Atualizada</h3><p>{dateTime(data.updatedAt)}</p></div>
               <div><h3><Phone size={17} />Telefone</h3>{data.phone ? <a href={`tel:${data.phone}`}>{formatPhone(data.phone)}</a> : <p>Não informado</p>}</div>
             </section>
-
-            <section>
+            </>}
+            {tab === 'contacts' && <section>
               <h3><Users size={17} />Contatos vinculados</h3>
               {data.contacts.length
                 ? <div className="drawer-contact-list">{data.contacts.slice(0, 8).map(({ contact, isPrimary }) => <div key={contact.id}>
@@ -742,9 +765,9 @@ function CompanyDrawerContent({ data }: Readonly<{ data: CompanyDetails }>) {
                   </div>
                 </div>)}</div>
                 : <p className="drawer-muted">Nenhum contato vinculado.</p>}
-            </section>
+            </section>}
 
-            <section>
+            {tab === 'opportunities' && <section>
               <h3><BriefcaseBusiness size={17} />Oportunidades</h3>
               {data.opportunities.length
                 ? <div className="company-opportunity-list">{data.opportunities.slice(0, 8).map((opportunity) => <div key={opportunity.id}>
@@ -752,7 +775,7 @@ function CompanyDrawerContent({ data }: Readonly<{ data: CompanyDetails }>) {
                   <span>{opportunity.stage?.name || opportunity.status}</span>
                 </div>)}</div>
                 : <p className="drawer-muted">Nenhuma oportunidade vinculada.</p>}
-            </section>
+            </section>}
           </div>;
 }
 

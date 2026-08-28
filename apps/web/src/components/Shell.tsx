@@ -4,7 +4,7 @@ import { io } from 'socket.io-client';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell, Blocks, BookOpen, Bot, BrainCircuit, Building2, Cable, Camera, CheckCheck, CheckSquare, ChevronDown, ContactRound, Eye, Gauge,
-  Inbox, KanbanSquare, KeyRound, LogOut, Mail, Menu, MessageSquareReply, MessageSquareText, Moon, Network, Plug, Plus,
+  Inbox, KanbanSquare, KeyRound, ListChecks, LogOut, Mail, Menu, MessageSquareReply, MessageSquareText, Moon, Network, Plug, Plus,
   Settings, Sun, Trash2, UserRound, Users, Webhook, X,
 } from 'lucide-react';
 import { api, dateTime, type Envelope } from '../lib/api';
@@ -44,6 +44,7 @@ const nav: Array<{ section: string; items: NavItem[] }> = [
     { to: '/', label: 'Visão geral', icon: Gauge }, { to: '/pipeline', label: 'Pipeline', icon: KanbanSquare, resource: 'opportunities' },
     { to: '/empresas', label: 'Empresas', icon: Building2, resource: 'companies' }, { to: '/contatos', label: 'Contatos', icon: ContactRound, resource: 'contacts' },
     { to: '/tarefas', label: 'Tarefas', icon: CheckSquare, resource: 'tasks' },
+    { to: '/atividades', label: 'Atividades', icon: ListChecks, resource: 'activities' },
   ] },
   { section: 'Conversas', items: [
     { to: '/inbox', label: 'Inbox', icon: Inbox, resource: 'conversations' }, { to: '/respostas-rapidas', label: 'Respostas rápidas', icon: MessageSquareReply, resource: 'conversations' }, { to: '/chatbots', label: 'Chatbots', icon: Bot, resource: 'workflows' },
@@ -84,6 +85,7 @@ const pageInfo: Record<string, { title: string; description: string }> = {
   '/empresas': { title: 'Empresas', description: 'Contas e organizações do seu CRM.' },
   '/contatos': { title: 'Contatos', description: 'Pessoas, consentimentos e carteiras.' },
   '/tarefas': { title: 'Tarefas', description: 'Próximas ações da equipe.' },
+  '/atividades': { title: 'Atividades', description: 'Linha do tempo comercial de toda a operação.' },
   '/inbox': { title: 'Inbox', description: 'Conversas compartilhadas do WhatsApp.' },
   '/respostas-rapidas': { title: 'Respostas rápidas', description: 'Textos e anexos reutilizáveis no atendimento.' },
   '/campanhas': { title: 'Campanhas', description: 'Disparos com cadência e validação de números no WhatsApp.' },
@@ -351,6 +353,13 @@ export function Shell() {
       scheduleInvalidation(['tasks']);
       scheduleInvalidation(['conversation-follow-up']);
     };
+    const refreshActivities = () => {
+      scheduleInvalidation(['activities']);
+      scheduleInvalidation(['dashboard']);
+      scheduleInvalidation(['reports']);
+      scheduleInvalidation(['company']);
+      scheduleInvalidation(['opportunity']);
+    };
     const refreshAll = () => {
       refreshInbox(undefined, true);
       refreshWhatsapp();
@@ -366,6 +375,7 @@ export function Shell() {
     socket.on('inbox.updated', refreshInbox);
     socket.on('whatsapp.updated', refreshWhatsapp);
     socket.on('tasks.updated', refreshTasks);
+    socket.on('activities.updated', refreshActivities);
     socket.on('notification.created', () => scheduleInvalidation(['notifications']));
     socket.on('conversation.ai.updated', (payload: { conversationId?: string; generationId?: string }) => {
       scheduleInvalidation(['ai-generation', payload?.conversationId, payload?.generationId]);

@@ -1,6 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CampaignProcessor, campaignContactVariables, campaignMessageSequence } from './campaign.processor.js';
 
+vi.mock('@prospecta/database', () => ({
+  projectEmailRecipientActivity: vi.fn().mockResolvedValue(null),
+  projectWhatsappMessageActivity: vi.fn().mockResolvedValue(null),
+}));
+
 vi.mock('./storage.js', () => ({
   signedMediaUrl: vi.fn().mockResolvedValue('http://minio.local/proposta-assinada'),
   storedMediaBase64: vi.fn().mockResolvedValue('audio-base64'),

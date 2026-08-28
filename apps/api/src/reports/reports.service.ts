@@ -11,6 +11,7 @@ import { buildReportPdf } from './report-pdf.js';
 import { isOutboundWebhookAction, OUTBOUND_WEBHOOK_ACTIONS, type OutboundWebhookAction } from './webhook-actions.js';
 import { OutboundWebhookUrlService } from './outbound-webhook-url.service.js';
 import { conversationVisibilitySql, conversationVisibilityWhere } from '../integrations/conversation-visibility.js';
+import { ActivitiesService } from '../activities/activities.service.js';
 
 type OutboundWebhookInput = {
   name: string;
@@ -30,6 +31,7 @@ export class ReportsService {
   constructor(
     private readonly db: PrismaService,
     @Optional() outboundWebhookUrls?: OutboundWebhookUrlService,
+    @Optional() private readonly activitiesService?: ActivitiesService,
   ) {
     this.outboundWebhookUrls = outboundWebhookUrls || new OutboundWebhookUrlService();
   }
@@ -40,7 +42,7 @@ export class ReportsService {
     const opportunityWhere = { organizationId: auth.organizationId, createdAt: { lte: to }, ...scopedWhere(auth, 'opportunities') };
     const campaignWhere = { organizationId: auth.organizationId, archivedAt: null, createdAt: { gte: from, lte: to }, ...this.campaignScope(auth) };
     const conversationWhere = { organizationId: auth.organizationId, createdAt: { gte: from, lte: to }, ...conversationVisibilityWhere(auth, true) };
-    const [stageGroups, stages, openStats, wonStats, lostCount, campaignTotal, recipientStatusGroups, conversationStatusGroups, responseTime, activities, tasks] = await Promise.all([
+    const [stageGroups, stages, openStats, wonStats, lostCount, campaignTotal, recipientStatusGroups, conversationStatusGroups, responseTime, activities, tasks, activitySummary] = await Promise.all([
       this.db.opportunity.groupBy({ by: ['stageId'], where: opportunityWhere, _count: { _all: true }, _sum: { valueCents: true } }),
       this.db.pipelineStage.findMany({ where: { pipeline: { organizationId: auth.organizationId } }, orderBy: { position: 'asc' } }),
       this.db.opportunity.aggregate({ where: { ...opportunityWhere, status: 'OPEN' }, _count: { _all: true }, _sum: { valueCents: true } }),
@@ -62,8 +64,9 @@ export class ReportsService {
           AND "firstResponseAt" IS NOT NULL
           AND ${conversationVisibilitySql(auth)}
       `),
-      this.db.activity.groupBy({ by: ['userId', 'type'], where: { occurredAt: { gte: from, lte: to }, user: { organizationId: auth.organizationId } }, _count: true }),
+      this.db.activity.groupBy({ by: ['userId', 'type'], where: { organizationId: auth.organizationId, deletedAt: null, occurredAt: { gte: from, lte: to }, ...(this.activitiesService?.activityScope(auth) || {}) }, _count: true }),
       this.db.task.groupBy({ by: ['status'], where: { organizationId: auth.organizationId, createdAt: { gte: from, lte: to }, ...this.taskScope(auth) }, _count: true }),
+      this.activitiesService ? this.activitiesService.summary(auth, from, to) : null,
     ]);
     const recipientStatuses = Object.fromEntries(recipientStatusGroups.map((item) => [item.status.toLowerCase(), item._count._all]));
     const stageTotals = new Map(stageGroups.map((stage) => [stage.stageId, { count: stage._count._all, valueCents: stage._sum.valueCents || 0 }]));
@@ -86,7 +89,7 @@ export class ReportsService {
         opened, currentlyOpen: conversationCounts.OPEN || 0,
         averageFirstResponseMinutes: averageFirstResponseMs === null ? null : Math.round(averageFirstResponseMs / 60000),
       },
-      campaigns: { total: campaignTotal, recipients: recipientStatuses }, activities, tasks,
+      campaigns: { total: campaignTotal, recipients: recipientStatuses }, activities, tasks, activitySummary,
     };
   }
 

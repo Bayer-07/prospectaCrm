@@ -1,6 +1,7 @@
 import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { FollowUpAlertEmailJob } from '@prospecta/contracts';
+import { projectTaskActivity, projectWhatsappMessageActivity } from '@prospecta/database';
 import { normalizeWhatsappDocumentMetadata } from '@prospecta/contracts/whatsapp-document';
 import { EvolutionClient } from './evolution-client.js';
 import { signedMediaUrl, storedMediaBase64 } from './storage.js';
@@ -71,6 +72,10 @@ export class OutboundProcessor {
 
   async process(job: Job<{ messageId: string }>) {
     const message = await this.loadMessage(job.data.messageId);
+    if (message?.status === 'SENT' || message?.status === 'DELIVERED' || message?.status === 'READ' || message?.status === 'REPLIED') {
+      const activity = await projectWhatsappMessageActivity(this.db, message.id);
+      return activity ? { organizationId: activity.organizationId, conversationId: message.conversationId, activityUpdated: true } : undefined;
+    }
     if (message?.status !== 'QUEUED' || !message.conversation.contact.phone) return;
     if (await this.shouldSkip(message)) return;
     try {
@@ -160,11 +165,14 @@ export class OutboundProcessor {
       this.db.conversation.update({ where: { id: message.conversationId }, data: { lastMessageAt: now, firstResponseAt: message.conversation.firstResponseAt || now } }),
       ...this.followUpSentOperations(message, nextStep, nextScheduledAt, now),
     ]);
+    const activity = await projectWhatsappMessageActivity(this.db, message.id);
+    if (message.followUpStep && !nextStep) await projectTaskActivity(this.db, message.followUpStep.followUp.taskId, 'AUTOMATION');
     await this.enqueueNextFollowUpStep(message, nextStep, nextScheduledAt);
     return {
-      organizationId: message.followUpStep?.followUp.organizationId,
+      organizationId: activity?.organizationId || message.followUpStep?.followUp.organizationId,
       conversationId: message.conversationId,
       tasksUpdated: Boolean(message.followUpStep),
+      activityUpdated: Boolean(activity),
     };
   }
 

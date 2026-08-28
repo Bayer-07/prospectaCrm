@@ -56,7 +56,7 @@ export class CrmController {
   ) {}
 
   @Get('dashboard')
-  async dashboard(@CurrentUser() auth: AuthContext) { return { data: await this.crm.dashboard(auth) }; }
+  async dashboard(@CurrentUser() auth: AuthContext, @Query() query: { from?: string; to?: string }) { return { data: await this.crm.dashboard(auth, query) }; }
 
   @RequirePermission('companies', 'read')
   @ApiListCompaniesDocumentation()

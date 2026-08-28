@@ -1,6 +1,7 @@
 import type { Job, Queue } from 'bullmq';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
+import { projectTaskActivity } from '@prospecta/database';
 
 type Node = { id: string; type: string; data?: Record<string, any> };
 type Edge = { source: string; target: string; sourceHandle?: string };
@@ -359,7 +360,7 @@ export class WorkflowProcessor {
     const assigneeId = String(data.assigneeId || enrollment.contact.ownerId || creator.id);
     const assignee = await this.db.user.findFirst({ where: { id: assigneeId, organizationId: enrollment.workflow.organizationId }, select: { id: true } });
     if (!assignee) throw new Error('Responsável configurado para a tarefa não encontrado');
-    await this.db.task.create({ data: {
+    const task = await this.db.task.create({ data: {
       organizationId: enrollment.workflow.organizationId,
       createdById: creator.id,
       assigneeId,
@@ -368,6 +369,7 @@ export class WorkflowProcessor {
       title: String(data.title || 'Acompanhar contato'),
       dueAt: new Date(Date.now() + Number(data.dueInHours || 24) * 3_600_000),
     } });
+    await projectTaskActivity(this.db, task.id, 'AUTOMATION');
   }
 
   private async executeNotification(enrollment: any, data: Record<string, any>, context: WorkflowContext) {

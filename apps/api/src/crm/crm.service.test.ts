@@ -2,6 +2,8 @@ import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../auth/types.js';
 import { CrmService } from './crm.service.js';
 
+vi.mock('@prospecta/database', () => ({ projectTaskActivity: vi.fn().mockResolvedValue(null) }));
+
 const auth: AuthContext = {
   type: 'session',
   organizationId: 'organization-1',

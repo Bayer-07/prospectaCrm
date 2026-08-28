@@ -1,5 +1,6 @@
 import type { Prisma, PrismaClient } from '@prisma/client';
 import { contactTemplateVariables, renderTemplateVariables, type FollowUpAlertEmailJob } from '@prospecta/contracts';
+import { projectTaskActivity } from '@prospecta/database';
 import type { Job, Queue } from 'bullmq';
 
 export type FollowUpJob = { followUpId: string; revision: number; stepId?: string };
@@ -265,6 +266,7 @@ export class FollowUpProcessor {
         metadata: { followUpId, enrollmentId, workflowVersionId: followUp.workflowVersionId },
       } }),
     ]);
+    await projectTaskActivity(this.db, followUp.taskId, 'AUTOMATION');
     return { completed: true, enrollmentId, organizationId: followUp.organizationId, conversationId: followUp.conversationId };
   }
 

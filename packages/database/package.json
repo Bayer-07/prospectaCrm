@@ -13,6 +13,7 @@
     "db:migrate": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js migrate dev",
     "db:deploy": "node --env-file-if-exists=../../.env node_modules/prisma/build/index.js migrate deploy",
     "db:seed": "node --env-file-if-exists=../../.env --import tsx prisma/seed.ts",
+    "db:backfill:activities": "node --env-file-if-exists=../../.env --import tsx prisma/backfill-activities.ts",
     "setup:homologation": "node --env-file-if-exists=../../.env --import tsx prisma/setup-homologation.ts"
   },
   "dependencies": {

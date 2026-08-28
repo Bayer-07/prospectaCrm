@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { aiGenerationStatuses, aiGenerationTypes, aiProposalStatuses, aiSummaryScopes, campaignCadenceSchema, canSendWhatsapp, chatbotNodeTypes, chatbotResponseProviders, companyInputSchema, contactInputSchema, contactsAreDuplicates, extractSharedWhatsappContacts, formatCnpj, isOptOutMessage, isValidCnpj, nextWarmupCap, normalizeEvolutionInstanceStatus, normalizePhoneKey, opportunityStatusForStage, phoneSchema, workflowNodeTypes } from './index.js';
+import { activityInputSchema, aiGenerationStatuses, aiGenerationTypes, aiProposalStatuses, aiSummaryScopes, campaignCadenceSchema, canSendWhatsapp, chatbotNodeTypes, chatbotResponseProviders, companyInputSchema, contactInputSchema, contactsAreDuplicates, extractSharedWhatsappContacts, formatCnpj, isOptOutMessage, isValidCnpj, nextWarmupCap, normalizeEvolutionInstanceStatus, normalizePhoneKey, opportunityStatusForStage, phoneSchema, workflowNodeTypes } from './index.js';
 
 describe('contratos', () => {
   it('expõe os contratos versionados do assistente e do chatbot OpenAI', () => {
@@ -135,5 +135,19 @@ describe('contratos', () => {
     expect(opportunityStatusForStage({ isWon: true, isLost: false })).toBe('WON');
     expect(opportunityStatusForStage({ isWon: false, isLost: true })).toBe('LOST');
     expect(opportunityStatusForStage({ isWon: false, isLost: false })).toBe('OPEN');
+  });
+
+  it('valida atividades manuais e exige uma associação comercial', () => {
+    const valid = activityInputSchema.safeParse({
+      category: 'call',
+      title: 'Ligação comercial',
+      occurredAt: new Date().toISOString(),
+      companyId: '11111111-1111-4111-8111-111111111111',
+      outcome: 'connected',
+    });
+    expect(valid.success).toBe(true);
+    expect(activityInputSchema.safeParse({ category: 'note', title: 'Nota', occurredAt: new Date().toISOString() }).success).toBe(false);
+    expect(activityInputSchema.safeParse({ category: 'note', title: 'Nota', body: '', occurredAt: new Date().toISOString(), contactId: '11111111-1111-4111-8111-111111111111' }).success).toBe(false);
+    expect(activityInputSchema.safeParse({ category: 'call', title: 'Ligação', occurredAt: new Date().toISOString(), contactId: '11111111-1111-4111-8111-111111111111', outcome: 'inventado' }).success).toBe(false);
   });
 });

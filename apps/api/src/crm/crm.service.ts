@@ -3,6 +3,7 @@ import type { Queue } from 'bullmq';
 import { Prisma, type Contact } from '@prisma/client';
 import { randomUUID } from 'node:crypto';
 import { companyInputSchema, contactInputSchema, normalizeCnpj, normalizePhoneKey, opportunityInputSchema, opportunityStatusForStage, taskInputSchema } from '@prospecta/contracts';
+import { projectTaskActivity } from '@prospecta/database';
 import type { AuthContext } from '../auth/types.js';
 import { authTeamIds, permissionScope, scopedWhere } from '../auth/data-scope.js';
 import { conversationVisibilitySql, conversationVisibilityWhere } from '../integrations/conversation-visibility.js';
@@ -10,6 +11,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 import { EXTERNAL_WEBHOOK_QUEUE } from '../queue/queue.module.js';
 import { MediaService } from '../media/media.service.js';
 import { FollowUpsService } from '../follow-ups/follow-ups.service.js';
+import { ActivitiesService } from '../activities/activities.service.js';
 
 function csvSeparatorCount(line: string, separator: string) {
   let quoted = false;
@@ -87,13 +89,17 @@ export class CrmService {
     @Inject(EXTERNAL_WEBHOOK_QUEUE) private readonly externalWebhooks: Queue,
     private readonly media?: MediaService,
     private readonly followUps?: FollowUpsService,
+    private readonly activities?: ActivitiesService,
   ) {}
 
-  async dashboard(auth: AuthContext) {
+  async dashboard(auth: AuthContext, query: { from?: string; to?: string } = {}) {
     const opportunityScope = scopedWhere(auth, 'opportunities');
     const contactScope = scopedWhere(auth, 'contacts');
     const today = new Date(); today.setHours(0, 0, 0, 0);
-    const [openOpportunities, totalContacts, overdueTasks, conversations, won, stages, recentActivities, conversationMetrics, connectedInstances] = await Promise.all([
+    const activityTo = query.to ? new Date(query.to) : new Date();
+    const activityFrom = query.from ? new Date(query.from) : new Date(activityTo.getTime() - 30 * 86_400_000);
+    if (Number.isNaN(activityFrom.getTime()) || Number.isNaN(activityTo.getTime()) || activityFrom > activityTo) throw new BadRequestException('Período de atividades inválido');
+    const [openOpportunities, totalContacts, overdueTasks, conversations, won, stages, recentActivityPage, conversationMetrics, connectedInstances, activitySummary] = await Promise.all([
       this.db.opportunity.aggregate({ where: { organizationId: auth.organizationId, archivedAt: null, status: 'OPEN', ...opportunityScope }, _count: true, _sum: { valueCents: true } }),
       this.db.contact.count({ where: { organizationId: auth.organizationId, archivedAt: null, ...contactScope } }),
       this.db.task.count({ where: { organizationId: auth.organizationId, status: 'OPEN', dueAt: { lt: new Date() }, ...this.taskScope(auth) } }),
@@ -103,7 +109,9 @@ export class CrmService {
         where: { pipeline: { organizationId: auth.organizationId } }, orderBy: { position: 'asc' },
         include: { _count: { select: { opportunities: { where: { status: 'OPEN', archivedAt: null, ...opportunityScope } } } } },
       }),
-      this.db.activity.findMany({ where: { user: { organizationId: auth.organizationId } }, include: { user: { select: { name: true } }, company: { select: { name: true } }, contact: { select: { name: true } }, opportunity: { select: { title: true } } }, orderBy: { occurredAt: 'desc' }, take: 4 }),
+      this.activities
+        ? this.activities.list(auth, { limit: 6 })
+        : this.db.activity.findMany({ where: { organizationId: auth.organizationId, deletedAt: null }, include: { user: { select: { name: true } }, company: { select: { name: true } }, contact: { select: { name: true } }, opportunity: { select: { title: true } } }, orderBy: { occurredAt: 'desc' }, take: 6 }).then((data) => ({ data })),
       this.db.$queryRaw<Array<{ total: number; responded: number; resolvedToday: number; averageMs: number | null }>>(Prisma.sql`
         SELECT
           COUNT(*)::integer AS "total",
@@ -117,6 +125,7 @@ export class CrmService {
           AND ${conversationVisibilitySql(auth)}
       `),
       this.db.whatsappInstance.count({ where: { organizationId: auth.organizationId, status: 'CONNECTED' } }),
+      this.activities ? this.activities.summary(auth, activityFrom, activityTo) : null,
     ]);
     const conversationStats = conversationMetrics[0] || { total: 0, responded: 0, resolvedToday: 0, averageMs: null };
     return {
@@ -125,7 +134,23 @@ export class CrmService {
       totalContacts, overdueTasks, openConversations: conversations,
       wonLast30Days: won._count, wonValueCents: won._sum.valueCents || 0,
       stageDistribution: stages.map((stage) => ({ id: stage.id, name: stage.name, color: stage.color, count: stage._count.opportunities })),
-      recentActivities: recentActivities.map((activity) => ({ id: activity.id, type: activity.type, title: activity.title, occurredAt: activity.occurredAt, userName: activity.user?.name, entityName: activity.company?.name || activity.contact?.name || activity.opportunity?.title })),
+      recentActivities: recentActivityPage.data.map((activity) => ({
+        id: activity.id,
+        type: activity.type,
+        category: activity.category,
+        origin: activity.origin,
+        status: activity.status,
+        title: activity.title,
+        body: activity.body,
+        occurredAt: activity.occurredAt,
+        userName: activity.user?.name,
+        entityName: activity.company?.name || activity.contact?.name || activity.opportunity?.title,
+        companyId: activity.companyId,
+        contactId: activity.contactId,
+        opportunityId: activity.opportunityId,
+        details: activity.details,
+      })),
+      activitySummary,
       inbox: {
         averageFirstResponseMinutes: conversationStats.averageMs === null ? null : Math.round(conversationStats.averageMs / 60_000),
         resolvedToday: conversationStats.resolvedToday,
@@ -647,6 +672,7 @@ export class CrmService {
       priority: input.priority.toUpperCase() as never, assigneeId,
       contactId: input.contactId, companyId: input.companyId, opportunityId: input.opportunityId,
     } });
+    await projectTaskActivity(this.db, task.id, 'MANUAL');
     await this.audit(auth, 'task.created', 'Task', task.id, null, task);
     return task;
   }
@@ -654,8 +680,13 @@ export class CrmService {
   async completeTask(auth: AuthContext, id: string) {
     const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth) }, include: { followUp: { select: { id: true } } } });
     if (!before) throw new NotFoundException('Tarefa não encontrada');
-    if (before.followUp && this.followUps) return this.followUps.finishFromTask(auth, id, true);
+    if (before.followUp && this.followUps) {
+      const task = await this.followUps.finishFromTask(auth, id, true);
+      await projectTaskActivity(this.db, id, 'AUTOMATION');
+      return task;
+    }
     const task = await this.db.task.update({ where: { id }, data: { status: 'COMPLETED', completedAt: new Date() } });
+    await projectTaskActivity(this.db, id);
     await this.audit(auth, 'task.completed', 'Task', id, before, task);
     return task;
   }
@@ -672,6 +703,7 @@ export class CrmService {
     }
     const { priority, ...fields } = input;
     const task = await this.db.task.update({ where: { id }, data: { ...fields, ...(priority ? { priority: priority.toUpperCase() as never } : {}) } as Prisma.TaskUncheckedUpdateInput });
+    await projectTaskActivity(this.db, id);
     await this.audit(auth, 'task.updated', 'Task', id, before, task);
     return task;
   }
@@ -679,8 +711,13 @@ export class CrmService {
   async cancelTask(auth: AuthContext, id: string) {
     const before = await this.db.task.findFirst({ where: { id, organizationId: auth.organizationId, ...this.taskScope(auth, 'write') }, include: { followUp: { select: { id: true } } } });
     if (!before) throw new NotFoundException('Tarefa não encontrada');
-    if (before.followUp && this.followUps) return this.followUps.finishFromTask(auth, id, false);
+    if (before.followUp && this.followUps) {
+      const task = await this.followUps.finishFromTask(auth, id, false);
+      await projectTaskActivity(this.db, id, 'AUTOMATION');
+      return task;
+    }
     const task = await this.db.task.update({ where: { id }, data: { status: 'CANCELLED' } });
+    await projectTaskActivity(this.db, id);
     await this.audit(auth, 'task.cancelled', 'Task', id, before, task);
     return task;
   }
@@ -938,7 +975,18 @@ export class CrmService {
   private normalizeCnpj(value: string) { return normalizeCnpj(value); }
 
   private activity(auth: AuthContext, type: string, title: string, values: { companyId?: string; contactId?: string; opportunityId?: string; details?: object }) {
-    return this.db.activity.create({ data: { userId: auth.userId, type, title, ...values, details: (values.details ?? {}) as Prisma.InputJsonValue } });
+    return this.db.activity.create({ data: {
+      organizationId: auth.organizationId,
+      teamId: auth.teamId,
+      userId: auth.userId,
+      category: 'SYSTEM',
+      origin: 'SYSTEM',
+      status: 'COMPLETED',
+      type,
+      title,
+      ...values,
+      details: (values.details ?? {}) as Prisma.InputJsonValue,
+    } });
   }
 
   private async audit(auth: AuthContext, action: string, entityType: string, entityId: string, before: unknown, after: unknown) {

@@ -54,6 +54,58 @@ export const deliveryStatuses = [
 ] as const;
 export type DeliveryStatus = (typeof deliveryStatuses)[number];
 
+export const activityCategories = ['call', 'note', 'meeting', 'task', 'whatsapp', 'email', 'system'] as const;
+export type ActivityCategory = (typeof activityCategories)[number];
+
+export const activityOrigins = ['manual', 'inbox', 'campaign', 'automation', 'system'] as const;
+export type ActivityOrigin = (typeof activityOrigins)[number];
+
+export const activityStatuses = ['scheduled', 'completed', 'sent', 'delivered', 'read', 'replied', 'failed', 'cancelled'] as const;
+export type ActivityStatus = (typeof activityStatuses)[number];
+
+export const activityDirections = ['inbound', 'outbound'] as const;
+export type ActivityDirection = (typeof activityDirections)[number];
+
+export const callOutcomes = ['connected', 'no_answer', 'busy', 'voicemail', 'wrong_number'] as const;
+export type CallOutcome = (typeof callOutcomes)[number];
+
+export const meetingOutcomes = ['completed', 'cancelled', 'no_show'] as const;
+export type MeetingOutcome = (typeof meetingOutcomes)[number];
+
+const optionalActivityAssociationSchema = z.string().uuid().nullable().optional();
+
+export const activityInputSchema = z.object({
+  category: z.enum(['call', 'note', 'meeting']),
+  title: z.string().trim().min(2).max(180),
+  body: z.string().trim().max(10_000).optional(),
+  direction: z.enum(activityDirections).optional(),
+  outcome: z.string().trim().max(80).optional(),
+  durationSeconds: z.coerce.number().int().min(0).max(86_400).nullable().optional(),
+  occurredAt: z.coerce.date(),
+  companyId: optionalActivityAssociationSchema,
+  contactId: optionalActivityAssociationSchema,
+  opportunityId: optionalActivityAssociationSchema,
+  followUp: z.object({
+    title: z.string().trim().min(2).max(180),
+    dueAt: z.coerce.date(),
+    priority: z.enum(['low', 'medium', 'high']).default('medium'),
+  }).optional(),
+}).superRefine((value, ctx) => {
+  if (!value.companyId && !value.contactId && !value.opportunityId) {
+    ctx.addIssue({ code: 'custom', path: ['companyId'], message: 'Vincule a atividade a uma empresa, contato ou oportunidade' });
+  }
+  if (value.category === 'note' && !value.body?.trim()) {
+    ctx.addIssue({ code: 'custom', path: ['body'], message: 'A nota precisa de conteúdo' });
+  }
+  if (value.category === 'call' && value.outcome && !callOutcomes.includes(value.outcome as CallOutcome)) {
+    ctx.addIssue({ code: 'custom', path: ['outcome'], message: 'Resultado da ligação inválido' });
+  }
+  if (value.category === 'meeting' && value.outcome && !meetingOutcomes.includes(value.outcome as MeetingOutcome)) {
+    ctx.addIssue({ code: 'custom', path: ['outcome'], message: 'Resultado da reunião inválido' });
+  }
+});
+export type ActivityInput = z.infer<typeof activityInputSchema>;
+
 export const workflowStatuses = ['draft', 'published', 'paused', 'archived'] as const;
 export type WorkflowStatus = (typeof workflowStatuses)[number];
 

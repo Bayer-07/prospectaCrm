@@ -15,6 +15,7 @@ import type { Company, Contact, Opportunity, Pipeline, Stage } from '../lib/type
 import { Button, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { toast } from '../lib/toast';
 import { useAuth } from '../App';
+import { ActivityQuickActions, ActivityTimeline } from '../components/ActivityTimeline';
 
 type OpportunityDetails = Opportunity & {
   status: string;
@@ -191,14 +192,29 @@ export function PipelinePage() {
 }
 
 function OpportunityDrawerContent({ opportunity }: Readonly<{ opportunity: OpportunityDetails }>) {
-  return <div className="drawer-content">
+  const [tab, setTab] = useState<'overview' | 'activities'>('overview');
+  const primaryContact = opportunity.contacts.find((item) => item.isPrimary)?.contact || opportunity.contacts[0]?.contact;
+  const association = {
+    opportunityId: opportunity.id,
+    opportunityTitle: opportunity.title,
+    companyId: opportunity.company?.id,
+    companyName: opportunity.company?.name,
+    contactId: primaryContact?.id,
+    contactName: primaryContact?.name,
+    phone: primaryContact?.phone || opportunity.company?.phone,
+  };
+  return <div className="drawer-content opportunity-workspace">
+    <ActivityQuickActions association={association} compact />
+    <div className="drawer-tabs" role="tablist"><button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Visão geral</button><button type="button" className={tab === 'activities' ? 'active' : ''} onClick={() => setTab('activities')}>Atividades</button></div>
+    {tab === 'activities' && <ActivityTimeline association={association} showActions={false} />}
+    {tab === 'overview' && <>
     <div className="drawer-summary"><div><span>Valor</span><strong>{money(opportunity.valueCents)}</strong></div><div><span>Etapa</span><span className="stage-pill"><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></div><div><span>Probabilidade</span><strong>{opportunity.probability}%</strong></div></div>
     <OpportunityProposalSection opportunity={opportunity} />
     <section><h3><Building2 size={17} />Empresa</h3>{opportunity.company ? <div className="drawer-entity"><span className="company-avatar">{initials(opportunity.company.name)}</span><div><strong>{opportunity.company.name}</strong><small>{opportunity.company.sector || opportunity.company.domain || 'Sem informações complementares'}</small>{opportunity.company.phone && <a href={`tel:${opportunity.company.phone}`}><Phone size={13} />{opportunity.company.phone}</a>}</div></div> : <p className="drawer-muted">Nenhuma empresa vinculada.</p>}</section>
     <section><h3><UsersRound size={17} />Contatos</h3>{opportunity.contacts.length ? <div className="drawer-contact-list">{opportunity.contacts.map(({ contact, isPrimary }) => <div key={contact.id}><span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}{isPrimary && <em>Principal</em>}</strong><small>{contact.jobTitle || 'Cargo não informado'}</small><span>{contact.email && <a href={`mailto:${contact.email}`}><Mail size={13} />{contact.email}</a>}{contact.phone && <a href={`tel:${contact.phone}`}><Phone size={13} />{contact.phone}</a>}</span></div></div>)}</div> : <p className="drawer-muted">Nenhum contato vinculado.</p>}</section>
     <section className="drawer-grid"><div><h3><UserRound size={17} />Responsável</h3><p>{opportunity.owner?.name || 'Não atribuído'}</p></div><div><h3><CalendarDays size={17} />Previsão</h3><p>{opportunity.expectedCloseAt ? dateTime(opportunity.expectedCloseAt).split(' ')[0] : 'Não definida'}</p></div><div><h3><CircleDollarSign size={17} />Origem</h3><p>{opportunity.source || 'Não informada'}</p></div><div><h3><Clock3 size={17} />Atualizada</h3><p>{dateTime(opportunity.updatedAt)}</p></div></section>
     {opportunity.tags.length > 0 && <section><h3><Tag size={17} />Tags</h3><div className="drawer-tags">{opportunity.tags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></section>}
-    <section><h3><Clock3 size={17} />Atividades recentes</h3>{opportunity.activities.length ? <div className="drawer-timeline">{opportunity.activities.slice(0, 8).map((activity) => <div key={activity.id}><i /><p><strong>{activity.title}</strong><small>{dateTime(activity.occurredAt)}</small></p></div>)}</div> : <p className="drawer-muted">Nenhuma atividade registrada.</p>}</section>
+    </>}
   </div>;
 }
 

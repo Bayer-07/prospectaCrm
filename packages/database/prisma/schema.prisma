@@ -91,6 +91,40 @@ enum MessageStatus {
   OPTED_OUT
 }
 
+enum ActivityCategory {
+  CALL
+  NOTE
+  MEETING
+  TASK
+  WHATSAPP
+  EMAIL
+  SYSTEM
+}
+
+enum ActivityOrigin {
+  MANUAL
+  INBOX
+  CAMPAIGN
+  AUTOMATION
+  SYSTEM
+}
+
+enum ActivityStatus {
+  SCHEDULED
+  COMPLETED
+  SENT
+  DELIVERED
+  READ
+  REPLIED
+  FAILED
+  CANCELLED
+}
+
+enum ActivityDirection {
+  INBOUND
+  OUTBOUND
+}
+
 enum CampaignStatus {
   DRAFT
   SCHEDULED
@@ -200,6 +234,7 @@ model Organization {
   pipelines              Pipeline[]
   opportunities          Opportunity[]
   tasks                  Task[]
+  activities             Activity[]
   taskDigestDeliveries   TaskDigestDelivery[]
   tags                   Tag[]
   customFields           CustomFieldDefinition[]
@@ -238,6 +273,7 @@ model Team {
   contacts       Contact[]
   opportunities  Opportunity[]
   tasks          Task[]
+  activities     Activity[]
   instanceAccess WhatsappInstanceTeam[]
   conversations  Conversation[]
 
@@ -668,24 +704,46 @@ model Note {
 }
 
 model Activity {
-  id            String       @id @default(uuid()) @db.Uuid
-  userId        String?      @db.Uuid
-  companyId     String?      @db.Uuid
-  contactId     String?      @db.Uuid
-  opportunityId String?      @db.Uuid
-  type          String
-  title         String
-  details       Json         @default("{}")
-  occurredAt    DateTime     @default(now())
-  user          User?        @relation(fields: [userId], references: [id], onDelete: SetNull)
-  company       Company?     @relation(fields: [companyId], references: [id], onDelete: Cascade)
-  contact       Contact?     @relation(fields: [contactId], references: [id], onDelete: Cascade)
-  opportunity   Opportunity? @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  id              String            @id @default(uuid()) @db.Uuid
+  organizationId  String            @db.Uuid
+  teamId          String?           @db.Uuid
+  userId          String?           @db.Uuid
+  companyId       String?           @db.Uuid
+  contactId       String?           @db.Uuid
+  opportunityId   String?           @db.Uuid
+  category        ActivityCategory  @default(SYSTEM)
+  origin          ActivityOrigin    @default(SYSTEM)
+  status          ActivityStatus    @default(COMPLETED)
+  direction       ActivityDirection?
+  type            String
+  title           String
+  body             String?
+  outcome          String?
+  durationSeconds  Int?
+  sourceType       String?
+  sourceId         String?
+  details          Json              @default("{}")
+  occurredAt       DateTime          @default(now())
+  scheduledAt      DateTime?
+  completedAt      DateTime?
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  deletedAt        DateTime?
+  organization    Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  team            Team?             @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  user            User?             @relation(fields: [userId], references: [id], onDelete: SetNull)
+  company         Company?          @relation(fields: [companyId], references: [id], onDelete: SetNull)
+  contact         Contact?          @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  opportunity     Opportunity?      @relation(fields: [opportunityId], references: [id], onDelete: SetNull)
 
-  @@index([companyId, occurredAt])
-  @@index([contactId, occurredAt])
-  @@index([opportunityId, occurredAt])
-  @@index([userId, occurredAt])
+  @@unique([organizationId, sourceType, sourceId])
+  @@index([organizationId, occurredAt(sort: Desc), id(sort: Desc), deletedAt], map: "Activity_org_timeline_idx")
+  @@index([organizationId, category, occurredAt(sort: Desc), deletedAt], map: "Activity_org_category_idx")
+  @@index([organizationId, teamId, occurredAt(sort: Desc), deletedAt], map: "Activity_team_scope_idx")
+  @@index([organizationId, userId, occurredAt(sort: Desc), deletedAt], map: "Activity_user_scope_idx")
+  @@index([companyId, occurredAt(sort: Desc), deletedAt])
+  @@index([contactId, occurredAt(sort: Desc), deletedAt])
+  @@index([opportunityId, occurredAt(sort: Desc), deletedAt])
 }
 
 model Tag {

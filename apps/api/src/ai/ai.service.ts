@@ -355,17 +355,42 @@ export class AiService {
     const changes = jsonObject(proposal.changes);
     const contactData = contactUpdates(fields, changes);
     const transaction: Prisma.PrismaPromise<unknown>[] = [];
+    let activityCompanyId = proposal.contact.primaryCompanyId;
     if (Object.keys(contactData).length) transaction.push(this.db.contact.update({ where: { id: proposal.contactId }, data: contactData }));
     if (fields.includes('company')) {
       const company = await this.resolveCompany(auth.organizationId, input.companyId, changes.companyName);
       if (!company) throw new BadRequestException('Selecione uma empresa existente para aplicar esta sugestão');
+      activityCompanyId = company.id;
       transaction.push(
         this.db.contactCompany.upsert({ where: { contactId_companyId: { contactId: proposal.contactId, companyId: company.id } }, create: { contactId: proposal.contactId, companyId: company.id, isPrimary: true }, update: { isPrimary: true } }),
         this.db.contact.update({ where: { id: proposal.contactId }, data: { primaryCompanyId: company.id } }),
       );
     }
     if (fields.includes('qualificationNote') && typeof changes.qualificationNote === 'string' && changes.qualificationNote.trim()) {
-      transaction.push(this.db.note.create({ data: { authorId: auth.userId, contactId: proposal.contactId, body: `Qualificação sugerida pela IA:\n${changes.qualificationNote.trim()}` } }));
+      const noteId = randomUUID();
+      const occurredAt = new Date();
+      const body = `Qualificação sugerida pela IA:\n${changes.qualificationNote.trim()}`;
+      transaction.push(
+        this.db.note.create({ data: { id: noteId, authorId: auth.userId, contactId: proposal.contactId, body } }),
+        this.db.activity.create({ data: {
+          organizationId: auth.organizationId,
+          teamId: proposal.contact.teamId,
+          userId: auth.userId,
+          companyId: activityCompanyId,
+          contactId: proposal.contactId,
+          category: 'NOTE',
+          origin: 'AUTOMATION',
+          status: 'COMPLETED',
+          type: 'note.created',
+          title: 'Qualificação sugerida pela IA',
+          body,
+          sourceType: 'NOTE',
+          sourceId: noteId,
+          occurredAt,
+          completedAt: occurredAt,
+          details: { conversationId },
+        } }),
+      );
     }
     const previousApplied = Array.isArray(proposal.appliedFields) ? proposal.appliedFields.filter((item): item is string => typeof item === 'string') : [];
     const appliedFields = [...new Set([...previousApplied, ...fields])];

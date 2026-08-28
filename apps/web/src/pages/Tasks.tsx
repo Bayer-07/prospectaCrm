@@ -15,6 +15,7 @@ import {
 } from '@dnd-kit/core';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
+import { useSearchParams } from 'react-router-dom';
 import {
   Check,
   ChevronLeft,
@@ -60,12 +61,22 @@ const hours = Array.from({ length: 24 }, (_, index) => index);
 
 export function TasksPage() {
   const client = useQueryClient();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState<CalendarView>(() => (localStorage.getItem('bzs-task-calendar-view') === 'week' ? 'week' : 'month'));
   const [filter, setFilter] = useState<TaskFilter>('OPEN');
   const [anchor, setAnchor] = useState(() => startOfDay(new Date()));
   const [modal, setModal] = useState<{ dueAt: Date; task?: Task } | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<TaskDropIndicator | null>(null);
+  const requestedCreate = searchParams.get('new') === '1';
+  const requestedAssociation = {
+    companyId: searchParams.get('company') || undefined,
+    contactId: searchParams.get('contact') || undefined,
+    opportunityId: searchParams.get('opportunity') || undefined,
+  };
+  useEffect(() => {
+    if (requestedCreate) setModal((current) => current || { dueAt: defaultTaskTime(new Date()) });
+  }, [requestedCreate]);
   const range = useMemo(() => visibleRange(anchor, view), [anchor, view]);
   const query = useQuery({
     queryKey: ['tasks', range.start.toISOString(), range.end.toISOString(), filter],
@@ -138,6 +149,13 @@ export function TasksPage() {
     : `${weekTitleFormatter.format(range.start)} – ${weekTitleFormatter.format(new Date(range.end.getTime() - 1))}`;
   const openTask = (task: Task) => setModal({ dueAt: new Date(task.dueAt), task });
   const createAt = (dueAt: Date) => setModal({ dueAt });
+  const closeModal = () => {
+    setModal(null);
+    if (!searchParams.has('new')) return;
+    const next = new URLSearchParams(searchParams);
+    for (const key of ['new', 'company', 'contact', 'opportunity']) next.delete(key);
+    setSearchParams(next, { replace: true });
+  };
   const saveView = (next: CalendarView) => {
     setView(next);
     localStorage.setItem('bzs-task-calendar-view', next);
@@ -220,16 +238,17 @@ export function TasksPage() {
         conversationId={modal.task.followUp.conversationId}
         contactName={modal.task.contact?.name || modal.task.title.replace(/^Follow-up\s*·\s*/u, '')}
         followUpId={modal.task.followUp.id}
-        onClose={() => setModal(null)}
+        onClose={closeModal}
         onSaved={() => void client.invalidateQueries({ queryKey: ['tasks'] })}
       />
       : modal && <TaskModal
         initialDueAt={modal.dueAt}
         task={modal.task}
         users={metadata.data?.data.users || []}
-        onClose={() => setModal(null)}
+        association={modal.task ? undefined : requestedAssociation}
+        onClose={closeModal}
         onSaved={() => {
-          setModal(null);
+          closeModal();
           void client.invalidateQueries({ queryKey: ['tasks'] });
         }}
       />}
@@ -593,12 +612,14 @@ function TaskModal({
   initialDueAt,
   task,
   users,
+  association,
   onClose,
   onSaved,
 }: Readonly<{
   initialDueAt: Date;
   task?: Task;
   users: Metadata['users'];
+  association?: { companyId?: string; contactId?: string; opportunityId?: string };
   onClose(): void;
   onSaved(): void;
 }>) {
@@ -617,6 +638,7 @@ function TaskModal({
         ...form,
         dueAt: new Date(form.dueAt).toISOString(),
         assigneeId: form.assigneeId || undefined,
+        ...association,
       }),
     }),
     onSuccess: () => {

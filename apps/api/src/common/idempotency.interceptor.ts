@@ -13,7 +13,7 @@ export class IdempotencyInterceptor implements NestInterceptor {
     if (context.getType() !== 'http') return next.handle();
     const request = context.switchToHttp().getRequest<AuthenticatedRequest>();
     const response = context.switchToHttp().getResponse<{ statusCode: number }>();
-    const sensitive = request.method === 'POST' && /^\/api\/v1\/(companies|contacts|opportunities|tasks|imports)/.test(request.originalUrl);
+    const sensitive = request.method === 'POST' && /^\/api\/v1\/(companies|contacts|opportunities|tasks|activities|imports)/.test(request.originalUrl);
     if (!sensitive || request.auth?.type !== 'apiKey') return next.handle();
     const key = request.headers['idempotency-key'];
     if (typeof key !== 'string' || key.length < 8 || key.length > 160) throw new BadRequestException('Idempotency-Key obrigatório');

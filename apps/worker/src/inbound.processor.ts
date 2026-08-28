@@ -1,6 +1,7 @@
 import type { Job, Queue } from 'bullmq';
 import { Prisma, PrismaClient, type MessageStatus } from '@prisma/client';
 import { extractSharedWhatsappContacts, isOptOutMessage, normalizeEvolutionInstanceStatus, normalizePhoneKey, type FollowUpAlertEmailJob } from '@prospecta/contracts';
+import { markLatestWhatsappActivityReplied, projectTaskActivity, projectWhatsappMessageActivity } from '@prospecta/database';
 import { createDecipheriv, createHash, hkdfSync } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
 import { storeInboundMedia } from './storage.js';
@@ -9,6 +10,7 @@ type AnyObject = Record<string, any>;
 type StoredMessageResult = {
   conversationId: string;
   tasksUpdated?: boolean;
+  activityUpdated?: boolean;
   newMessage?: {
     id: string;
     direction: 'INBOUND' | 'OUTBOUND';
@@ -543,12 +545,12 @@ export class InboundProcessor {
       const eventType = normalizeEvolutionEventType(event.eventType);
       await this.touchInstanceEvent(instance.id);
       this.markEvolutionActivity(instance.id);
-      const { conversationId, newMessage, tasksUpdated } = await this.dispatchEvent(instance, payload, eventType);
+      const { conversationId, newMessage, tasksUpdated, activityUpdated } = await this.dispatchEvent(instance, payload, eventType);
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'processed', processedAt: new Date() } });
       return {
         organizationId: instance.organizationId,
         event: eventType.includes('CONNECTION') ? 'whatsapp.updated' : 'inbox.updated',
-        payload: { instanceId: instance.id, ...(conversationId ? { conversationId } : {}), ...(newMessage ? { newMessage } : {}), ...(tasksUpdated ? { tasksUpdated: true } : {}) },
+        payload: { instanceId: instance.id, ...(conversationId ? { conversationId } : {}), ...(newMessage ? { newMessage } : {}), ...(tasksUpdated ? { tasksUpdated: true } : {}), ...(activityUpdated ? { activityUpdated: true } : {}) },
       };
     } catch (error) {
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'failed', error: error instanceof Error ? error.message : String(error) } });
@@ -565,7 +567,10 @@ export class InboundProcessor {
       return await this.message(instance, payload) || {};
     }
     if (eventType.includes('MESSAGES_EDITED')) return { conversationId: await this.messageEdited(instance.id, payload) };
-    if (eventType.includes('MESSAGES_UPDATE')) return { conversationId: await this.messageUpdate(instance.id, payload) };
+    if (eventType.includes('MESSAGES_UPDATE')) {
+      const conversationId = await this.messageUpdate(instance.id, payload);
+      return { conversationId, activityUpdated: Boolean(conversationId) };
+    }
     if (eventType.includes('MESSAGES_DELETE')) return { conversationId: await this.messageDelete(instance.id, payload) };
     return {};
   }
@@ -747,9 +752,13 @@ export class InboundProcessor {
     const tasksUpdated = !fromMe
       ? await this.handleInboundEffects(instance, conversation, ensuredContact, storedMessage.id, text)
       : false;
+    const activity = fromMe
+      ? await projectWhatsappMessageActivity(this.db, storedMessage.id)
+      : await markLatestWhatsappActivityReplied(this.db, conversation.id);
     return {
       conversationId: conversation.id,
       tasksUpdated,
+      activityUpdated: Boolean(activity),
       newMessage: {
         id: storedMessage.id,
         direction: fromMe ? 'OUTBOUND' : 'INBOUND',
@@ -1079,8 +1088,10 @@ export class InboundProcessor {
       return {
         alertId: followUp?.emailResponsible ? followUp.id : null,
         changed: Boolean(followUp),
+        taskId: followUp?.taskId || null,
       };
     });
+    if (followUpResult.taskId) await projectTaskActivity(this.db, followUpResult.taskId, 'AUTOMATION');
     if (followUpResult.alertId && this.transactionalEmailQueue) {
       const data: FollowUpAlertEmailJob = { followUpId: followUpResult.alertId, reason: 'contact_replied_before_start' };
       await this.transactionalEmailQueue.add('send-follow-up-alert', data, {
@@ -1152,7 +1163,7 @@ export class InboundProcessor {
       body: beforeStart ? 'O contato respondeu antes do horário agendado.' : 'O contato respondeu durante a sequência.',
       actionUrl: `/inbox/${conversationId}`,
     } });
-    return { id: active.id, emailResponsible: beforeStart };
+    return { id: active.id, taskId: active.taskId, emailResponsible: beforeStart };
   }
 
   private async applyReaction(instanceId: string, reaction: { targetProviderMessageId: string; emoji: string }, fromMe: boolean, actorName: string) {
@@ -1370,7 +1381,10 @@ export class InboundProcessor {
     const deliveredAt = !message.deliveredAt && (incomingStatus === 'DELIVERED' || incomingStatus === 'READ') ? now : undefined;
     const readAt = !message.readAt && incomingStatus === 'READ' ? now : undefined;
     const needsMessageUpdate = message.status !== status || Boolean(deliveredAt) || Boolean(readAt);
-    if (!needsMessageUpdate && !providerJid.includes('@lid')) return message.conversationId;
+    if (!needsMessageUpdate && !providerJid.includes('@lid')) {
+      await projectWhatsappMessageActivity(this.db, message.id);
+      return message.conversationId;
+    }
     await this.db.$transaction(async (tx) => {
       if (needsMessageUpdate) {
         await tx.message.update({ where: { id: message.id }, data: { status, deliveredAt, readAt } });
@@ -1410,6 +1424,7 @@ export class InboundProcessor {
         },
       });
     });
+    await projectWhatsappMessageActivity(this.db, message.id);
     return message.conversationId;
   }
 
