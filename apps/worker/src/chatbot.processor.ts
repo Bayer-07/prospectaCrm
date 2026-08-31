@@ -420,7 +420,7 @@ export class ChatbotProcessor {
       if (waitingNode?.type === 'question') {
         const responseVariable = temporaryVariableName(waitingNode.data?.responseVariable);
         if (responseVariable) {
-          input.context.variables = { ...input.context.variables, [responseVariable]: input.context.lastMessage };
+          input.context.variables = { ...input.context.variables, [responseVariable]: input.context.lastMessage.trim() };
         }
       }
       nextNodeId = waitingNode?.type === 'ai_conversation' ? waitingNode.id : this.next(input.graph, waitingNode!.id)?.target || '';
@@ -570,7 +570,6 @@ export class ChatbotProcessor {
     }
 
     const method = textValue(node.data?.method).toUpperCase() as NonNullable<PublicHttpRequestOptions['method']>;
-    const url = provider.interpolate(textValue(node.data?.url), context);
     const renderedHeaders = provider.interpolate(textValue(node.data?.headers), context);
     const renderedBody = provider.interpolate(textValue(node.data?.body), context);
     const requestBody = method === 'GET' ? undefined : renderedBody;
@@ -587,6 +586,7 @@ export class ChatbotProcessor {
     let responseBody: unknown = null;
     let errorMessage: string | undefined;
     try {
+      const url = provider.interpolateUrl(textValue(node.data?.url), context);
       const headers = parseChatbotHttpHeaders(renderedHeaders);
       if (requestBody && Buffer.byteLength(requestBody, 'utf8') > 256 * 1024) {
         throw new Error('O body da requisição HTTP ultrapassou 256 KB');

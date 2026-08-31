@@ -79,3 +79,20 @@ export function renderTemplateVariables(
     text(variableValue(availableVariables, key))
   ));
 }
+
+export function renderUrlTemplateVariables(
+  template: string,
+  variables: Record<string, unknown> = {},
+  date = new Date(),
+  timeZone = DEFAULT_TEMPLATE_TIME_ZONE,
+) {
+  const availableVariables = { ...variables, saudacao: timeBasedGreeting(date, timeZone) };
+
+  return template.replace(/{{\s*([\w.]+)\s*}}/gi, (_match, key: string) => {
+    const value = variableValue(availableVariables, key);
+    if (value === undefined) {
+      throw new Error(`A variável {{${key}}} não está disponível neste atendimento`);
+    }
+    return encodeURIComponent(text(value));
+  });
+}

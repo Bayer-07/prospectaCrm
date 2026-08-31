@@ -17,6 +17,7 @@ export {
   contactTemplateVariables,
   DEFAULT_TEMPLATE_TIME_ZONE,
   renderTemplateVariables,
+  renderUrlTemplateVariables,
   timeBasedGreeting,
 } from './template-variables.js';
 

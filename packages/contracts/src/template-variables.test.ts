@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { contactTemplateVariables, renderTemplateVariables, timeBasedGreeting } from './template-variables.js';
+import { contactTemplateVariables, renderTemplateVariables, renderUrlTemplateVariables, timeBasedGreeting } from './template-variables.js';
 
 describe('variáveis de mensagem', () => {
   it.each([
@@ -48,5 +48,17 @@ describe('variáveis de mensagem', () => {
   it('serializa o objeto quando a variável raiz é usada', () => {
     expect(renderTemplateVariables('{{resposta}}', { resposta: { nome: 'Gabriel' } }))
       .toBe('{"nome":"Gabriel"}');
+  });
+
+  it('codifica variáveis usadas em URLs sem alterar o restante da URL', () => {
+    expect(renderUrlTemplateVariables(
+      'https://api.exemplo.com/cnpj/{{cnp}}?telefone={{telefone}}',
+      { cnp: '12.345.678/0001-90', telefone: '+55 45 99999-9999' },
+    )).toBe('https://api.exemplo.com/cnpj/12.345.678%2F0001-90?telefone=%2B55%2045%2099999-9999');
+  });
+
+  it('não transforma uma variável ausente em uma URL incompleta', () => {
+    expect(() => renderUrlTemplateVariables('https://api.exemplo.com/cnpj/{{cnp}}', {}))
+      .toThrow('A variável {{cnp}} não está disponível neste atendimento');
   });
 });

@@ -1,4 +1,4 @@
-import { renderTemplateVariables } from '@prospecta/contracts';
+import { renderTemplateVariables, renderUrlTemplateVariables } from '@prospecta/contracts';
 
 export type ChatbotRuleContext = {
   lastMessage: string;
@@ -15,6 +15,7 @@ export interface ChatbotResponseProvider {
   readonly key: string;
   matches(data: Record<string, unknown>, context: ChatbotRuleContext): boolean;
   interpolate(template: string, context: ChatbotRuleContext): string;
+  interpolateUrl(template: string, context: ChatbotRuleContext): string;
 }
 
 const scalarText = (value: unknown) => {
@@ -43,8 +44,8 @@ export class RulesResponseProvider implements ChatbotResponseProvider {
     return values.some((value) => actual.includes(value));
   }
 
-  interpolate(template: string, context: ChatbotRuleContext) {
-    return renderTemplateVariables(template, {
+  private variables(context: ChatbotRuleContext) {
+    return {
       nome: context.contactName,
       telefone: context.contactPhone || '',
       email: context.contactEmail || '',
@@ -52,7 +53,15 @@ export class RulesResponseProvider implements ChatbotResponseProvider {
       cargo: context.contactJobTitle || '',
       mensagem: context.lastMessage,
       ...(context.variables || {}),
-    });
+    };
+  }
+
+  interpolate(template: string, context: ChatbotRuleContext) {
+    return renderTemplateVariables(template, this.variables(context));
+  }
+
+  interpolateUrl(template: string, context: ChatbotRuleContext) {
+    return renderUrlTemplateVariables(template, this.variables(context));
   }
 }
 

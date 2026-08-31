@@ -25,4 +25,10 @@ describe('provedor de respostas por regras', () => {
     expect(provider.interpolate('{{resposta.nome}}', { ...context, variables: { resposta: { nome: 'Gabriel', idade: 19 } } }))
       .toBe('Gabriel');
   });
+  it('codifica variáveis interpoladas em uma URL', () => {
+    expect(provider.interpolateUrl('https://api.exemplo.com/cnpj/{{cnp}}', {
+      ...context,
+      variables: { cnp: '12.345.678/0001-90' },
+    })).toBe('https://api.exemplo.com/cnpj/12.345.678%2F0001-90');
+  });
 });

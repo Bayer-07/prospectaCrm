@@ -62,17 +62,17 @@ const httpGraph = {
 const capturedAnswerHttpGraph = {
   nodes: [
     { id: 'trigger', type: 'trigger', data: {} },
-    { id: 'ask-cnpj', type: 'question', data: { text: 'Qual é o CNPJ?', responseVariable: 'cnpj' } },
+    { id: 'ask-cnpj', type: 'question', data: { text: 'Qual é o CNPJ?', responseVariable: 'cnp' } },
     { id: 'validate-cnpj', type: 'http_request', data: {
       method: 'GET',
-      url: 'https://api.exemplo.com/cnpj/{{cnpj}}',
+      url: 'https://api.exemplo.com/cnpj/{{cnp}}',
       headers: '{}',
       body: '',
       variableName: 'validacao',
       timeoutSeconds: 15,
       responseRoutes: [{ id: 'success', label: 'Sucesso', path: 'status', operator: 'equals', value: '200' }],
     } },
-    { id: 'confirmation', type: 'question', data: { text: 'O CNPJ {{cnpj}} está ativo: {{validacao.ativo}}', responseVariable: 'confirmacao' } },
+    { id: 'confirmation', type: 'question', data: { text: 'O CNPJ {{cnp}} está ativo: {{validacao.ativo}}', responseVariable: 'confirmacao' } },
     { id: 'fallback-end', type: 'end', data: {} },
   ],
   edges: [
@@ -324,7 +324,7 @@ describe('espera do chatbot', () => {
     await processor.process({ data: { messageId: 'inbound-1' } } as never);
 
     expect(httpRequest).toHaveBeenCalledWith(
-      'https://api.exemplo.com/pessoa?telefone=+5545999999999',
+      'https://api.exemplo.com/pessoa?telefone=%2B5545999999999',
       expect.objectContaining({
         method: 'POST',
         headers: { 'content-type': 'application/json' },
@@ -350,7 +350,7 @@ describe('espera do chatbot', () => {
       currentNodeId: 'ask-cnpj', lastInboundMessageId: 'inbound-old', wakeAt: null,
       context: { variables: { origem: 'chatbot' } },
     };
-    const inbound = { ...inboundMessage(previousSession), text: '12345678000199' };
+    const inbound = { ...inboundMessage(previousSession), text: ' 12.345.678/0001-99 ' };
     const updateSession = vi.fn()
       .mockResolvedValueOnce({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'validate-cnpj' })
       .mockResolvedValue({});
@@ -379,18 +379,18 @@ describe('espera do chatbot', () => {
     await processor.process({ data: { messageId: 'inbound-1' } } as never);
 
     expect(httpRequest).toHaveBeenCalledWith(
-      'https://api.exemplo.com/cnpj/12345678000199',
+      'https://api.exemplo.com/cnpj/12.345.678%2F0001-99',
       expect.objectContaining({ method: 'GET' }),
     );
     expect(updateSession).toHaveBeenCalledWith(expect.objectContaining({
       data: expect.objectContaining({
         context: expect.objectContaining({
-          variables: expect.objectContaining({ origem: 'chatbot', cnpj: '12345678000199' }),
+          variables: expect.objectContaining({ origem: 'chatbot', cnp: '12.345.678/0001-99' }),
         }),
       }),
     }));
     expect(createMessage).toHaveBeenCalledWith({ data: expect.objectContaining({
-      text: 'O CNPJ 12345678000199 está ativo: true',
+      text: 'O CNPJ 12.345.678/0001-99 está ativo: true',
     }) });
   });
 
