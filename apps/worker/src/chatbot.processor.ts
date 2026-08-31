@@ -25,6 +25,15 @@ type ChatbotHttpRequester = (url: string, options?: PublicHttpRequestOptions) =>
 const MAX_WAIT_SECONDS = 31_536_000;
 const AUDIO_TRANSCRIPTION_POLL_MS = 5_000;
 const DEFAULT_AUDIO_TRANSCRIPTION_WAIT_MS = 15 * 60_000;
+const RESERVED_SESSION_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
+
+function temporaryVariableName(value: unknown) {
+  const variableName = textValue(value).trim();
+  return /^[A-Za-z_][A-Za-z0-9_]{0,49}$/u.test(variableName)
+    && !RESERVED_SESSION_VARIABLES.has(variableName.toLocaleLowerCase('pt-BR'))
+    ? variableName
+    : '';
+}
 
 export class ChatbotProcessor {
   private readonly providers: Map<string, ChatbotResponseProvider>;
@@ -408,6 +417,12 @@ export class ChatbotProcessor {
         await this.fail(session.id, 'O bloco atual não pode aguardar uma resposta');
         return null;
       }
+      if (waitingNode?.type === 'question') {
+        const responseVariable = temporaryVariableName(waitingNode.data?.responseVariable);
+        if (responseVariable) {
+          input.context.variables = { ...input.context.variables, [responseVariable]: input.context.lastMessage };
+        }
+      }
       nextNodeId = waitingNode?.type === 'ai_conversation' ? waitingNode.id : this.next(input.graph, waitingNode!.id)?.target || '';
     }
     if (!nextNodeId) {
@@ -541,7 +556,7 @@ export class ChatbotProcessor {
     if (previousExecution?.status === 'completed') {
       const previousOutput = previousExecution.output as Record<string, unknown>;
       const previousHandle = textValue(previousOutput.handle) || 'default';
-      const variableName = textValue(previousOutput.variableName) || textValue(node.data?.variableName);
+      const variableName = temporaryVariableName(previousOutput.variableName) || temporaryVariableName(node.data?.variableName) || 'resposta';
       if (!Object.prototype.hasOwnProperty.call(context.variables, variableName)) {
         context.variables = { ...context.variables, [variableName]: null };
       }
@@ -560,7 +575,7 @@ export class ChatbotProcessor {
     const renderedBody = provider.interpolate(textValue(node.data?.body), context);
     const requestBody = method === 'GET' ? undefined : renderedBody;
     const timeoutMs = chatbotHttpTimeoutMs(node.data?.timeoutSeconds);
-    const variableName = textValue(node.data?.variableName);
+    const variableName = temporaryVariableName(node.data?.variableName) || 'resposta';
     const routes = (Array.isArray(node.data?.responseRoutes) ? node.data.responseRoutes : []) as ChatbotHttpResponseRoute[];
     await this.db.chatbotStepExecution.upsert({
       where: unique,

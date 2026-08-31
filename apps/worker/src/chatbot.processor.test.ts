@@ -59,6 +59,31 @@ const httpGraph = {
   ],
 };
 
+const capturedAnswerHttpGraph = {
+  nodes: [
+    { id: 'trigger', type: 'trigger', data: {} },
+    { id: 'ask-cnpj', type: 'question', data: { text: 'Qual é o CNPJ?', responseVariable: 'cnpj' } },
+    { id: 'validate-cnpj', type: 'http_request', data: {
+      method: 'GET',
+      url: 'https://api.exemplo.com/cnpj/{{cnpj}}',
+      headers: '{}',
+      body: '',
+      variableName: 'validacao',
+      timeoutSeconds: 15,
+      responseRoutes: [{ id: 'success', label: 'Sucesso', path: 'status', operator: 'equals', value: '200' }],
+    } },
+    { id: 'confirmation', type: 'question', data: { text: 'O CNPJ {{cnpj}} está ativo: {{validacao.ativo}}', responseVariable: 'confirmacao' } },
+    { id: 'fallback-end', type: 'end', data: {} },
+  ],
+  edges: [
+    { source: 'trigger', target: 'ask-cnpj' },
+    { source: 'ask-cnpj', target: 'validate-cnpj' },
+    { source: 'validate-cnpj', sourceHandle: 'success', target: 'confirmation' },
+    { source: 'validate-cnpj', sourceHandle: 'default', target: 'fallback-end' },
+    { source: 'confirmation', target: 'fallback-end' },
+  ],
+};
+
 function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
   return {
     id: 'inbound-1',
@@ -317,6 +342,56 @@ describe('espera do chatbot', () => {
     expect(upsertExecution).toHaveBeenCalledWith(expect.objectContaining({
       update: expect.objectContaining({ output: expect.objectContaining({ handle: 'adult', variableName: 'resposta' }) }),
     }));
+  });
+
+  it('salva a resposta da pergunta e reutiliza a variável no HTTP e em perguntas seguintes', async () => {
+    const previousSession = {
+      id: 'session-1', chatbotId: 'chatbot-1', versionId: 'version-1', status: 'WAITING',
+      currentNodeId: 'ask-cnpj', lastInboundMessageId: 'inbound-old', wakeAt: null,
+      context: { variables: { origem: 'chatbot' } },
+    };
+    const inbound = { ...inboundMessage(previousSession), text: '12345678000199' };
+    const updateSession = vi.fn()
+      .mockResolvedValueOnce({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'validate-cnpj' })
+      .mockResolvedValue({});
+    const createMessage = vi.fn().mockResolvedValue({});
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(inbound), create: createMessage },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'RULES' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: capturedAnswerHttpGraph }) },
+      chatbotSession: { update: updateSession },
+      chatbotStepExecution: { findUnique: vi.fn().mockResolvedValue(null), upsert: vi.fn().mockResolvedValue({}) },
+      conversation: { findUnique: vi.fn().mockResolvedValue({ instanceId: 'instance-1', assigneeId: null, status: 'WAITING' }) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const httpRequest = vi.fn().mockResolvedValue({ ok: true, status: 200, bodyText: '{"ativo":true}' });
+    const outboundQueue = { add: vi.fn().mockResolvedValue({}) };
+    const processor = new ChatbotProcessor(
+      db as never,
+      { add: vi.fn() } as never,
+      outboundQueue as never,
+      undefined,
+      undefined,
+      undefined,
+      httpRequest,
+    );
+
+    await processor.process({ data: { messageId: 'inbound-1' } } as never);
+
+    expect(httpRequest).toHaveBeenCalledWith(
+      'https://api.exemplo.com/cnpj/12345678000199',
+      expect.objectContaining({ method: 'GET' }),
+    );
+    expect(updateSession).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({
+        context: expect.objectContaining({
+          variables: expect.objectContaining({ origem: 'chatbot', cnpj: '12345678000199' }),
+        }),
+      }),
+    }));
+    expect(createMessage).toHaveBeenCalledWith({ data: expect.objectContaining({
+      text: 'O CNPJ 12345678000199 está ativo: true',
+    }) });
   });
 
   it('cancela uma geração anterior quando chega uma mensagem mais recente ao bloco de IA', async () => {

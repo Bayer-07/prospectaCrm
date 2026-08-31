@@ -20,13 +20,18 @@ function nodeLabel(node: ChatbotNode) {
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const HTTP_ROUTE_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'exists', 'not_exists', 'greater_than', 'less_than', 'between']);
-const RESERVED_CHATBOT_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem']);
+const RESERVED_CHATBOT_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
 const BLOCKED_HTTP_HEADERS = new Set(['connection', 'content-length', 'host', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
 
 type HttpResponseRoute = { id?: unknown; label?: unknown; path?: unknown; operator?: unknown; value?: unknown };
 
 function httpResponseRoutes(node: ChatbotNode) {
   return Array.isArray(node.data?.responseRoutes) ? node.data.responseRoutes as HttpResponseRoute[] : [];
+}
+
+function isValidTemporaryVariableName(variableName: string) {
+  return /^[A-Za-z_][A-Za-z0-9_]{0,49}$/u.test(variableName)
+    && !RESERVED_CHATBOT_VARIABLES.has(variableName.toLocaleLowerCase('pt-BR'));
 }
 
 function validateHttpRequestNode(node: ChatbotNode) {
@@ -63,7 +68,7 @@ function validateHttpRequestNode(node: ChatbotNode) {
     }
   }
   if (Buffer.byteLength(body, 'utf8') > 256 * 1024) throw new BadRequestException(`O body do bloco ${nodeLabel(node)} ultrapassa 256 KB`);
-  if (!/^[A-Za-z_][A-Za-z0-9_]{0,49}$/u.test(variableName) || RESERVED_CHATBOT_VARIABLES.has(variableName.toLocaleLowerCase('pt-BR'))) {
+  if (!isValidTemporaryVariableName(variableName)) {
     throw new BadRequestException(`Informe um nome de variável temporária válido no bloco ${nodeLabel(node)}`);
   }
   if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 60) {
@@ -108,6 +113,12 @@ function validateNodeText(node: ChatbotNode) {
   }
   if (['message', 'question'].includes(node.type) && !primitiveText(node.data?.text).trim()) {
     throw new BadRequestException(`Preencha o texto do bloco ${nodeLabel(node)}`);
+  }
+  if (node.type === 'question') {
+    const responseVariable = primitiveText(node.data?.responseVariable).trim();
+    if (responseVariable && !isValidTemporaryVariableName(responseVariable)) {
+      throw new BadRequestException(`Informe um nome de variável de resposta válido no bloco ${nodeLabel(node)}`);
+    }
   }
   if (node.type === 'wait') {
     const seconds = Number(node.data?.seconds);
@@ -402,7 +413,7 @@ export class ChatbotsService {
       nodes: [
         { id: 'trigger-1', type: 'trigger', data: { label: 'Mensagem recebida', subtitle: 'Qualquer mensagem', operator: 'contains', value: '' }, position: { x: 60, y: 180 } },
         { id: 'message-1', type: 'message', data: { label: 'Boas-vindas', subtitle: 'Resposta automática', text: 'Olá, {{nome}}! Sou o assistente virtual. Como posso ajudar?' }, position: { x: 340, y: 180 } },
-        { id: 'question-1', type: 'question', data: { label: 'Entender necessidade', subtitle: 'Aguarda uma resposta', text: 'Digite 1 para falar com vendas ou 2 para suporte.' }, position: { x: 620, y: 180 } },
+        { id: 'question-1', type: 'question', data: { label: 'Entender necessidade', subtitle: 'Aguarda uma resposta', text: 'Digite 1 para falar com vendas ou 2 para suporte.', responseVariable: 'resposta_cliente' }, position: { x: 620, y: 180 } },
         { id: 'condition-1', type: 'condition', data: { label: 'Escolheu vendas?', subtitle: 'Resposta igual a 1', operator: 'equals', value: '1' }, position: { x: 900, y: 180 } },
         { id: 'message-2', type: 'message', data: { label: 'Confirmar transferência', subtitle: 'Equipe dará continuidade', text: 'Perfeito! Vou encaminhar seu atendimento para nossa equipe.' }, position: { x: 1180, y: 80 } },
         { id: 'handoff-1', type: 'handoff', data: { label: 'Transferir para atendente', subtitle: 'Envia para Aguardando' }, position: { x: 1460, y: 180 } },

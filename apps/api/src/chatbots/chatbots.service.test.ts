@@ -49,7 +49,7 @@ describe('validação do mapa do chatbot', () => {
     expect(() => service.validateShape({
       nodes: [
         { id: 'start', type: 'trigger' },
-        { id: 'question', type: 'question', data: { text: 'Como posso ajudar?' } },
+        { id: 'question', type: 'question', data: { text: 'Qual é o CNPJ?', responseVariable: 'cnpj' } },
         { id: 'condition', type: 'condition', data: { operator: 'equals', value: '1' } },
         { id: 'handoff', type: 'handoff' },
         { id: 'end', type: 'end' },
@@ -68,6 +68,19 @@ describe('validação do mapa do chatbot', () => {
       nodes: [{ id: 'start', type: 'trigger' }, { id: 'condition', type: 'condition', data: { value: 'sim' } }, { id: 'end', type: 'end' }],
       edges: [{ source: 'start', target: 'condition' }, { source: 'condition', sourceHandle: 'true', target: 'end' }],
     }, true)).toThrow(/saídas/);
+  });
+
+  it('bloqueia nome inválido ou reservado para a variável da pergunta', () => {
+    const graphWithVariable = (responseVariable: string) => ({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'question', type: 'question', data: { text: 'Qual é o CNPJ?', responseVariable } },
+        { id: 'end', type: 'end' },
+      ],
+      edges: [{ source: 'start', target: 'question' }, { source: 'question', target: 'end' }],
+    });
+    expect(() => service.validateShape(graphWithVariable('cnpj empresa'), true)).toThrow(/nome de variável/);
+    expect(() => service.validateShape(graphWithVariable('nome'), true)).toThrow(/nome de variável/);
   });
 
   it('permite repetir uma pergunta quando a resposta é inválida', () => {
