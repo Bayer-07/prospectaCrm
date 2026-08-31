@@ -5,6 +5,7 @@ import { resolvePublicHttpUrl, type PublicAddress, type PublicAddressResolver } 
 
 const MAX_REDIRECTS = 3;
 const DEFAULT_MAX_RESPONSE_BYTES = 256 * 1024;
+const DEFAULT_USER_AGENT = 'BZS-One/1.0';
 
 export type PublicHttpGetOptions = {
   headers?: Record<string, string>;
@@ -25,6 +26,11 @@ export type PublicHttpRequestResponse = PublicHttpGetResponse & {
   bodyText: string;
   contentType?: string;
 };
+
+export function publicHttpRequestHeaders(headers: Record<string, string> | undefined) {
+  if (Object.keys(headers || {}).some((name) => name.toLowerCase() === 'user-agent')) return headers;
+  return { ...headers, 'user-agent': DEFAULT_USER_AGENT };
+}
 
 export function createPinnedLookup(addresses: PublicAddress[]): LookupFunction {
   return ((_: string, options: { family?: number; all?: boolean }, callback: (...args: unknown[]) => void) => {
@@ -108,7 +114,7 @@ export async function publicHttpRequest(rawUrl: string, options: PublicHttpReque
   let target = rawUrl;
   let method = options.method || 'GET';
   let body = options.body;
-  let headers = options.headers;
+  let headers = publicHttpRequestHeaders(options.headers);
   for (let redirects = 0; redirects <= MAX_REDIRECTS; redirects += 1) {
     const response = await requestOnce(target, { ...options, method, body, headers });
     const redirected = response.status >= 300 && response.status < 400 && response.location;
