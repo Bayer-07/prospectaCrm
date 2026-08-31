@@ -1,11 +1,11 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position, addEdge,
   useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps,
 } from '@xyflow/react';
 import {
-  Archive, Bot, BrainCircuit, ChevronLeft, CircleStop, Clock3, GitBranch, HelpCircle, MessageSquareText,
+  Archive, Bot, BrainCircuit, ChevronDown, ChevronLeft, ChevronUp, CircleStop, Clock3, GitBranch, Globe2, HelpCircle, MessageSquareText,
   Pause, Play, Plus, Save, Send, Tag, Trash2, UserRoundCheck,
 } from 'lucide-react';
 import { api, dateTime, type Envelope } from '../lib/api';
@@ -14,7 +14,8 @@ import { useTheme } from '../lib/theme';
 import { toast } from '../lib/toast';
 import '@xyflow/react/dist/style.css';
 
-type FlowData = { label?: string; subtitle?: string; text?: string; operator?: string; value?: string; tagId?: string; [key: string]: unknown };
+type HttpResponseRoute = { id: string; label: string; path: string; operator: string; value?: string };
+type FlowData = { label?: string; subtitle?: string; text?: string; operator?: string; value?: string; tagId?: string; responseRoutes?: HttpResponseRoute[]; [key: string]: unknown };
 type InstanceOption = { id: string; name: string; phone?: string; status: string };
 type TagOption = { id: string; name: string; color: string };
 type TeamOption = { id: string; name: string; color: string; isDefault?: boolean };
@@ -30,6 +31,7 @@ const nodeDefinitions = [
   { type: 'message', label: 'Enviar mensagem', subtitle: 'Resposta automática', icon: MessageSquareText, tone: 'green' },
   { type: 'question', label: 'Fazer pergunta', subtitle: 'Aguarda a resposta', icon: HelpCircle, tone: 'blue' },
   { type: 'wait', label: 'Aguardar', subtitle: 'Pausa programada', icon: Clock3, tone: 'blue' },
+  { type: 'http_request', label: 'Requisição HTTP', subtitle: 'Consulta uma API', icon: Globe2, tone: 'green' },
   { type: 'ai_conversation', label: 'Atendimento por IA', subtitle: 'Pré-atendimento local', icon: BrainCircuit, tone: 'violet' },
   { type: 'condition', label: 'Condição', subtitle: 'Ramifica pela resposta', icon: GitBranch, tone: 'amber' },
   { type: 'add_tag', label: 'Adicionar tag', subtitle: 'Organiza o contato', icon: Tag, tone: 'slate' },
@@ -42,12 +44,15 @@ const nodeDefinitions = [
 function ChatbotNode({ data, type, selected }: NodeProps<Node<FlowData>>) {
   const definition = nodeDefinitions.find((item) => item.type === type) || nodeDefinitions[1];
   const terminal = ['handoff', 'close', 'end'].includes(type || '');
-  return <div className={`flow-node chatbot-node ${definition.tone} ${selected ? 'selected' : ''}`}>
+  const httpRoutes = type === 'http_request' && Array.isArray(data.responseRoutes) ? data.responseRoutes : [];
+  const httpHandleCount = httpRoutes.length + 1;
+  return <div className={`flow-node chatbot-node ${definition.tone} ${selected ? 'selected' : ''}`} style={type === 'http_request' ? { minHeight: Math.max(72, httpHandleCount * 30) } : undefined}>
     {type !== 'trigger' && <Handle type="target" position={Position.Left} />}
     <span><definition.icon size={17} /></span>
     <div><strong>{String(data.label || definition.label)}</strong><small>{String(data.subtitle || definition.subtitle)}</small></div>
-    {!terminal && type !== 'condition' && <Handle type="source" position={Position.Right} />}
+    {!terminal && type !== 'condition' && type !== 'http_request' && <Handle type="source" position={Position.Right} />}
     {type === 'condition' && <><Handle id="true" type="source" position={Position.Right} style={{ top: '34%' }} title="Sim" /><Handle id="false" type="source" position={Position.Right} style={{ top: '72%' }} title="Não" /><i className="branch-label branch-yes">Sim</i><i className="branch-label branch-no">Não</i></>}
+    {type === 'http_request' && <>{httpRoutes.map((route, index) => { const top = `${((index + 1) / (httpHandleCount + 1)) * 100}%`; return <Fragment key={route.id}><Handle id={route.id} type="source" position={Position.Right} style={{ top }} title={route.label} /><i className="branch-label http-route-label" style={{ top }}>{route.label}</i></Fragment>; })}<Handle id="default" type="source" position={Position.Right} style={{ top: `${(httpHandleCount / (httpHandleCount + 1)) * 100}%` }} title="Outros / erro" /><i className="branch-label http-default-label" style={{ top: `${(httpHandleCount / (httpHandleCount + 1)) * 100}%` }}>Outros / erro</i></>}
   </div>;
 }
 
@@ -109,6 +114,15 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
     if (type === 'wait') {
       data.seconds = 1;
     }
+    if (type === 'http_request') {
+      data.method = 'GET';
+      data.url = 'https://api.exemplo.com/recurso';
+      data.headers = '{\n  "Content-Type": "application/json"\n}';
+      data.body = '';
+      data.timeoutSeconds = 15;
+      data.variableName = 'resposta';
+      data.responseRoutes = [{ id: 'success', label: 'Sucesso', path: 'status', operator: 'between', value: '200,299' }];
+    }
     if (type === 'ai_conversation') {
       data.objective = 'Entender a necessidade do contato e coletar informações para a equipe.';
       data.instructions = 'Seja objetivo, cordial e não assuma compromissos comerciais.';
@@ -126,7 +140,13 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
     setSelectedNodeId(id);
   };
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
-  const updateSelected = (changes: Partial<FlowData>) => setNodes((current) => current.map((node) => node.id === selectedNodeId ? { ...node, data: { ...node.data, ...changes } } : node));
+  const updateSelected = (changes: Partial<FlowData>) => {
+    if (selectedNodeId && changes.responseRoutes) {
+      const validHandles = new Set([...changes.responseRoutes.map((route) => route.id), 'default']);
+      setEdges((current) => current.filter((edge) => edge.source !== selectedNodeId || validHandles.has(edge.sourceHandle || '')));
+    }
+    setNodes((current) => current.map((node) => node.id === selectedNodeId ? { ...node, data: { ...node.data, ...changes } } : node));
+  };
   const deleteSelected = () => {
     if (!selectedNode || selectedNode.type === 'trigger') return;
     setNodes((current) => current.filter((node) => node.id !== selectedNode.id));
@@ -138,9 +158,48 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
   return <div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={onBack}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate()} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate()} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" key={item.type} onClick={() => addNode(item.type)}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className="flow-canvas"><ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></div><NodeInspector node={selectedNode} tags={metadata.tags} teams={metadata.teams} onChange={updateSelected} onDelete={deleteSelected} /></div></div>;
 }
 
+function HttpRequestInspector({ node, onChange, onDelete }: Readonly<{ node: Node<FlowData>; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
+  const definition = nodeDefinitions.find((item) => item.type === 'http_request')!;
+  const routes = Array.isArray(node.data.responseRoutes) ? node.data.responseRoutes : [];
+  const updateRoute = (index: number, changes: Partial<HttpResponseRoute>) => onChange({
+    responseRoutes: routes.map((route, routeIndex) => routeIndex === index ? { ...route, ...changes } : route),
+  });
+  const removeRoute = (index: number) => onChange({ responseRoutes: routes.filter((_, routeIndex) => routeIndex !== index) });
+  const moveRoute = (index: number, offset: number) => {
+    const destination = index + offset;
+    if (destination < 0 || destination >= routes.length) return;
+    const reordered = [...routes];
+    [reordered[index], reordered[destination]] = [reordered[destination]!, reordered[index]!];
+    onChange({ responseRoutes: reordered });
+  };
+  const addRoute = () => onChange({
+    responseRoutes: [...routes, {
+      id: `route-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      label: `Resposta ${routes.length + 1}`,
+      path: 'body.status',
+      operator: 'equals',
+      value: '',
+    }],
+  });
+  return <aside className="node-inspector http-node-inspector"><div className="inspector-title"><span className={definition.tone}><definition.icon size={16} /></span><div><strong>{definition.label}</strong><small>{definition.subtitle}</small></div></div>
+    <label className="field"><span>Nome do bloco</span><input value={String(node.data.label || '')} onChange={(event) => onChange({ label: event.target.value })} /></label>
+    <SelectField label="Método" value={String(node.data.method || 'GET')} onChange={(event) => onChange({ method: event.target.value })}><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></SelectField>
+    <label className="field"><span>URL pública</span><input type="url" maxLength={2_048} value={String(node.data.url || '')} onChange={(event) => onChange({ url: event.target.value })} placeholder="https://api.exemplo.com/clientes/{{telefone}}" /><small>URLs internas e credenciais diretamente na URL são bloqueadas.</small></label>
+    <label className="field"><span>Cabeçalhos em JSON</span><textarea rows={4} maxLength={32_000} value={String(node.data.headers || '')} onChange={(event) => onChange({ headers: event.target.value })} spellCheck={false} placeholder={'{\n  "Authorization": "Bearer token"\n}'} /><small>Você pode usar variáveis nos valores dos cabeçalhos.</small></label>
+    {String(node.data.method || 'GET') !== 'GET' && <label className="field"><span>Body</span><textarea rows={6} maxLength={256 * 1024} value={String(node.data.body || '')} onChange={(event) => onChange({ body: event.target.value })} spellCheck={false} placeholder={'{\n  "telefone": "{{telefone}}"\n}'} /><small>Limite de 256 KB após substituir as variáveis.</small></label>}
+    <div className="form-grid"><label className="field"><span>Variável temporária</span><input value={String(node.data.variableName || 'resposta')} onChange={(event) => onChange({ variableName: event.target.value })} placeholder="resposta" /></label><label className="field"><span>Tempo limite (s)</span><input type="number" min={1} max={60} value={Number(node.data.timeoutSeconds || 15)} onChange={(event) => onChange({ timeoutSeconds: Math.min(60, Math.max(1, Number(event.target.value))) })} /></label></div>
+    <div className="inspector-note">O body fica disponível durante esta sessão. Exemplo: <code>{'{{resposta.nome}}'}</code>.</div>
+    <div className="http-routes-heading"><div><strong>Rotas da resposta</strong><small>A primeira regra correspondente define a saída.</small></div><Button type="button" variant="secondary" disabled={routes.length >= 8} onClick={addRoute}><Plus size={14} />Adicionar</Button></div>
+    <div className="http-route-list">{routes.map((route, index) => <div className="http-route-card" key={route.id}><div className="http-route-title"><strong>{index + 1}</strong><input aria-label={`Nome da rota ${index + 1}`} value={route.label} maxLength={50} onChange={(event) => updateRoute(index, { label: event.target.value })} /><span className="http-route-order"><button type="button" className="icon-button" disabled={index === 0} aria-label={`Subir rota ${route.label}`} onClick={() => moveRoute(index, -1)}><ChevronUp size={13} /></button><button type="button" className="icon-button" disabled={index === routes.length - 1} aria-label={`Descer rota ${route.label}`} onClick={() => moveRoute(index, 1)}><ChevronDown size={13} /></button></span><button type="button" className="icon-button" aria-label={`Excluir rota ${route.label}`} onClick={() => removeRoute(index)}><Trash2 size={14} /></button></div><label className="field"><span>Campo</span><input value={route.path} onChange={(event) => updateRoute(index, { path: event.target.value })} placeholder="status, error ou body.campo" /></label><SelectField label="Comparação" value={route.operator} onChange={(event) => updateRoute(index, { operator: event.target.value })}><option value="equals">É igual a</option><option value="not_equals">É diferente de</option><option value="contains">Contém</option><option value="exists">Existe</option><option value="not_exists">Não existe</option><option value="greater_than">É maior que</option><option value="less_than">É menor que</option><option value="between">Está entre</option></SelectField>{!['exists', 'not_exists'].includes(route.operator) && <label className="field"><span>Valor esperado</span><input value={route.value || ''} onChange={(event) => updateRoute(index, { value: event.target.value })} placeholder={route.operator === 'between' ? '200,299' : 'Ex.: aprovado'} /></label>}</div>)}</div>
+    <div className="inspector-note">A saída <strong>Outros / erro</strong> trata respostas sem correspondência, indisponibilidade e tempo esgotado.</div>
+    <Button variant="ghost" className="delete-node" onClick={onDelete}><Trash2 size={15} />Excluir bloco</Button>
+  </aside>;
+}
+
 function NodeInspector({ node, tags, teams, onChange, onDelete }: Readonly<{ node: Node<FlowData> | null; tags: TagOption[]; teams: TeamOption[]; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
   if (!node) return <aside className="node-inspector empty"><Bot size={24} /><strong>Configure o mapa</strong><p>Clique em um bloco para editar suas regras e mensagens.</p></aside>;
   const definition = nodeDefinitions.find((item) => item.type === node.type)!;
+  if (node.type === 'http_request') return <HttpRequestInspector node={node} onChange={onChange} onDelete={onDelete} />;
   if (node.type === 'ai_conversation') return <aside className="node-inspector"><div className="inspector-title"><span className={definition.tone}><definition.icon size={16} /></span><div><strong>{definition.label}</strong><small>{definition.subtitle}</small></div></div><label className="field"><span>Nome do bloco</span><input value={String(node.data.label || '')} onChange={(event) => onChange({ label: event.target.value })} /></label><label className="field"><span>Objetivo do atendimento</span><textarea rows={4} maxLength={2_000} value={String(node.data.objective || '')} onChange={(event) => onChange({ objective: event.target.value })} placeholder="O que a IA deve descobrir ou resolver?" /></label><label className="field"><span>Instruções específicas</span><textarea rows={5} maxLength={5_000} value={String(node.data.instructions || '')} onChange={(event) => onChange({ instructions: event.target.value })} placeholder="Tom, limites e informações deste fluxo." /></label><label className="field"><span>Critérios de transferência</span><textarea rows={4} maxLength={3_000} value={String(node.data.transferCriteria || '')} onChange={(event) => onChange({ transferCriteria: event.target.value })} placeholder="Quando chamar um atendente?" /></label><div className="form-grid"><label className="field"><span>Limite de interações</span><input type="number" min={1} max={20} value={Number(node.data.maxInteractions || 6)} onChange={(event) => onChange({ maxInteractions: Math.min(20, Math.max(1, Number(event.target.value))) })} /></label><label className="field"><span>Confiança mínima (%)</span><input type="number" min={0} max={100} value={Number(node.data.minimumConfidence ?? 65)} onChange={(event) => onChange({ minimumConfidence: Math.min(100, Math.max(0, Number(event.target.value))) })} /></label></div><label className="field"><span>Mensagem de indisponibilidade</span><textarea rows={3} maxLength={1_000} value={String(node.data.fallbackMessage || '')} onChange={(event) => onChange({ fallbackMessage: event.target.value })} placeholder="Vazio para usar a configuração global." /></label><div className="inspector-note">Quando decidir transferir, o fluxo segue para o próximo bloco. Conecte a saída a <strong>Transferir</strong>.</div><Button variant="ghost" className="delete-node" onClick={onDelete}><Trash2 size={15} />Excluir bloco</Button></aside>;
   return <aside className="node-inspector"><div className="inspector-title"><span className={definition.tone}><definition.icon size={16} /></span><div><strong>{definition.label}</strong><small>{definition.subtitle}</small></div></div><label className="field"><span>Nome do bloco</span><input value={String(node.data.label || '')} onChange={(event) => onChange({ label: event.target.value })} /></label>{node.type === 'trigger' && <><SelectField label="Ativar quando a mensagem" value={String(node.data.operator || 'contains')} onChange={(event) => onChange({ operator: event.target.value })}><option value="contains">Contém</option><option value="equals">É igual a</option><option value="starts_with">Começa com</option><option value="ends_with">Termina com</option></SelectField><label className="field"><span>Palavras de entrada</span><textarea value={String(node.data.value || '')} onChange={(event) => onChange({ value: event.target.value })} placeholder="Deixe vazio para qualquer mensagem" /><small>Separe alternativas por vírgula.</small></label></>}{(node.type === 'message' || node.type === 'question') && <label className="field"><span>{node.type === 'question' ? 'Pergunta' : 'Mensagem'}</span><textarea rows={6} value={String(node.data.text || '')} onChange={(event) => onChange({ text: event.target.value })} /><small>Variáveis: {'{{saudacao}}'}, {'{{nome}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{empresa}}'}, {'{{cargo}}'} e {'{{mensagem}}'}.</small></label>}{node.type === 'wait' && <label className="field"><span>Tempo de espera em segundos</span><input type="number" min={1} step={1} value={Number(node.data.seconds || 1)} onChange={(event) => onChange({ seconds: Math.max(1, Number(event.target.value)) })} /><small>O chatbot continua automaticamente depois deste período.</small></label>}{node.type === 'condition' && <><SelectField label="A resposta" value={String(node.data.operator || 'contains')} onChange={(event) => onChange({ operator: event.target.value })}><option value="contains">Contém</option><option value="equals">É igual a</option><option value="starts_with">Começa com</option><option value="ends_with">Termina com</option></SelectField><label className="field"><span>Valor esperado</span><textarea value={String(node.data.value || '')} onChange={(event) => onChange({ value: event.target.value })} placeholder="Ex.: vendas, comercial" /><small>A saída Sim é usada quando a regra corresponde.</small></label></>}{node.type === 'add_tag' && <SelectField label="Tag" value={String(node.data.tagId || '')} onChange={(event) => onChange({ tagId: event.target.value })}><option value="">Selecione</option>{tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</SelectField>}{node.type === 'assign_queue' && <><SelectField label="Fila de destino" value={String(node.data.teamId || '')} onChange={(event) => onChange({ teamId: event.target.value })}><option value="">Selecione</option>{teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField><div className="inspector-note">A fila é atribuída e o chatbot continua para o próximo bloco.</div></>}{node.type === 'handoff' && <div className="inspector-note">O bot para de responder e o ticket fica na aba <strong>Aguardando</strong>, preservando a fila escolhida.</div>}{node.type === 'close' && <div className="inspector-note">O fluxo termina e o ticket vai para <strong>Encerradas</strong>.</div>}{node.type === 'end' && <div className="inspector-note">O bot termina, mas o ticket continua aguardando atendimento.</div>}{node.type !== 'trigger' && <Button variant="ghost" className="delete-node" onClick={onDelete}><Trash2 size={15} />Excluir bloco</Button>}</aside>;
 }

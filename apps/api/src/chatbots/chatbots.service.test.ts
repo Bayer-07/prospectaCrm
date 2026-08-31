@@ -117,6 +117,45 @@ describe('validação do mapa do chatbot', () => {
     }, true)).toThrow(/tempo de espera válido/);
   });
 
+  it('aceita requisição HTTP com rotas por status e body', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'http', type: 'http_request', data: {
+          method: 'POST', url: 'https://api.exemplo.com/clientes/{{telefone}}', headers: '{"Content-Type":"application/json"}',
+          body: '{"nome":"{{nome}}"}', variableName: 'resposta', timeoutSeconds: 15,
+          responseRoutes: [
+            { id: 'success', label: 'Sucesso', path: 'status', operator: 'between', value: '200,299' },
+            { id: 'adult', label: 'Maior de idade', path: 'body.idade', operator: 'greater_than', value: '17' },
+          ],
+        } },
+        { id: 'success-end', type: 'end' },
+        { id: 'adult-end', type: 'end' },
+        { id: 'fallback-end', type: 'end' },
+      ],
+      edges: [
+        { source: 'start', target: 'http' },
+        { source: 'http', sourceHandle: 'success', target: 'success-end' },
+        { source: 'http', sourceHandle: 'adult', target: 'adult-end' },
+        { source: 'http', sourceHandle: 'default', target: 'fallback-end' },
+      ],
+    }, true)).not.toThrow();
+  });
+
+  it('exige conexão para cada rota HTTP e para a saída padrão', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'http', type: 'http_request', data: {
+          method: 'GET', url: 'https://api.exemplo.com', headers: '{}', variableName: 'resposta', timeoutSeconds: 15,
+          responseRoutes: [{ id: 'success', label: 'Sucesso', path: 'status', operator: 'equals', value: '200' }],
+        } },
+        { id: 'end', type: 'end' },
+      ],
+      edges: [{ source: 'start', target: 'http' }, { source: 'http', sourceHandle: 'success', target: 'end' }],
+    }, true)).toThrow(/saída padrão/);
+  });
+
   it('bloqueia ciclos que enviariam mensagens sem aguardar o contato', () => {
     expect(() => service.validateShape({
       nodes: [

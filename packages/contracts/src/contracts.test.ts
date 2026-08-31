@@ -5,6 +5,7 @@ describe('contratos', () => {
   it('expõe os contratos versionados do assistente e do chatbot OpenAI', () => {
     expect(chatbotResponseProviders).toContain('OPENAI');
     expect(chatbotNodeTypes).toContain('ai_conversation');
+    expect(chatbotNodeTypes).toContain('http_request');
     expect(aiGenerationTypes).toEqual(['SUMMARY', 'REPLY_SUGGESTION', 'CHATBOT_REPLY', 'CONFIG_TEST']);
     expect(aiGenerationStatuses).toContain('WAITING_INPUT');
     expect(aiSummaryScopes).toEqual(['CURRENT_ATTENDANCE', 'FULL_CONVERSATION']);

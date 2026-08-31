@@ -13,7 +13,28 @@ function text(value: unknown) {
   if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
     return `${value}`;
   }
+  if (value !== null && typeof value === 'object') {
+    try {
+      return JSON.stringify(value);
+    } catch {
+      return '';
+    }
+  }
   return '';
+}
+
+function objectValue(value: unknown, key: string) {
+  if (Array.isArray(value) && /^\d+$/u.test(key)) return value[Number(key)];
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
+  const record = value as Record<string, unknown>;
+  const matchingKey = Object.keys(record).find((candidate) => (
+    candidate.toLocaleLowerCase('pt-BR') === key.toLocaleLowerCase('pt-BR')
+  ));
+  return matchingKey === undefined ? undefined : record[matchingKey];
+}
+
+function variableValue(variables: Record<string, unknown>, path: string) {
+  return path.split('.').reduce<unknown>((current, key) => objectValue(current, key), variables);
 }
 
 export function timeBasedGreeting(
@@ -52,12 +73,9 @@ export function renderTemplateVariables(
   date = new Date(),
   timeZone = DEFAULT_TEMPLATE_TIME_ZONE,
 ) {
-  const normalizedVariables = Object.fromEntries(
-    Object.entries(variables).map(([key, value]) => [key.toLocaleLowerCase('pt-BR'), value]),
-  );
-  normalizedVariables.saudacao = timeBasedGreeting(date, timeZone);
+  const availableVariables = { ...variables, saudacao: timeBasedGreeting(date, timeZone) };
 
   return template.replace(/{{\s*([\w.]+)\s*}}/gi, (_match, key: string) => (
-    text(normalizedVariables[key.toLocaleLowerCase('pt-BR')])
+    text(variableValue(availableVariables, key))
   ));
 }

@@ -37,4 +37,16 @@ describe('variáveis de mensagem', () => {
       new Date('2026-08-10T08:00:00.000Z'),
     )).toBe('Bom dia, Adriana!');
   });
+
+  it('resolve campos aninhados e itens de uma resposta JSON', () => {
+    expect(renderTemplateVariables(
+      '{{RESPOSTA.nome}} tem {{resposta.idade}} anos e escolheu {{resposta.opcoes.0}}.',
+      { resposta: { nome: 'Gabriel', idade: 19, opcoes: ['Plano A', 'Plano B'] } },
+    )).toBe('Gabriel tem 19 anos e escolheu Plano A.');
+  });
+
+  it('serializa o objeto quando a variável raiz é usada', () => {
+    expect(renderTemplateVariables('{{resposta}}', { resposta: { nome: 'Gabriel' } }))
+      .toBe('{"nome":"Gabriel"}');
+  });
 });

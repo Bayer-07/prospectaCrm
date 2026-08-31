@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { chatbotNodeTypes } from '@prospecta/contracts';
+import { normalizePublicHttpUrl } from '@prospecta/contracts/public-http-url';
 import { authTeamIds, permissionScope } from '../auth/data-scope.js';
 import type { AuthContext } from '../auth/types.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -15,6 +16,84 @@ function primitiveText(value: unknown) {
 
 function nodeLabel(node: ChatbotNode) {
   return primitiveText(node.data?.label).trim() || node.id;
+}
+
+const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
+const HTTP_ROUTE_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'exists', 'not_exists', 'greater_than', 'less_than', 'between']);
+const RESERVED_CHATBOT_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem']);
+const BLOCKED_HTTP_HEADERS = new Set(['connection', 'content-length', 'host', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
+
+type HttpResponseRoute = { id?: unknown; label?: unknown; path?: unknown; operator?: unknown; value?: unknown };
+
+function httpResponseRoutes(node: ChatbotNode) {
+  return Array.isArray(node.data?.responseRoutes) ? node.data.responseRoutes as HttpResponseRoute[] : [];
+}
+
+function validateHttpRequestNode(node: ChatbotNode) {
+  const method = primitiveText(node.data?.method).toUpperCase();
+  const rawUrl = primitiveText(node.data?.url).trim();
+  const rawHeaders = primitiveText(node.data?.headers).trim();
+  const body = primitiveText(node.data?.body);
+  const variableName = primitiveText(node.data?.variableName).trim();
+  const timeoutSeconds = Number(node.data?.timeoutSeconds);
+  const routes = httpResponseRoutes(node);
+
+  if (!HTTP_METHODS.has(method)) throw new BadRequestException(`Selecione um método HTTP válido no bloco ${nodeLabel(node)}`);
+  if (!rawUrl || rawUrl.length > 2_048) throw new BadRequestException(`Informe uma URL válida no bloco ${nodeLabel(node)}`);
+  try {
+    normalizePublicHttpUrl(rawUrl.replace(/\{\{\s*[\w.]+\s*\}\}/gu, 'valor'));
+  } catch {
+    throw new BadRequestException(`A URL do bloco ${nodeLabel(node)} precisa usar HTTP ou HTTPS público, sem credenciais`);
+  }
+  if (rawHeaders.length > 32_000) throw new BadRequestException(`Os cabeçalhos do bloco ${nodeLabel(node)} ultrapassam o limite permitido`);
+  if (rawHeaders) {
+    try {
+      const parsed = JSON.parse(rawHeaders) as unknown;
+      if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid');
+      const headerEntries = Object.entries(parsed as Record<string, unknown>);
+      if (headerEntries.length > 30 || headerEntries.some(([name, value]) => {
+        const normalizedName = name.trim().toLowerCase();
+        return !/^[!#$%&'*+.^_`|~0-9a-z-]+$/u.test(normalizedName)
+          || BLOCKED_HTTP_HEADERS.has(normalizedName)
+          || typeof value !== 'string'
+          || value.length > 8_192;
+      })) throw new Error('invalid');
+    } catch {
+      throw new BadRequestException(`Os cabeçalhos do bloco ${nodeLabel(node)} precisam ser um objeto JSON válido`);
+    }
+  }
+  if (Buffer.byteLength(body, 'utf8') > 256 * 1024) throw new BadRequestException(`O body do bloco ${nodeLabel(node)} ultrapassa 256 KB`);
+  if (!/^[A-Za-z_][A-Za-z0-9_]{0,49}$/u.test(variableName) || RESERVED_CHATBOT_VARIABLES.has(variableName.toLocaleLowerCase('pt-BR'))) {
+    throw new BadRequestException(`Informe um nome de variável temporária válido no bloco ${nodeLabel(node)}`);
+  }
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 60) {
+    throw new BadRequestException(`O tempo limite do bloco ${nodeLabel(node)} deve ficar entre 1 e 60 segundos`);
+  }
+  if (!routes.length || routes.length > 8) throw new BadRequestException(`Configure entre 1 e 8 rotas de resposta no bloco ${nodeLabel(node)}`);
+  const routeIds = new Set<string>();
+  for (const route of routes) {
+    const id = primitiveText(route.id).trim();
+    const label = primitiveText(route.label).trim();
+    const path = primitiveText(route.path).trim();
+    const operator = primitiveText(route.operator).trim();
+    const value = primitiveText(route.value).trim();
+    if (!/^[A-Za-z0-9_-]{1,50}$/u.test(id) || id === 'default' || routeIds.has(id)) {
+      throw new BadRequestException(`As rotas do bloco ${nodeLabel(node)} precisam ter identificadores únicos`);
+    }
+    routeIds.add(id);
+    if (!label || label.length > 50) throw new BadRequestException(`Preencha o nome de cada rota no bloco ${nodeLabel(node)}`);
+    if (!/^(?:status|error|body(?:\.[\w-]+)*)$/u.test(path)) {
+      throw new BadRequestException(`Use status, error ou body.campo nas rotas do bloco ${nodeLabel(node)}`);
+    }
+    if (!HTTP_ROUTE_OPERATORS.has(operator)) throw new BadRequestException(`Selecione um operador válido nas rotas do bloco ${nodeLabel(node)}`);
+    if (!['exists', 'not_exists'].includes(operator) && !value) throw new BadRequestException(`Preencha o valor esperado nas rotas do bloco ${nodeLabel(node)}`);
+    if (operator === 'between') {
+      const limits = value.split(/\s*(?:,|\.\.)\s*/u).map(Number);
+      if (limits.length !== 2 || limits.some((limit) => !Number.isFinite(limit)) || limits[0]! > limits[1]!) {
+        throw new BadRequestException(`Use o formato mínimo,máximo na rota do bloco ${nodeLabel(node)}`);
+      }
+    }
+  }
 }
 
 function instanceTeamFilter(auth: AuthContext, scope: string) {
@@ -36,6 +115,7 @@ function validateNodeText(node: ChatbotNode) {
       throw new BadRequestException(`Informe um tempo de espera válido no bloco ${nodeLabel(node)}`);
     }
   }
+  if (node.type === 'http_request') validateHttpRequestNode(node);
   if (node.type === 'ai_conversation') {
     const objective = primitiveText(node.data?.objective).trim();
     const instructions = primitiveText(node.data?.instructions).trim();
@@ -64,6 +144,16 @@ function validateOutgoingConnections(node: ChatbotNode, outgoing: ChatbotEdge[])
     const handles = new Set(outgoing.map((edge) => edge.sourceHandle));
     if (!handles.has('true') || !handles.has('false')) {
       throw new BadRequestException('Toda condição precisa das saídas “Sim” e “Não”');
+    }
+    return;
+  }
+  if (node.type === 'http_request') {
+    const requiredHandles = new Set([...httpResponseRoutes(node).map((route) => primitiveText(route.id).trim()), 'default']);
+    const outgoingHandles = outgoing.map((edge) => edge.sourceHandle || '');
+    if (outgoing.length !== requiredHandles.size
+      || outgoingHandles.some((handle) => !requiredHandles.has(handle))
+      || [...requiredHandles].some((handle) => outgoingHandles.filter((candidate) => candidate === handle).length !== 1)) {
+      throw new BadRequestException(`Conecte todas as rotas e a saída padrão do bloco ${nodeLabel(node)}`);
     }
     return;
   }

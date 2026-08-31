@@ -37,6 +37,28 @@ const queueGraph = {
   ],
 };
 
+const httpGraph = {
+  nodes: [
+    { id: 'trigger', type: 'trigger', data: {} },
+    { id: 'http', type: 'http_request', data: {
+      method: 'POST',
+      url: 'https://api.exemplo.com/pessoa?telefone={{telefone}}',
+      headers: '{"Content-Type":"application/json"}',
+      body: '{"contato":"{{nome}}"}',
+      variableName: 'resposta',
+      timeoutSeconds: 15,
+      responseRoutes: [{ id: 'adult', label: 'Maior de idade', path: 'body.idade', operator: 'greater_than', value: '17' }],
+    } },
+    { id: 'adult-end', type: 'end', data: {} },
+    { id: 'fallback-end', type: 'end', data: {} },
+  ],
+  edges: [
+    { source: 'trigger', target: 'http' },
+    { source: 'http', sourceHandle: 'adult', target: 'adult-end' },
+    { source: 'http', sourceHandle: 'default', target: 'fallback-end' },
+  ],
+};
+
 function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
   return {
     id: 'inbound-1',
@@ -243,6 +265,60 @@ describe('espera do chatbot', () => {
     });
   });
 
+  it('executa a requisição, guarda o body na sessão e segue pela rota correspondente', async () => {
+    const updateSession = vi.fn().mockResolvedValue({});
+    const upsertExecution = vi.fn().mockResolvedValue({});
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(inboundMessage()) },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'RULES' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: httpGraph }) },
+      chatbotSession: {
+        upsert: vi.fn().mockResolvedValue({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'trigger' }),
+        update: updateSession,
+      },
+      chatbotStepExecution: { findUnique: vi.fn().mockResolvedValue(null), upsert: upsertExecution },
+      conversation: { update: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const httpRequest = vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      bodyText: '{"nome":"Gabriel","idade":19}',
+      contentType: 'application/json',
+    });
+    const processor = new ChatbotProcessor(
+      db as never,
+      { add: vi.fn() } as never,
+      { add: vi.fn() } as never,
+      undefined,
+      undefined,
+      undefined,
+      httpRequest,
+    );
+
+    await processor.process({ data: { messageId: 'inbound-1' } } as never);
+
+    expect(httpRequest).toHaveBeenCalledWith(
+      'https://api.exemplo.com/pessoa?telefone=+5545999999999',
+      expect.objectContaining({
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{"contato":"Maria"}',
+        maxResponseBytes: 256 * 1024,
+      }),
+    );
+    expect(updateSession).toHaveBeenCalledWith({
+      where: { id: 'session-1' },
+      data: expect.objectContaining({
+        currentNodeId: 'adult-end',
+        context: expect.objectContaining({ variables: { resposta: { nome: 'Gabriel', idade: 19 } } }),
+      }),
+    });
+    expect(upsertExecution).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({ output: expect.objectContaining({ handle: 'adult', variableName: 'resposta' }) }),
+    }));
+  });
+
   it('cancela uma geração anterior quando chega uma mensagem mais recente ao bloco de IA', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const db = {
@@ -307,6 +383,30 @@ describe('espera do chatbot', () => {
       expect.objectContaining({ sessionId: 'session-1', nodeId: 'wait', inboundMessageId: 'inbound-1' }),
       expect.objectContaining({ delay: expect.any(Number), attempts: 5 }),
     );
+  });
+
+  it('limpa as variáveis temporárias ao iniciar um novo atendimento', async () => {
+    const previousSession = {
+      id: 'session-1', chatbotId: 'chatbot-1', versionId: 'version-1', status: 'COMPLETED',
+      currentNodeId: 'end', lastInboundMessageId: 'inbound-old', wakeAt: null,
+      context: { variables: { resposta: { nome: 'Atendimento anterior' } } },
+    };
+    const upsertSession = vi.fn().mockResolvedValue({ id: 'session-1', conversationId: 'conversation-1', currentNodeId: 'trigger' });
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(inboundMessage(previousSession)) },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'RULES' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph }) },
+      chatbotSession: { upsert: upsertSession, update: vi.fn().mockResolvedValue({}) },
+      chatbotStepExecution: { upsert: vi.fn().mockResolvedValue({}) },
+      $transaction: vi.fn().mockResolvedValue([]),
+    };
+    const processor = new ChatbotProcessor(db as never, { add: vi.fn().mockResolvedValue({}) } as never, { add: vi.fn() } as never);
+
+    await processor.process({ data: { messageId: 'inbound-1' } } as never);
+
+    expect(upsertSession).toHaveBeenCalledWith(expect.objectContaining({
+      update: expect.objectContaining({ context: expect.objectContaining({ variables: {} }) }),
+    }));
   });
 
   it('retoma exatamente do próximo bloco e conclui a execução da espera', async () => {

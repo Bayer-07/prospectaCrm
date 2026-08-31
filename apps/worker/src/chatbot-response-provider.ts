@@ -8,6 +8,7 @@ export type ChatbotRuleContext = {
   contactJobTitle?: string | null;
   contactCompany?: string | null;
   conversationId: string;
+  variables?: Record<string, unknown>;
 };
 
 export interface ChatbotResponseProvider {
@@ -50,6 +51,7 @@ export class RulesResponseProvider implements ChatbotResponseProvider {
       empresa: context.contactCompany || '',
       cargo: context.contactJobTitle || '',
       mensagem: context.lastMessage,
+      ...(context.variables || {}),
     });
   }
 }

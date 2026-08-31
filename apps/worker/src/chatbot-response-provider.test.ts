@@ -21,4 +21,8 @@ describe('provedor de respostas por regras', () => {
     expect(provider.interpolate('{{saudacao}}, {{nome}} — {{telefone}} — {{email}} — {{empresa}} — {{cargo}} — {{mensagem}}', context))
       .toBe(`${timeBasedGreeting()}, Maria — +5511999999999 — maria@bzs.com.br — BZS Tecnologia — Síndica — Olá, quero falar com VENDAS`);
   });
+  it('interpola um campo aninhado salvo durante o atendimento', () => {
+    expect(provider.interpolate('{{resposta.nome}}', { ...context, variables: { resposta: { nome: 'Gabriel', idade: 19 } } }))
+      .toBe('Gabriel');
+  });
 });

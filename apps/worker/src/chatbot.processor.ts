@@ -2,16 +2,25 @@ import { randomUUID } from 'node:crypto';
 import type { Job, Queue } from 'bullmq';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { OpenAiResponseProvider, RulesResponseProvider, type ChatbotResponseProvider, type ChatbotRuleContext } from './chatbot-response-provider.js';
+import {
+  chatbotHttpResponseHandle,
+  chatbotHttpTimeoutMs,
+  parseChatbotHttpBody,
+  parseChatbotHttpHeaders,
+  type ChatbotHttpResponseRoute,
+} from './chatbot-http.js';
+import { publicHttpRequest, type PublicHttpRequestOptions, type PublicHttpRequestResponse } from './public-http-get.js';
 
 type Node = { id: string; type: string; data?: Record<string, unknown> };
 type Edge = { source: string; target: string; sourceHandle?: string | null };
 type Graph = { nodes: Node[]; edges: Edge[] };
-type SessionContext = ChatbotRuleContext & { previousMessage?: string };
+type SessionContext = ChatbotRuleContext & { previousMessage?: string; variables: Record<string, unknown> };
 type NodeExecution = { nextNodeId: string | null; shouldStop: boolean };
 type ChatbotInboundJob = { messageId: string; audioWaitCount?: number };
 type ChatbotDelayJob = { sessionId: string; nodeId: string; inboundMessageId: string; wakeAt: string };
 type ChatbotAiResumeJob = { sessionId: string; generationId: string; nextNodeId: string };
 type ChatbotJob = ChatbotInboundJob | ChatbotDelayJob | ChatbotAiResumeJob;
+type ChatbotHttpRequester = (url: string, options?: PublicHttpRequestOptions) => Promise<PublicHttpRequestResponse>;
 
 const MAX_WAIT_SECONDS = 31_536_000;
 const AUDIO_TRANSCRIPTION_POLL_MS = 5_000;
@@ -27,6 +36,7 @@ export class ChatbotProcessor {
     private readonly aiQueue?: Queue,
     private readonly transcriptionQueue?: Queue,
     providers: ChatbotResponseProvider[] = [new RulesResponseProvider(), new OpenAiResponseProvider()],
+    private readonly httpRequest: ChatbotHttpRequester = publicHttpRequest,
   ) {
     this.providers = new Map(providers.map((provider) => [provider.key, provider]));
   }
@@ -141,6 +151,7 @@ export class ChatbotProcessor {
       contactJobTitle: conversation.contact.jobTitle,
       contactCompany: conversation.contact.companies[0]?.company.name,
       conversationId: conversation.id,
+      variables: oldContext.variables || {},
     };
     const session = await this.prepareSession({
       existing: conversation.chatbotSession,
@@ -357,7 +368,10 @@ export class ChatbotProcessor {
     const startsNew = session?.chatbotId !== input.chatbotId
       || session?.versionId !== input.versionId
       || ['COMPLETED', 'FAILED'].includes(session?.status);
-    if (startsNew) return this.startSession(input);
+    if (startsNew) {
+      input.context.variables = {};
+      return this.startSession(input);
+    }
     return this.resumeSession(session, input);
   }
 
@@ -440,6 +454,8 @@ export class ChatbotProcessor {
         return this.scheduleWait(graph, session, node, inboundMessageId);
       case 'ai_conversation':
         return this.scheduleAi(graph, session, node, inboundMessageId);
+      case 'http_request':
+        return this.executeHttpRequest(graph, session, node, inboundMessageId, context, provider);
       case 'condition': {
         const handle = provider.matches(node.data || {}, context) ? 'true' : 'false';
         await this.record(session.id, node.id, inboundMessageId, context, { handle });
@@ -509,6 +525,92 @@ export class ChatbotProcessor {
     if (nextNodeId) {
       await this.db.chatbotSession.update({ where: { id: sessionId }, data: { currentNodeId: nextNodeId } });
     }
+    return { nextNodeId, shouldStop: false };
+  }
+
+  private async executeHttpRequest(
+    graph: Graph,
+    session: { id: string; conversationId: string },
+    node: Node,
+    inboundMessageId: string,
+    context: SessionContext,
+    provider: ChatbotResponseProvider,
+  ): Promise<NodeExecution> {
+    const unique = { sessionId_nodeId_inboundMessageId: { sessionId: session.id, nodeId: node.id, inboundMessageId } };
+    const previousExecution = await this.db.chatbotStepExecution.findUnique({ where: unique });
+    if (previousExecution?.status === 'completed') {
+      const previousOutput = previousExecution.output as Record<string, unknown>;
+      const previousHandle = textValue(previousOutput.handle) || 'default';
+      const variableName = textValue(previousOutput.variableName) || textValue(node.data?.variableName);
+      if (!Object.prototype.hasOwnProperty.call(context.variables, variableName)) {
+        context.variables = { ...context.variables, [variableName]: null };
+      }
+      const nextNodeId = this.next(graph, node.id, previousHandle)?.target || null;
+      if (!nextNodeId) throw new Error('A rota da requisição HTTP não está conectada');
+      await this.db.chatbotSession.update({
+        where: { id: session.id },
+        data: { context: context as unknown as Prisma.InputJsonValue, currentNodeId: nextNodeId },
+      });
+      return { nextNodeId, shouldStop: false };
+    }
+
+    const method = textValue(node.data?.method).toUpperCase() as NonNullable<PublicHttpRequestOptions['method']>;
+    const url = provider.interpolate(textValue(node.data?.url), context);
+    const renderedHeaders = provider.interpolate(textValue(node.data?.headers), context);
+    const renderedBody = provider.interpolate(textValue(node.data?.body), context);
+    const requestBody = method === 'GET' ? undefined : renderedBody;
+    const timeoutMs = chatbotHttpTimeoutMs(node.data?.timeoutSeconds);
+    const variableName = textValue(node.data?.variableName);
+    const routes = (Array.isArray(node.data?.responseRoutes) ? node.data.responseRoutes : []) as ChatbotHttpResponseRoute[];
+    await this.db.chatbotStepExecution.upsert({
+      where: unique,
+      create: { sessionId: session.id, nodeId: node.id, inboundMessageId, status: 'running', input: { method, timeoutMs }, output: {} },
+      update: { status: 'running', input: { method, timeoutMs }, output: {}, error: null, completedAt: null },
+    });
+
+    let status: number | undefined;
+    let responseBody: unknown = null;
+    let errorMessage: string | undefined;
+    try {
+      const headers = parseChatbotHttpHeaders(renderedHeaders);
+      if (requestBody && Buffer.byteLength(requestBody, 'utf8') > 256 * 1024) {
+        throw new Error('O body da requisição HTTP ultrapassou 256 KB');
+      }
+      const response = await this.httpRequest(url, {
+        method,
+        headers,
+        ...(requestBody ? { body: requestBody } : {}),
+        signal: AbortSignal.timeout(timeoutMs),
+        maxResponseBytes: 256 * 1024,
+      });
+      status = response.status;
+      responseBody = parseChatbotHttpBody(response.bodyText);
+    } catch (error) {
+      errorMessage = error instanceof Error ? error.message : String(error);
+    }
+
+    const handle = chatbotHttpResponseHandle(routes, { status, body: responseBody, error: errorMessage });
+    const nextNodeId = this.next(graph, node.id, handle)?.target || null;
+    if (!nextNodeId) throw new Error('A rota da requisição HTTP não está conectada');
+    context.variables = { ...context.variables, [variableName]: responseBody };
+    const output = {
+      ...(status === undefined ? {} : { status }),
+      variableName,
+      handle,
+      nextNodeId,
+      ...(errorMessage ? { error: errorMessage } : {}),
+    };
+    await this.db.$transaction([
+      this.db.chatbotSession.update({
+        where: { id: session.id },
+        data: { context: context as unknown as Prisma.InputJsonValue, currentNodeId: nextNodeId },
+      }),
+      this.db.chatbotStepExecution.upsert({
+        where: unique,
+        create: { sessionId: session.id, nodeId: node.id, inboundMessageId, status: 'completed', input: { method, timeoutMs }, output: output as Prisma.InputJsonValue, error: errorMessage || null, completedAt: new Date() },
+        update: { status: 'completed', output: output as Prisma.InputJsonValue, error: errorMessage || null, completedAt: new Date() },
+      }),
+    ]);
     return { nextNodeId, shouldStop: false };
   }
 
