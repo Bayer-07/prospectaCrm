@@ -174,14 +174,13 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .company-contact-phone-menu { z-index: 151; width: 210px; }
 .company-contact-phone-menu a { width: 100%; min-height: 37px; padding: 0 10px; border-radius: 7px; color: var(--ink); display: flex; align-items: center; gap: 9px; font-size: 13px; }
 .company-contact-phone-menu a:hover { background: var(--surface-soft); }
-.task-contact-context { position: relative; }
-.task-contact-trigger { min-height: 0; padding: 0; border: 0; background: transparent; color: var(--ink); font: inherit; cursor: pointer; }
+.task-contact-context { position: relative; display: flex; align-items: center; gap: 6px; font-size: 12px; }
+.task-contact-trigger { min-height: 0; padding: 0; border: 0; background: transparent; color: var(--ink); display: inline-flex; align-items: center; gap: 4px; font: inherit; cursor: pointer; }
 .task-contact-trigger:hover, .task-contact-trigger:focus-visible { color: var(--violet-dark); text-decoration: underline; text-underline-offset: 2px; }
-.task-contact-action-backdrop { z-index: 150; }
-.task-contact-menu { z-index: 151; width: 210px; }
-.task-contact-menu a { width: 100%; min-height: 37px; padding: 0 10px; border-radius: 7px; color: var(--ink); display: flex; align-items: center; gap: 9px; font-size: 13px; }
-.task-contact-menu a:hover { background: var(--surface-soft); }
-.task-contact-menu button:disabled { color: var(--muted); cursor: not-allowed; opacity: .65; }
+.task-contact-picker { position: absolute; z-index: 3; top: calc(100% + 7px); left: 0; min-width: 190px; padding: 6px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); box-shadow: 0 16px 45px rgba(26, 38, 48, .18); animation: action-menu-in .12s ease-out; }
+.task-contact-picker :is(button, a) { width: 100%; min-height: 37px; padding: 0 10px; border: 0; border-radius: 7px; background: transparent; color: var(--ink); display: flex; align-items: center; gap: 9px; font: inherit; font-size: 13px; text-align: left; cursor: pointer; }
+.task-contact-picker :is(button, a):hover, .task-contact-picker :is(button, a):focus-visible { background: var(--surface-soft); }
+.task-contact-picker button:disabled { color: var(--muted); cursor: not-allowed; opacity: .65; }
 .company-logo-picker { position: relative; padding: 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--surface-soft); display: flex; align-items: center; gap: 14px; }
 .company-logo-preview { width: 70px; height: 70px; flex: none; border-radius: 14px; background: #edf3fa; color: #4d6f93; display: grid; place-items: center; overflow: hidden; font-size: 17px; font-weight: 700; }
 .company-logo-preview.has-image { background: var(--surface); }.company-logo-preview > img, .company-logo-preview > .company-avatar { width: 100%; height: 100%; border-radius: inherit; object-fit: cover; }
