@@ -230,6 +230,7 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
   const rootRef = useRef<HTMLDivElement>(null);
   const pendingCaretRef = useRef<number | null>(null);
   const lastSelectionRef = useRef<{ start: number; end: number } | null>(null);
+  const composingRef = useRef(false);
 
   const replaceSelection = (replacement: string) => {
     const root = rootRef.current;
@@ -258,6 +259,9 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
   useLayoutEffect(() => {
     const root = rootRef.current;
     if (!root) return;
+    // Do not replace the DOM while Linux/IBus is composing a character with a dead key.
+    // Replacing the contentEditable children cancels the active composition.
+    if (composingRef.current) return;
     renderComposerText(root, value);
     if (pendingCaretRef.current !== null) {
       const caret = pendingCaretRef.current;
@@ -276,6 +280,7 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
   };
 
   const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.nativeEvent.isComposing || composingRef.current) return;
     if (onKeyDown?.(event)) {
       event.preventDefault();
       return;
@@ -297,6 +302,17 @@ export const WhatsappComposer = forwardRef<WhatsappComposerHandle, Readonly<{
     aria-disabled={disabled}
     data-placeholder={placeholder}
     tabIndex={disabled ? -1 : 0}
+    onCompositionStart={() => {
+      composingRef.current = true;
+    }}
+    onCompositionEnd={(event) => {
+      composingRef.current = false;
+      const root = event.currentTarget;
+      const offsets = selectionOffsets(root);
+      pendingCaretRef.current = offsets?.start ?? null;
+      if (offsets) lastSelectionRef.current = offsets;
+      onChange(root.textContent ?? '');
+    }}
     onInput={(event) => {
       const root = event.currentTarget;
       const offsets = selectionOffsets(root);
