@@ -52,6 +52,21 @@ type TaskFilter = 'OPEN' | 'COMPLETED' | 'ALL';
 type TaskDropTarget = { view: CalendarView; dateKey: string };
 type TaskDropIndicator = TaskDropTarget & { minute?: number };
 
+type TaskRelatedRecord = Pick<Task, 'company' | 'contact' | 'opportunity'>;
+
+export function taskRelatedLabel(task: TaskRelatedRecord) {
+  if (task.contact) return `Contato: ${task.contact.name}`;
+  if (task.company) return `Empresa: ${task.company.name}`;
+  if (task.opportunity) return `Oportunidade: ${task.opportunity.title}`;
+  return null;
+}
+
+export function taskDisplayTitle(task: Pick<Task, 'title'> & TaskRelatedRecord) {
+  const related = task.contact?.name || task.company?.name || task.opportunity?.title;
+  if (!related || task.title.toLocaleLowerCase().includes(related.toLocaleLowerCase())) return task.title;
+  return `${task.title} · ${related}`;
+}
+
 const weekdayFormatter = new Intl.DateTimeFormat('pt-BR', { weekday: 'short' });
 const monthTitleFormatter = new Intl.DateTimeFormat('pt-BR', { month: 'long', year: 'numeric' });
 const weekTitleFormatter = new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: 'short' });
@@ -368,14 +383,14 @@ function MonthTaskEvent({ task, saving, onOpen, onComplete }: Readonly<{
   return <div
     ref={drag.setNodeRef}
     className={`task-calendar-event priority-${task.priority.toLowerCase()}${task.followUp ? ' follow-up' : ''}${task.status === 'COMPLETED' ? ' completed' : ''}${drag.isDragging ? ' dragging' : ''}${saving ? ' saving' : ''}`}
-    title={`${timeFormatter.format(new Date(task.dueAt))} · ${task.title}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
+    title={`${timeFormatter.format(new Date(task.dueAt))} · ${taskDisplayTitle(task)}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
     style={{ position: 'relative', pointerEvents: 'auto' }}
   >
     <button
       type="button"
       {...drag.attributes}
       {...drag.listeners}
-      aria-label={`Abrir tarefa ${task.title}`}
+      aria-label={`Abrir tarefa ${taskDisplayTitle(task)}`}
       onPointerDownCapture={(event) => {
         pointerStart.current = { x: event.clientX, y: event.clientY };
         moved.current = false;
@@ -397,7 +412,7 @@ function MonthTaskEvent({ task, saving, onOpen, onComplete }: Readonly<{
     />
     <span className="task-event-time" style={{ pointerEvents: 'none' }}>{timeFormatter.format(new Date(task.dueAt))}</span>
     {task.followUp && <Clock size={12} aria-hidden="true" />}
-    <strong style={{ pointerEvents: 'none' }}>{task.title}</strong>
+    <strong style={{ pointerEvents: 'none' }}>{taskDisplayTitle(task)}</strong>
     <button
       type="button"
       className="task-event-check"
@@ -587,9 +602,9 @@ function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: Rea
       pointerStart.current = null;
       onOpen(task);
     }}
-    title={`${task.title}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
+    title={`${taskDisplayTitle(task)}${task.status === 'OPEN' ? ' · Arraste para reagendar' : ''}`}
   >
-    <strong>{task.title}</strong>
+    <strong>{taskDisplayTitle(task)}</strong>
     <span>{timeFormatter.format(date)}{task.assignee ? ` · ${task.assignee.name}` : ''}</span>
   </button>;
 }
@@ -597,7 +612,7 @@ function WeekTaskEvent({ task, column, columnCount, stack, saving, onOpen }: Rea
 function TaskDragPreview({ task, view }: Readonly<{ task: Task; view: CalendarView }>) {
   const date = new Date(task.dueAt);
   return <div className={`task-drag-preview ${view}`}>
-    <strong>{task.title}</strong>
+    <strong>{taskDisplayTitle(task)}</strong>
     <span>{timeFormatter.format(date)}{task.assignee ? ` · ${task.assignee.name}` : ''}</span>
   </div>;
 }
@@ -678,6 +693,7 @@ function TaskModal({
       {task && <div className="task-modal-context">
         <span><Clock size={15} />{fullDateFormatter.format(new Date(task.dueAt))}, {timeFormatter.format(new Date(task.dueAt))}</span>
         {task.assignee && <span><Users size={15} />{task.assignee.name}</span>}
+        {taskRelatedLabel(task) && <span><Users size={15} />{taskRelatedLabel(task)}</span>}
       </div>}
       <div className="modal-actions task-modal-actions">
         {task?.status === 'OPEN' && <>

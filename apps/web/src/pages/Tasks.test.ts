@@ -1,7 +1,13 @@
 import { describe, expect, it } from 'vitest';
-import { calculateWeekTaskLayout, snapTaskMinutes, taskDropDueAt } from './Tasks';
+import { calculateWeekTaskLayout, snapTaskMinutes, taskDisplayTitle, taskDropDueAt } from './Tasks';
 
 describe('drag and drop de tarefas', () => {
+  it('exibe o contato ou empresa vinculada no título da tarefa', () => {
+    expect(taskDisplayTitle({ title: 'Retornar contato', contact: { id: 'contact-1', name: 'Maria Silva' } })).toBe('Retornar contato · Maria Silva');
+    expect(taskDisplayTitle({ title: 'Retornar contato', company: { id: 'company-1', name: 'ACME' } })).toBe('Retornar contato · ACME');
+    expect(taskDisplayTitle({ title: 'Follow-up · Maria Silva', contact: { id: 'contact-1', name: 'Maria Silva' } })).toBe('Follow-up · Maria Silva');
+  });
+
   it('preserva o horário ao mover uma tarefa no calendário mensal', () => {
     const moved = taskDropDueAt(new Date(2026, 6, 24, 14, 35), '2026-07-28');
 
