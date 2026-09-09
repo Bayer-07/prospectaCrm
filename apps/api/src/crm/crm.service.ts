@@ -641,7 +641,7 @@ export class CrmService {
       include: {
         assignee: { select: { id: true, name: true } },
         company: { select: { id: true, name: true } },
-        contact: { select: { id: true, name: true } },
+        contact: { select: { id: true, name: true, phone: true } },
         opportunity: { select: { id: true, title: true } },
         followUp: { select: { id: true, conversationId: true, mode: true, status: true, scheduledAt: true, failureReason: true } },
       },

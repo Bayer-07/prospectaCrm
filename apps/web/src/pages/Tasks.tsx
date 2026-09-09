@@ -22,6 +22,8 @@ import {
   ChevronRight,
   Circle,
   Clock,
+  MessageCircle,
+  Phone,
   Plus,
   Users,
 } from 'lucide-react';
@@ -30,6 +32,7 @@ import { api, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { FollowUpModal } from '../components/FollowUpModal';
+import { StartConversationModal } from '../components/StartConversationModal';
 
 type TaskStatus = 'OPEN' | 'COMPLETED' | 'CANCELLED';
 type TaskPriority = 'LOW' | 'MEDIUM' | 'HIGH';
@@ -42,7 +45,7 @@ type Task = {
   status: TaskStatus;
   assignee?: { id: string; name: string };
   company?: { id: string; name: string };
-  contact?: { id: string; name: string };
+  contact?: { id: string; name: string; phone?: string | null };
   opportunity?: { id: string; title: string };
   followUp?: { id: string; conversationId: string; mode: string; status: string; scheduledAt: string; failureReason?: string | null };
 };
@@ -53,6 +56,9 @@ type TaskDropTarget = { view: CalendarView; dateKey: string };
 type TaskDropIndicator = TaskDropTarget & { minute?: number };
 
 type TaskRelatedRecord = Pick<Task, 'company' | 'contact' | 'opportunity'>;
+type TaskContact = NonNullable<Task['contact']>;
+type StartableTaskContact = { id: string; name: string; phone?: string };
+type TaskContactMenu = { contact: TaskContact; top: number; right: number };
 
 export function taskRelatedLabel(task: TaskRelatedRecord) {
   if (task.contact) return `Contato: ${task.contact.name}`;
@@ -639,6 +645,8 @@ function TaskModal({
   onSaved(): void;
 }>) {
   const { user } = useAuth();
+  const [contactMenu, setContactMenu] = useState<TaskContactMenu | null>(null);
+  const [startingConversation, setStartingConversation] = useState<StartableTaskContact | null>(null);
   const [form, setForm] = useState(() => ({
     title: task?.title || '',
     description: task?.description || '',
@@ -675,6 +683,30 @@ function TaskModal({
       onSaved();
     },
   });
+  const openContactMenu = (event: MouseEvent<HTMLButtonElement>) => {
+    if (!task?.contact) return;
+    const rect = event.currentTarget.getBoundingClientRect();
+    const menuHeight = 92;
+    const top = rect.bottom + menuHeight + 10 > window.innerHeight
+      ? rect.top - menuHeight - 6
+      : rect.bottom + 6;
+    setContactMenu({
+      contact: task.contact,
+      top: Math.max(10, top),
+      right: Math.max(12, window.innerWidth - rect.right),
+    });
+  };
+  const startConversation = () => {
+    const contact = contactMenu?.contact;
+    if (!contact) return;
+    if (!contact.phone) {
+      toast.warning(`Adicione um telefone ao contato ${contact.name} antes de iniciar uma conversa.`);
+      setContactMenu(null);
+      return;
+    }
+    setStartingConversation({ id: contact.id, name: contact.name, phone: contact.phone });
+    setContactMenu(null);
+  };
   return <Modal title={task ? 'Detalhes da tarefa' : 'Nova tarefa'} onClose={onClose} width={620}>
     <form className="modal-form task-modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); save.mutate(); }}>
       <Field label="O que precisa ser feito?" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required autoFocus />
@@ -693,7 +725,10 @@ function TaskModal({
       {task && <div className="task-modal-context">
         <span><Clock size={15} />{fullDateFormatter.format(new Date(task.dueAt))}, {timeFormatter.format(new Date(task.dueAt))}</span>
         {task.assignee && <span><Users size={15} />{task.assignee.name}</span>}
-        {taskRelatedLabel(task) && <span><Users size={15} />{taskRelatedLabel(task)}</span>}
+        {task.contact ? <span className="task-contact-context">
+          <Users size={15} />
+          <button type="button" className="task-contact-trigger" onClick={openContactMenu} aria-haspopup="menu" aria-expanded={Boolean(contactMenu)}>{task.contact.name}</button>
+        </span> : taskRelatedLabel(task) && <span><Users size={15} />{taskRelatedLabel(task)}</span>}
       </div>}
       <div className="modal-actions task-modal-actions">
         {task?.status === 'OPEN' && <>
@@ -705,6 +740,16 @@ function TaskModal({
         <Button type="submit" loading={save.isPending}>{task ? 'Salvar alterações' : 'Criar tarefa'}</Button>
       </div>
     </form>
+    {contactMenu && <>
+      <button type="button" className="action-menu-backdrop task-contact-action-backdrop" onClick={() => setContactMenu(null)} aria-label="Fechar ações do contato" />
+      <div className="contact-action-menu task-contact-menu" role="menu" style={{ top: contactMenu.top, right: contactMenu.right }}>
+        {contactMenu.contact.phone
+          ? <a role="menuitem" href={`tel:${contactMenu.contact.phone}`} onClick={() => setContactMenu(null)}><Phone size={16} />Ligar</a>
+          : <button type="button" role="menuitem" disabled title="Este contato não possui telefone"><Phone size={16} />Ligar</button>}
+        <button type="button" role="menuitem" onClick={startConversation}><MessageCircle size={16} />Mandar mensagem</button>
+      </div>
+    </>}
+    {startingConversation && <StartConversationModal contact={startingConversation} onClose={() => setStartingConversation(null)} />}
   </Modal>;
 }
 
