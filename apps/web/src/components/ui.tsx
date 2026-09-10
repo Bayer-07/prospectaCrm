@@ -15,6 +15,8 @@ export function SelectField({ label, children, ...props }: Readonly<React.Select
 
 export function Modal({ title, children, onClose, width = 560 }: Readonly<{ title: string; children: ReactNode; onClose(): void; width?: number }>) {
   const dialogRef = useRef<HTMLDialogElement>(null);
+  const onCloseRef = useRef(onClose);
+  onCloseRef.current = onClose;
   useEffect(() => {
     const previouslyFocused = document.activeElement instanceof HTMLElement ? document.activeElement : null;
     const dialog = dialogRef.current;
@@ -23,7 +25,7 @@ export function Modal({ title, children, onClose, width = 560 }: Readonly<{ titl
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault();
-        onClose();
+        onCloseRef.current();
         return;
       }
       if (event.key !== 'Tab' || !dialog) return;
@@ -49,7 +51,7 @@ export function Modal({ title, children, onClose, width = 560 }: Readonly<{ titl
       document.removeEventListener('keydown', handleKeyDown);
       previouslyFocused?.focus();
     };
-  }, [onClose]);
+  }, []);
   return <div className="modal-backdrop">
     <button type="button" className="modal-backdrop-dismiss" onMouseDown={onClose} aria-label={`Fechar ${title}`} />
     <dialog ref={dialogRef} open className="modal" style={{ maxWidth: width }} aria-label={title} tabIndex={-1}>
