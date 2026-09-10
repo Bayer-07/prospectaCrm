@@ -71,6 +71,23 @@ export class IntegrationsController {
   @Get('conversations/instances')
   async conversationInstances(@CurrentUser() auth: AuthContext) { return { data: await this.evolution.conversationInstances(auth) }; }
 
+  @RequirePermission('contacts', 'read')
+  @Get('whatsapp/contacts/status')
+  async contactWhatsappStatus(@CurrentUser() auth: AuthContext, @Query('ids') ids?: string) {
+    return { data: await this.evolution.contactsWhatsappStatus(auth, ids?.split(',') || []) };
+  }
+
+  @RequirePermission('contacts', 'read')
+  @Get('whatsapp/contacts/:id/profile-picture')
+  async contactProfilePicture(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Res() response: Response) {
+    const picture = await this.evolution.contactProfilePicture(auth, id);
+    if (!picture) return response.status(404).end();
+    response.setHeader('Content-Type', picture.contentType);
+    response.setHeader('Cache-Control', 'private, max-age=3600, stale-while-revalidate=300');
+    response.setHeader('Cross-Origin-Resource-Policy', 'cross-origin');
+    return response.send(picture.body);
+  }
+
   @RequirePermission('conversations', 'write')
   @Post('conversations/start')
   async startConversation(@CurrentUser() auth: AuthContext, @Body() body: { contactId: string; instanceId: string }) {

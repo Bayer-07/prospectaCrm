@@ -899,6 +899,30 @@ describe('troca da conexão de uma conversa', () => {
 });
 
 describe('verificação de números no WhatsApp', () => {
+  it('retorna o status dos contatos usando conversas existentes e a consulta em lote', async () => {
+    const checkWhatsappNumbers = vi.fn().mockResolvedValue([
+      { number: '5511988888888', exists: false },
+    ]);
+    const service = new EvolutionService({
+      contact: {
+        findMany: vi.fn().mockResolvedValue([
+          { id: 'contact-1', phone: '+55 (11) 98888-8888', conversations: [] },
+          { id: 'contact-2', phone: null, conversations: [] },
+          { id: 'contact-3', phone: '+55 (11) 97777-7777', conversations: [{ id: 'conversation-1' }] },
+        ]),
+      },
+      whatsappInstance: { findMany: vi.fn().mockResolvedValue([{ instanceKey: 'comercial' }]) },
+    } as never, {} as never, {} as never, {} as never);
+    service.checkWhatsappNumbers = checkWhatsappNumbers;
+
+    await expect(service.contactsWhatsappStatus(auth, ['contact-1', 'contact-2', 'contact-3'])).resolves.toEqual([
+      { contactId: 'contact-1', hasWhatsapp: false },
+      { contactId: 'contact-2', hasWhatsapp: false },
+      { contactId: 'contact-3', hasWhatsapp: true, conversationId: 'conversation-1' },
+    ]);
+    expect(checkWhatsappNumbers).toHaveBeenCalledWith('comercial', ['5511988888888']);
+  });
+
   it('consulta a Evolution e marca respostas ausentes como inexistentes', async () => {
     const service = new EvolutionService({} as never, {} as never, {} as never, {} as never);
     service.request = vi.fn().mockResolvedValue({

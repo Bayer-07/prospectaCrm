@@ -210,6 +210,65 @@ export class EvolutionService {
     return checked;
   }
 
+  async contactsWhatsappStatus(auth: AuthContext, contactIds: string[]) {
+    const ids = [...new Set(contactIds.map((id) => id.trim()).filter(Boolean))].slice(0, 100);
+    if (!ids.length) return [];
+
+    const contacts = await this.db.contact.findMany({
+      where: {
+        id: { in: ids },
+        organizationId: auth.organizationId,
+        archivedAt: null,
+        ...scopedWhere(auth, 'contacts'),
+      },
+      select: {
+        id: true,
+        phone: true,
+        conversations: {
+          where: { organizationId: auth.organizationId, ...this.conversationScope(auth) },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { id: true },
+        },
+      },
+    });
+    const instances = await this.db.whatsappInstance.findMany({
+      where: this.conversationInstanceWhere(auth, 'read'),
+      select: { instanceKey: true },
+    });
+    const pending = contacts.filter((contact) => contact.phone && !contact.conversations[0]);
+    const checkedByNumber = new Map<string, { exists: boolean; successfulChecks: number }>();
+    const numbers = pending.map((contact) => contact.phone!.replace(/\D/g, '')).filter(Boolean);
+
+    await Promise.all(instances.map(async (instance) => {
+      let checked: Array<{ number: string; exists: boolean }>;
+      try {
+        checked = await this.checkWhatsappNumbers(instance.instanceKey, numbers);
+      } catch {
+        return;
+      }
+      for (const result of checked) {
+        const previous = checkedByNumber.get(result.number) || { exists: false, successfulChecks: 0 };
+        checkedByNumber.set(result.number, {
+          exists: previous.exists || result.exists,
+          successfulChecks: previous.successfulChecks + 1,
+        });
+      }
+    }));
+
+    return contacts.map((contact) => {
+      const conversation = contact.conversations[0];
+      if (conversation) return { contactId: contact.id, hasWhatsapp: true, conversationId: conversation.id };
+      if (!contact.phone) return { contactId: contact.id, hasWhatsapp: false };
+      const number = contact.phone.replace(/\D/g, '');
+      const check = checkedByNumber.get(number);
+      const hasWhatsapp = !check || check.successfulChecks < instances.length
+        ? null
+        : check.exists;
+      return { contactId: contact.id, hasWhatsapp };
+    });
+  }
+
   async createInstance(auth: AuthContext, input: { name: string; instanceKey: string; teamIds: string[] }) {
     const writeScope = permissionScope(auth, 'integrations', 'write');
     const allowedTeamIds = authTeamIds(auth);
@@ -963,7 +1022,43 @@ export class EvolutionService {
       || (conversation.remoteJid.includes('@s.whatsapp.net') ? conversation.remoteJid.split('@')[0].replace(/\D/g, '') : '');
     if (!number) return null;
 
-    const cacheKey = `${conversation.instanceId}:${number}`;
+    return this.fetchProfilePicture(conversation.instanceId, conversation.instance.instanceKey, number);
+  }
+
+  async contactProfilePicture(auth: AuthContext, id: string) {
+    const contact = await this.db.contact.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts') },
+      select: {
+        phone: true,
+        conversations: {
+          where: { organizationId: auth.organizationId, ...this.conversationScope(auth) },
+          orderBy: { updatedAt: 'desc' },
+          take: 1,
+          select: { instanceId: true, instance: { select: { instanceKey: true } } },
+        },
+      },
+    });
+    if (!contact?.phone) return null;
+    const number = contact.phone.replace(/\D/g, '');
+    if (!number) return null;
+
+    const connectedInstances = await this.db.whatsappInstance.findMany({
+      where: this.conversationInstanceWhere(auth, 'read'),
+      select: { id: true, instanceKey: true },
+    });
+    const candidates = [
+      ...(contact.conversations[0] ? [{ id: contact.conversations[0].instanceId, instanceKey: contact.conversations[0].instance.instanceKey }] : []),
+      ...connectedInstances,
+    ].filter((candidate, index, all) => all.findIndex((item) => item.id === candidate.id) === index);
+    for (const candidate of candidates) {
+      const picture = await this.fetchProfilePicture(candidate.id, candidate.instanceKey, number);
+      if (picture) return picture;
+    }
+    return null;
+  }
+
+  private async fetchProfilePicture(instanceId: string, instanceKey: string, number: string) {
+    const cacheKey = `${instanceId}:${number}`;
     const cached = this.profilePictureCache.get(cacheKey);
     if (cached && cached.expiresAt > Date.now()) {
       this.profilePictureCache.delete(cacheKey);
@@ -978,7 +1073,7 @@ export class EvolutionService {
     const request = (async () => {
       let picture: ProfilePictureCacheEntry['picture'] = null;
       try {
-        const metadata = await this.request(`/chat/fetchProfilePictureUrl/${encodeURIComponent(conversation.instance.instanceKey)}`, {
+        const metadata = await this.request(`/chat/fetchProfilePictureUrl/${encodeURIComponent(instanceKey)}`, {
           method: 'POST',
           body: JSON.stringify({ number }),
         });
@@ -1644,8 +1739,8 @@ export class EvolutionService {
     });
   }
 
-  private conversationInstanceWhere(auth: AuthContext): Prisma.WhatsappInstanceWhereInput {
-    const scope = permissionScope(auth, 'conversations', 'write');
+  private conversationInstanceWhere(auth: AuthContext, action = 'write'): Prisma.WhatsappInstanceWhereInput {
+    const scope = permissionScope(auth, 'conversations', action);
     return {
       organizationId: auth.organizationId,
       archivedAt: null,

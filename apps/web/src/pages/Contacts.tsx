@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Plus, Search, Trash2, Upload, UserRound, X } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, formatPhone, initials, type Envelope } from '../lib/api';
+import { api, apiUrl, formatPhone, initials, type Envelope } from '../lib/api';
 import type { Contact } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { ContactModal } from '../components/ContactModal';
@@ -19,6 +19,7 @@ import {
 } from '../lib/contact-filters';
 
 type ContactMenu = { contact: Contact; top: number; right: number };
+type ContactWhatsappStatus = { contactId: string; hasWhatsapp: boolean | null; conversationId?: string };
 type ContactFilterMetadata = {
   users: Array<{ id: string; name: string }>;
   teams: Array<{ id: string; name: string }>;
@@ -65,6 +66,14 @@ export function ContactsPage() {
     }
     return [...uniqueContacts.values()];
   }, [query.data?.pages]);
+  const contactIds = useMemo(() => contacts.map((contact) => contact.id), [contacts]);
+  const whatsappStatusQuery = useQuery({
+    queryKey: ['contact-whatsapp-status', contactIds],
+    queryFn: () => api<Envelope<ContactWhatsappStatus[]>>(`/whatsapp/contacts/status?ids=${contactIds.join(',')}`),
+    enabled: contactIds.length > 0,
+    staleTime: 5 * 60_000,
+  });
+  const whatsappStatuses = useMemo(() => new Map((whatsappStatusQuery.data?.data || []).map((status) => [status.contactId, status])), [whatsappStatusQuery.data?.data]);
   const loadMoreRef = useRef<HTMLDivElement | null>(null);
   const { fetchNextPage, hasNextPage, isFetchingNextPage } = query;
   useEffect(() => {
@@ -114,7 +123,7 @@ export function ContactsPage() {
   const openMenu = (event: React.MouseEvent<HTMLButtonElement>, contact: Contact) => {
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    const menuHeight = 142;
+    const menuHeight = (whatsappStatuses.get(contact.id)?.hasWhatsapp === false ? 3 : 4) * 37 + 20;
     const top = rect.bottom + menuHeight + 10 > window.innerHeight ? rect.top - menuHeight - 6 : rect.bottom + 6;
     setMenu({ contact, top: Math.max(10, top), right: Math.max(12, window.innerWidth - rect.right) });
   };
@@ -176,11 +185,11 @@ export function ContactsPage() {
     {contacts.length ? <><div className="table-card"><table>
       <thead><tr><th>Contato</th><th>Empresa</th><th>Telefone</th><th>Responsável</th><th>Tags</th><th /></tr></thead>
       <tbody>{contacts.map((contact) => <tr key={contact.id}>
-        <td><div className="entity-cell"><span className="contact-avatar">{initials(contact.name)}</span><div><button type="button" className="entity-name-button" onClick={() => setViewing(contact)}>{contact.name}</button>{contact.email
+        <td><div className="entity-cell"><ContactWhatsappAvatar contact={contact} hasWhatsapp={whatsappStatuses.get(contact.id)?.hasWhatsapp === true} /><div><button type="button" className="entity-name-button" onClick={() => setViewing(contact)}>{contact.name}</button>{contact.email
           ? <button type="button" className="contact-email-link" onClick={() => openEmailCampaign(contact)} title="Criar campanha de e-mail"><Mail size={12} />{contact.email}</button>
           : <small><Mail size={12} />{contact.jobTitle || 'Sem e-mail'}</small>}</div></div></td>
         <td>{contact.companies?.[0]?.company.name || 'Sem empresa'}</td>
-        <td><span className="phone-cell"><MessageCircle size={13} />{formatPhone(contact.phone) || '—'}</span></td>
+        <td><div className="contact-phone-info"><span className="phone-cell"><Phone size={13} />{formatPhone(contact.phone) || '—'}</span><WhatsappStatusBadge hasWhatsapp={contact.phone ? (whatsappStatuses.get(contact.id)?.hasWhatsapp ?? null) : false} loading={whatsappStatusQuery.isFetching} /></div></td>
         <td>{contact.owner?.name || 'Sem responsável'}</td>
         <td><div className="tag-list">{contact.tags?.slice(0, 2).map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></td>
         <td className="contact-actions-cell"><button type="button" className="icon-button" onClick={(event) => openMenu(event, contact)} aria-label={`Ações de ${contact.name}`} aria-haspopup="menu" aria-expanded={menu?.contact.id === contact.id}><MoreHorizontal size={17} /></button></td>
@@ -191,11 +200,14 @@ export function ContactsPage() {
       <button type="button" className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
       <div className="contact-action-menu" role="menu" style={{ top: menu.top, right: menu.right }}>
         <button type="button" role="menuitem" onClick={() => { setEditing(menu.contact); setMenu(null); }}><Pencil size={16} />Editar</button>
-        <button type="button" role="menuitem" onClick={() => {
-          if (!menu.contact.phone) toast.warning(`Adicione um telefone ao contato ${menu.contact.name} antes de iniciar a conversa.`);
-          else setStarting(menu.contact);
+        {whatsappStatuses.get(menu.contact.id)?.hasWhatsapp !== false && <button type="button" role="menuitem" onClick={() => {
+          if (menu.contact.phone) setStarting(menu.contact);
+          else toast.warning(`Adicione um telefone ao contato ${menu.contact.name} antes de iniciar a conversa.`);
           setMenu(null);
-        }}><MessageCircle size={16} />Iniciar conversa</button>
+        }}><MessageCircle size={16} />Iniciar conversa</button>}
+        {menu.contact.phone
+          ? <a href={`tel:${menu.contact.phone}`} role="menuitem" onClick={() => setMenu(null)}><Phone size={16} />Ligar</a>
+          : <button type="button" role="menuitem" disabled title="Este contato não possui telefone"><Phone size={16} />Ligar</button>}
         <button type="button" className="danger" role="menuitem" onClick={() => { setDeleting(menu.contact); setMenu(null); }}><Trash2 size={16} />Excluir</button>
       </div>
     </>}
@@ -206,6 +218,23 @@ export function ContactsPage() {
     {importing && <ContactImportModal onClose={() => setImporting(false)} onImported={() => { setImporting(false); refresh(); }} />}
     {deleting && <DeleteContactModal contact={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); refresh(); }} />}
   </div>;
+}
+
+function ContactWhatsappAvatar({ contact, hasWhatsapp, large = false }: Readonly<{ contact: Contact; hasWhatsapp: boolean; large?: boolean }>) {
+  const [failed, setFailed] = useState(false);
+  useEffect(() => setFailed(false), [contact.id, hasWhatsapp]);
+  const photoUrl = hasWhatsapp ? apiUrl(`/whatsapp/contacts/${contact.id}/profile-picture?v=1`) : '';
+  return <span className={`contact-avatar${large ? ' large' : ''}${photoUrl && !failed ? ' has-image' : ''}`}>
+    {photoUrl && !failed ? <img src={photoUrl} alt={`Foto de ${contact.name}`} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : initials(contact.name)}
+  </span>;
+}
+
+function WhatsappStatusBadge({ hasWhatsapp, loading }: Readonly<{ hasWhatsapp: boolean | null; loading: boolean }>) {
+  const known = hasWhatsapp !== null;
+  const label = hasWhatsapp === true ? 'Com WhatsApp' : hasWhatsapp === false ? 'Sem WhatsApp' : loading ? 'Verificando WhatsApp' : 'WhatsApp não verificado';
+  return <span className={`contact-whatsapp-status ${hasWhatsapp === true ? 'is-valid' : hasWhatsapp === false ? 'is-invalid' : 'is-pending'}`} title={label} aria-label={label}>
+    <MessageCircle size={12} />{known ? label : loading ? 'Verificando…' : 'Não verificado'}
+  </span>;
 }
 
 function ContactDrawer({ contact, onClose }: Readonly<{ contact: Contact; onClose(): void }>) {
