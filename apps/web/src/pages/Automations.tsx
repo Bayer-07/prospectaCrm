@@ -8,6 +8,7 @@ import {
 import { ArrowRightLeft, Bell, Bot, Braces, ChevronLeft, CircleStop, Clock3, GitBranch, MessageSquareText, MousePointerClick, Plus, Save, Send, Tag, Trash2, UserRoundCheck, Workflow } from 'lucide-react';
 import { api, dateTime, type Envelope } from '../lib/api';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
+import { ConnectionPicker } from '../components/ConnectionPicker';
 import { WhatsappText } from '../components/WhatsappText';
 import { useTheme } from '../lib/theme';
 import { toast } from '../lib/toast';
@@ -163,7 +164,7 @@ function AutomationNodeInspector({ node, metadata, onChange, onDelete }: Readonl
     <label className="field"><span>Nome do bloco</span><input value={flowString(node.data.label)} onChange={(event) => onChange({ label: event.target.value })} /></label>
     {node.type === 'trigger' && <div className="inspector-note">O fluxo inicia por inscrição manual, pelo comando <strong>@</strong> no chat ou pelos demais gatilhos configurados no sistema.</div>}
     {node.type === 'send_whatsapp' && <>
-      <SelectField label="Número de envio" value={flowString(node.data.instanceId)} onChange={(event) => onChange({ instanceId: event.target.value })}><option value="">Usar o número da conversa</option>{metadata.instances.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}{instance.status !== 'CONNECTED' ? ' · Desconectado' : ''}</option>)}</SelectField>
+      <label className="field"><span>Número de envio</span><ConnectionPicker options={metadata.instances} value={flowString(node.data.instanceId)} onChange={(value) => onChange({ instanceId: value })} allowEmpty emptyLabel="Usar o número da conversa" ariaLabel="Número de envio" /></label>
       <label className="field automation-message-field"><span>Mensagem do WhatsApp</span><textarea rows={8} autoFocus value={message} onChange={(event) => updateMessage(event.target.value)} placeholder="Digite a mensagem que será enviada…" /><small>{message.length} caracteres</small></label>
       <div className="automation-variable-row"><span>Variáveis</span>{automationMessageVariables.map((variable) => <button key={variable} type="button" onClick={() => updateMessage(`${message}${message && !message.endsWith(' ') ? ' ' : ''}{{${variable}}}`)}>{`{{${variable}}}`}</button>)}</div>
       <div className="automation-message-preview"><span>Prévia para o contato</span><div>{message.trim() ? <WhatsappText text={renderTemplateVariables(message, { nome: 'Adriana' })} /> : <em>Digite uma mensagem para visualizar.</em>}</div></div>

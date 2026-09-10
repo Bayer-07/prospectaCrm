@@ -11,6 +11,7 @@ import { describeMessageFailure, type MessageFailure } from '../lib/message-erro
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { CompanyPicker } from '../components/CompanyPicker';
+import { ConnectionPicker } from '../components/ConnectionPicker';
 import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
 import { FollowUpModal } from '../components/FollowUpModal';
@@ -237,7 +238,7 @@ function InboxFilterPanel(props: InboxFilterPanelProps) {
       </div>
       {invalidDateRange && <p>A data final deve ser igual ou posterior à inicial.</p>}
     </div>
-    <label className="conversation-filter-field"><span>Conexão Evolution</span><select value={draft.instanceId} onChange={(event) => props.onChange('instanceId', event.target.value)}><option value="">Todas as conexões</option>{optionsLoading && <option disabled>Carregando conexões…</option>}{(options?.instances || []).map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''} · {instance.status === 'CONNECTED' ? 'Conectada' : 'Desconectada'}</option>)}</select></label>
+    <label className="conversation-filter-field"><span>Conexão Evolution</span><ConnectionPicker options={options?.instances || []} value={draft.instanceId} onChange={(value) => props.onChange('instanceId', value)} loading={optionsLoading} error={optionsError} allowEmpty emptyLabel="Todas as conexões" ariaLabel="Conexão Evolution" /></label>
     <label className="conversation-filter-field"><span>Equipe / fila</span><select value={draft.teamId} onChange={(event) => props.onChange('teamId', event.target.value)}><option value="">Todas as filas</option>{(options?.teams || []).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
     <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draft.assigneeId} onChange={(event) => props.onChange('assigneeId', event.target.value)}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{optionsLoading && <option disabled>Carregando usuários…</option>}{(options?.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
     {optionsError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
@@ -848,7 +849,7 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
   let instancePicker: ReactNode = <div className="form-hint">Nenhuma conexão do WhatsApp está ativa.</div>;
   if (instances.isLoading) instancePicker = <PageLoading />;
   else if (instances.data?.data.length) {
-    instancePicker = <SelectField label="Número do WhatsApp" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>{instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}</option>)}</SelectField>;
+    instancePicker = <label className="field"><span>Número do WhatsApp</span><ConnectionPicker options={instances.data.data} value={instanceId} onChange={setInstanceId} ariaLabel="Número do WhatsApp" /></label>;
   }
   return <Modal title="Nova conversa" onClose={onClose} width={620}>
     <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId && selectedWhatsappStatus !== false) start.mutate(); }}>
@@ -901,9 +902,7 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
   let instancePicker: ReactNode = <div className="form-hint">Nenhuma conexão do WhatsApp está ativa para iniciar a conversa.</div>;
   if (instances.isLoading) instancePicker = <PageLoading />;
   else if (instances.data?.data.length) {
-    instancePicker = <SelectField label="Enviar pelo número" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>
-      {instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
-    </SelectField>;
+    instancePicker = <label className="field"><span>Enviar pelo número</span><ConnectionPicker options={instances.data.data} value={instanceId} onChange={setInstanceId} ariaLabel="Enviar pelo número" /></label>;
   }
   return <Modal title="Iniciar conversa" onClose={() => { if (!start.isPending) onClose(); }} width={520}>
     <form className="shared-contact-start-form" onSubmit={(event) => { event.preventDefault(); if (instanceId) start.mutate(); }}>
@@ -1882,13 +1881,10 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   if (availableInstances.isLoading) instanceOptionContent = <PageLoading />;
   else if (availableInstances.isError) instanceOptionContent = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>;
   else if (instanceOptions.length) {
-    instanceOptionContent = <SelectField label="Nova conexão" value={instanceTarget} onChange={(event) => {
-      setInstanceTarget(event.target.value);
+    instanceOptionContent = <label className="field"><span>Nova conexão</span><ConnectionPicker options={instanceOptions} value={instanceTarget} onChange={(value) => {
+      setInstanceTarget(value);
       changeInstance.reset();
-    }}>
-      <option value="">Selecione uma conexão ativa</option>
-      {instanceOptions.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
-    </SelectField>;
+    }} allowEmpty emptyLabel="Selecione uma conexão ativa" ariaLabel="Nova conexão" /></label>;
   }
   const composerPlaceholder = conversationComposerPlaceholder(
     connectionUnavailable,

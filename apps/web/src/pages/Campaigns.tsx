@@ -4,7 +4,8 @@ import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/co
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock3, Download, FileSpreadsheet, LoaderCircle, MessageSquareText, Pause, Play, Plus, Search, Send, ShieldCheck, Trash2, Upload, UserRoundCheck, Users, X } from 'lucide-react';
 import { api, apiFetch, dateTime, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
-import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
+import { Button, Empty, Field, Modal, PageLoading, Status } from '../components/ui';
+import { ConnectionPicker } from '../components/ConnectionPicker';
 import { ContactAvatar } from '../components/ContactAvatar';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import {
@@ -658,9 +659,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
         <div className="campaign-form-section-title"><span>1</span><div><h3>Informações da campanha</h3><p>Identifique a campanha e escolha a conexão responsável pelos envios.</p></div></div>
         <div className="form-grid">
           <Field label="Título" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Prospecção — Energia SP" required />
-          <SelectField label="Número de envio" value={form.instanceId} onChange={(event) => setForm({ ...form, instanceId: event.target.value })} required>
-            {instances.map((instance) => <option value={instance.id} key={instance.id}>{instance.name} · {instance.phone || 'Conectado'}</option>)}
-          </SelectField>
+          <label className="field"><span>Número de envio</span><ConnectionPicker options={instances} value={form.instanceId} onChange={(value) => setForm({ ...form, instanceId: value })} ariaLabel="Número de envio" /></label>
         </div>
       </section>
 

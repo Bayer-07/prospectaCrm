@@ -314,7 +314,9 @@ textarea {
 }
 .field input:disabled { background: var(--apple-fill); color: var(--muted); }
 .company-picker-control > input,
-.company-picker-control > input:focus {
+.company-picker-control > input:focus,
+.connection-picker-control > input,
+.connection-picker-control > input:focus {
   min-height: 39px;
   padding: 0;
   border: 0;

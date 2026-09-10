@@ -4,8 +4,9 @@ import { MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { api, formatPhone, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
-import { Button, Modal, PageLoading, SelectField } from './ui';
+import { Button, Modal, PageLoading } from './ui';
 import { ContactAvatar } from './ContactAvatar';
+import { ConnectionPicker } from './ConnectionPicker';
 
 type ConversationContact = {
   id: string;
@@ -53,9 +54,7 @@ export function StartConversationModal({ contact, onClose }: Readonly<{
     content = null;
   } else if (instances.data?.data.length) {
     content = <form className="modal-form" onSubmit={(event) => { event.preventDefault(); start.mutate(); }}>
-      <SelectField label="Enviar pelo número" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>
-        {instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${formatPhone(instance.phone)}` : ''}</option>)}
-      </SelectField>
+      <label className="field"><span>Enviar pelo número</span><ConnectionPicker options={instances.data.data} value={instanceId} onChange={setInstanceId} ariaLabel="Enviar pelo número" /></label>
       <p className="form-hint">A conversa será aberta no Inbox. A mensagem só será enviada quando você escrever e confirmar o envio.</p>
       <div className="modal-actions">
         <Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button>
