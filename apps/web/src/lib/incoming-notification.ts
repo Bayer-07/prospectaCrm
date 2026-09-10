@@ -22,7 +22,7 @@ export function openInboxConversationId(pathname: string) {
 export function shouldPlayIncomingMessageSound(payload: InboxRealtimePayload | undefined, pathname: string, user: NotificationUser | null, pageFocused = true) {
   if (!payload?.conversationId || payload.newMessage?.direction !== 'INBOUND') return false;
   if (pageFocused && openInboxConversationId(pathname) === payload.conversationId) return false;
-  if (payload.newMessage.assigneeId && user?.roleKey !== 'admin' && payload.newMessage.assigneeId !== user?.userId) return false;
+  if (!payload.newMessage.assigneeId || payload.newMessage.assigneeId !== user?.userId) return false;
   return true;
 }
 

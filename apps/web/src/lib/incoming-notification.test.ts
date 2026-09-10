@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { openInboxConversationId, shouldPlayIncomingMessageSound, type InboxRealtimePayload } from './incoming-notification';
 
-const incoming = (conversationId = 'conversation-2', assigneeId: string | null = null): InboxRealtimePayload => ({
+const incoming = (conversationId = 'conversation-2', assigneeId: string | null = 'user-1'): InboxRealtimePayload => ({
   conversationId,
   newMessage: { id: 'message-1', direction: 'INBOUND', assigneeId },
 });
@@ -30,8 +30,12 @@ describe('som de nova mensagem', () => {
     expect(shouldPlayIncomingMessageSound(incoming('conversation-2', 'user-2'), '/', { userId: 'user-1', roleKey: 'sdr' })).toBe(false);
   });
 
-  it('permite que administradores sejam avisados sobre qualquer atendimento', () => {
-    expect(shouldPlayIncomingMessageSound(incoming('conversation-2', 'user-2'), '/', { userId: 'admin-1', roleKey: 'admin' })).toBe(true);
+  it('não toca para tickets sem atendente', () => {
+    expect(shouldPlayIncomingMessageSound(incoming('conversation-2', null), '/', { userId: 'user-1' })).toBe(false);
+  });
+
+  it('não avisa administradores sobre conversa atribuída a outra pessoa', () => {
+    expect(shouldPlayIncomingMessageSound(incoming('conversation-2', 'user-2'), '/', { userId: 'admin-1', roleKey: 'admin' })).toBe(false);
   });
 
   it('extrai a conversa aberta de uma rota da inbox', () => {
