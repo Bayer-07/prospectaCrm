@@ -383,7 +383,7 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .conversation-header { padding: 0 20px; }
 .conversation-person { gap: 11px; }
 .conversation-person strong { font-size: 15px; }
-.conversation-person span { font-size: 12px; }
+.conversation-person-details > span { font-size: 12px; }
 .contact-avatar.large { width: 42px; height: 42px; font-size: 13px; }
 .conversation-actions .button { font-size: 13px; }
 .conversation-status-button { min-height: 38px; padding: 0 11px; border: 1px solid transparent; border-radius: 9px; display: inline-flex; align-items: center; justify-content: center; gap: 6px; font-size: 13px; font-weight: 700; transition: background .15s ease, border-color .15s ease, color .15s ease, transform .15s ease; }
@@ -682,7 +682,7 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 @media (max-width: 680px) {
   .inbox-layout { display: block; }
   .conversation-view { grid-template-rows: 64px minmax(0, 1fr) auto; }
-  .conversation-person span { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .conversation-person-details > span { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .conversation-actions .button { max-width: 120px; }
   .conversation-status-button { width: 38px; padding: 0; }
   .conversation-status-button span { display: none; }
