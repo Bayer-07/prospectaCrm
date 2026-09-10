@@ -207,6 +207,8 @@ td { font-size: var(--font-body); }
 .company-picker-empty, .company-picker-status { min-height: 42px; padding: 11px 9px; color: var(--muted); font-size: 12px; line-height: 1.35; }
 .company-picker-status { position: absolute; top: calc(100% + 5px); left: 0; width: 100%; z-index: 130; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); box-shadow: 0 14px 34px rgba(24, 39, 50, .18); }
 .company-picker-status.error { color: var(--red); }
+.contact-avatar-default-icon { display: block; color: currentColor; }
+.campaign-selected-contacts .campaign-selected-contact-avatar { width: 22px; height: 22px; flex: 0 0 auto; font-size: 8px; }
 .activity-filter-panel .company-picker-control { min-height: 35px; padding-left: 8px; border-color: var(--line); background: var(--surface-soft); }
 .activity-filter-panel .company-picker-control > input { min-height: 33px; font-size: 11px; }
 .activity-filter-panel .company-picker-toggle { height: 25px; }

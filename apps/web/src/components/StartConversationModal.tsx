@@ -2,9 +2,10 @@ import { useEffect, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { MessageCircle } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { api, formatPhone, initials, type Envelope } from '../lib/api';
+import { api, formatPhone, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Modal, PageLoading, SelectField } from './ui';
+import { ContactAvatar } from './ContactAvatar';
 
 type ConversationContact = {
   id: string;
@@ -71,7 +72,7 @@ export function StartConversationModal({ contact, onClose }: Readonly<{
 
   return <Modal title="Iniciar conversa" onClose={onClose}>
     <div className="conversation-start-intro">
-      <span className="contact-avatar">{initials(contact.name)}</span>
+      <ContactAvatar contact={contact} />
       <div><strong>{contact.name}</strong><p>{formatPhone(contact.phone)}</p></div>
     </div>
     {content}

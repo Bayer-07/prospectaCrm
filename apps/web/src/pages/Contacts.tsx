@@ -2,9 +2,10 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Building2, ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Plus, Search, Trash2, Upload, UserRound, X } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, apiUrl, formatPhone, initials, type Envelope } from '../lib/api';
+import { api, apiUrl, formatPhone, type Envelope } from '../lib/api';
 import type { Contact } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
+import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
 import { StartConversationModal } from '../components/StartConversationModal';
 import { ContactImportModal } from '../components/ContactImportModal';
@@ -221,12 +222,7 @@ export function ContactsPage() {
 }
 
 function ContactWhatsappAvatar({ contact, hasWhatsapp, large = false }: Readonly<{ contact: Contact; hasWhatsapp: boolean; large?: boolean }>) {
-  const [failed, setFailed] = useState(false);
-  useEffect(() => setFailed(false), [contact.id, hasWhatsapp]);
-  const photoUrl = hasWhatsapp ? apiUrl(`/whatsapp/contacts/${contact.id}/profile-picture?v=1`) : '';
-  return <span className={`contact-avatar${large ? ' large' : ''}${photoUrl && !failed ? ' has-image' : ''}`}>
-    {photoUrl && !failed ? <img src={photoUrl} alt={`Foto de ${contact.name}`} loading="lazy" decoding="async" onError={() => setFailed(true)} /> : initials(contact.name)}
-  </span>;
+  return <ContactAvatar contact={contact} large={large} photoUrl={hasWhatsapp ? apiUrl(`/whatsapp/contacts/${contact.id}/profile-picture?v=1`) : ''} />;
 }
 
 function WhatsappStatusBadge({ hasWhatsapp, loading }: Readonly<{ hasWhatsapp: boolean | null; loading: boolean }>) {

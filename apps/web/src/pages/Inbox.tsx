@@ -11,6 +11,7 @@ import { describeMessageFailure, type MessageFailure } from '../lib/message-erro
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { CompanyPicker } from '../components/CompanyPicker';
+import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
 import { FollowUpModal } from '../components/FollowUpModal';
 import { firstWhatsappLink, WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../components/WhatsappText';
@@ -840,7 +841,7 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
       const unavailable = hasWhatsapp === false;
       const whatsappLabel = unavailable ? 'Sem WhatsApp' : hasWhatsapp === true ? 'Com WhatsApp' : whatsappStatusQuery.isFetching ? 'Verificando WhatsApp…' : 'WhatsApp não verificado';
       return <button type="button" key={contact.id} className={contact.id === contactId ? 'selected' : ''} disabled={!contact.phone || unavailable} onClick={() => setContactId(contact.id)}>
-        <span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong><small>{formatPhone(contact.phone) || 'Sem telefone'}{contact.email ? ` · ${contact.email}` : ''} · {whatsappLabel}</small></div>{contact.id === contactId && <Check size={17} />}
+        <ContactAvatar contact={contact} /><div><strong>{contact.name}</strong><small>{formatPhone(contact.phone) || 'Sem telefone'}{contact.email ? ` · ${contact.email}` : ''} · {whatsappLabel}</small></div>{contact.id === contactId && <Check size={17} />}
       </button>;
     });
   }
@@ -907,7 +908,7 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
   return <Modal title="Iniciar conversa" onClose={() => { if (!start.isPending) onClose(); }} width={520}>
     <form className="shared-contact-start-form" onSubmit={(event) => { event.preventDefault(); if (instanceId) start.mutate(); }}>
       <div className="shared-contact-start-person">
-        <span>{initials(contact.name)}</span>
+        <ContactAvatar name={contact.name} />
         <div><strong>{contact.name}</strong><small>{formatPhone(contact.phone)}</small></div>
       </div>
       <p>O contato será salvo automaticamente na agenda e o atendimento ficará atribuído a você.</p>
@@ -2482,11 +2483,7 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
 }
 
 const WhatsappAvatar = memo(function WhatsappAvatar({ conversationId, name, large = false }: Readonly<{ conversationId: string; name: string; large?: boolean }>) {
-  const [failed, setFailed] = useState(false);
-  return <span className={`contact-avatar${large ? ' large' : ''}${failed ? '' : ' has-image'}`}>
-    {!failed && <img src={apiUrl(`/conversations/${conversationId}/profile-picture?v=1`)} alt="" loading="lazy" decoding="async" onError={() => setFailed(true)} />}
-    {failed && initials(name)}
-  </span>;
+  return <ContactAvatar name={name} large={large} photoUrl={apiUrl(`/conversations/${conversationId}/profile-picture?v=1`)} />;
 });
 
 const ConversationEventLog = memo(function ConversationEventLog({ event }: Readonly<{ event: ConversationEvent }>) {
@@ -2496,7 +2493,7 @@ const ConversationEventLog = memo(function ConversationEventLog({ event }: Reado
 const SharedContactCard = memo(function SharedContactCard({ contact, onStart }: Readonly<{ contact: SharedWhatsappContact; onStart(): void }>) {
   return <div className="shared-contact-card">
     <div className="shared-contact-card-person">
-      <span>{initials(contact.name)}</span>
+      <ContactAvatar name={contact.name} />
       <div><strong>{contact.name}</strong><small>{formatPhone(contact.phone)}</small></div>
     </div>
     <button type="button" onClick={onStart}><MessageCircle size={16} />Iniciar conversa</button>

@@ -2,9 +2,10 @@ import { DragEvent, FormEvent, type ReactNode, useEffect, useMemo, useRef, useSt
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { contactTemplateVariables, renderTemplateVariables } from '@prospecta/contracts';
 import { AlertTriangle, CheckCircle2, ChevronRight, Clock3, Download, FileSpreadsheet, LoaderCircle, MessageSquareText, Pause, Play, Plus, Search, Send, ShieldCheck, Trash2, Upload, UserRoundCheck, Users, X } from 'lucide-react';
-import { api, apiFetch, dateTime, initials, type Envelope } from '../lib/api';
+import { api, apiFetch, dateTime, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
+import { ContactAvatar } from '../components/ContactAvatar';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import {
   contactIsSelected,
@@ -183,7 +184,7 @@ function CampaignContactPicker({
     contactResults = contacts.map((contact) => {
       const selected = contactIsSelected(contact, selectedIds, selectedSearches, excludedIds);
       return <button type="button" key={contact.id} className={selected ? 'selected' : ''} onClick={() => onToggleContact(contact)}>
-        <span className="contact-avatar">{initials(contact.name)}</span>
+        <ContactAvatar contact={contact} />
         <div><strong>{contact.name}</strong><small>{contact.phone || contact.email || 'Sem telefone'}</small></div>
         <i>{selected ? <CheckCircle2 size={17} /> : <Plus size={17} />}</i>
       </button>;
@@ -205,7 +206,7 @@ function CampaignContactPicker({
       <small>{campaignSearchStatus(searchPending, currentSearch)}</small>
     </div>
     {selectedSearches.length > 0 && <div className="campaign-selected-searches">{selectedSearches.map((selectedSearch) => <span key={selectedSearch || '__all__'}><b>{selectedSearch ? `Todos com “${selectedSearch}”` : 'Todos os contatos'}</b><button type="button" onClick={() => onRemoveSearch(selectedSearch)} aria-label={`Remover seleção ${selectedSearch || 'de todos os contatos'}`}><X size={13} /></button></span>)}</div>}
-    {selectedContacts.length > 0 && <div className="campaign-selected-contacts">{selectedContacts.map((contact) => <span key={contact.id}><i>{initials(contact.name)}</i><b>{contact.name}</b><button type="button" onClick={() => onToggleContact(contact)} aria-label={`Remover ${contact.name}`}><X size={13} /></button></span>)}</div>}
+    {selectedContacts.length > 0 && <div className="campaign-selected-contacts">{selectedContacts.map((contact) => <span key={contact.id}><ContactAvatar contact={contact} className="campaign-selected-contact-avatar" /><b>{contact.name}</b><button type="button" onClick={() => onToggleContact(contact)} aria-label={`Remover ${contact.name}`}><X size={13} /></button></span>)}</div>}
     <div className="campaign-contact-results">{contactResults}</div>
     <small className="campaign-selection-count">{campaignSelectionSummary(selectedSearches.length, selectedContacts.length, excludedCount)}</small>
   </div>;
@@ -698,8 +699,8 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
           {preview.data && <div className="campaign-csv-preview">
             <header><div><strong>{preview.data.data.valid}</strong><span>com WhatsApp</span></div><div className={preview.data.data.invalid ? 'has-errors' : ''}><strong>{preview.data.data.invalid}</strong><span>sem WhatsApp ou inválidos</span></div><div><strong>{validCsvRows.reduce((total, row) => total + row.messages.length, 0)}</strong><span>mensagens que poderão ser enviadas</span></div></header>
             <div className="campaign-csv-validation-groups">
-              <section className="valid"><h4><CheckCircle2 size={15} />Com WhatsApp <span>{validCsvRows.length}</span></h4><div>{validCsvRows.slice(0, csvVisibleRows).map((row) => <article key={row.row}><span className="contact-avatar">{initials(row.name)}</span><div><strong>{row.name}</strong><small>{row.phone} · {row.messages.length} mensagem(ns)</small></div><span className="campaign-whatsapp-result valid">Válido</span></article>)}{!validCsvRows.length && <p className="campaign-validation-empty">Nenhum número com WhatsApp.</p>}</div></section>
-              <section className="invalid"><h4><X size={15} />Sem WhatsApp <span>{invalidCsvRows.length}</span></h4><div>{invalidCsvRows.slice(0, csvVisibleRows).map((row) => <article key={row.row}><span className="contact-avatar">{initials(row.name)}</span><div><strong>{row.name}</strong><small>{row.phone}</small></div><span className="campaign-whatsapp-result invalid">Ignorado</span></article>)}{!invalidCsvRows.length && <p className="campaign-validation-empty">Nenhum número sem WhatsApp.</p>}</div></section>
+              <section className="valid"><h4><CheckCircle2 size={15} />Com WhatsApp <span>{validCsvRows.length}</span></h4><div>{validCsvRows.slice(0, csvVisibleRows).map((row) => <article key={row.row}><ContactAvatar name={row.name} /><div><strong>{row.name}</strong><small>{row.phone} · {row.messages.length} mensagem(ns)</small></div><span className="campaign-whatsapp-result valid">Válido</span></article>)}{!validCsvRows.length && <p className="campaign-validation-empty">Nenhum número com WhatsApp.</p>}</div></section>
+              <section className="invalid"><h4><X size={15} />Sem WhatsApp <span>{invalidCsvRows.length}</span></h4><div>{invalidCsvRows.slice(0, csvVisibleRows).map((row) => <article key={row.row}><ContactAvatar name={row.name} /><div><strong>{row.name}</strong><small>{row.phone}</small></div><span className="campaign-whatsapp-result invalid">Ignorado</span></article>)}{!invalidCsvRows.length && <p className="campaign-validation-empty">Nenhum número sem WhatsApp.</p>}</div></section>
             </div>
             {(validCsvRows.length > csvVisibleRows || invalidCsvRows.length > csvVisibleRows) && <button type="button" className="campaign-preview-more" onClick={() => setCsvVisibleRows((current) => current + 100)}>Mostrar mais contatos</button>}
             {csvFormatErrors.length > 0 && <details><summary>Ver {csvFormatErrors.length} linha(s) com formato inválido</summary>{csvFormatErrors.slice(0, 100).map((error) => <p key={`${error.row}-${error.error}`}>Linha {error.row}: {error.error}</p>)}</details>}
@@ -763,7 +764,7 @@ function CampaignRecipientCard({ campaign, recipient }: Readonly<{ campaign: Cam
 
   return <article>
     <header>
-      <span className="contact-avatar">{initials(recipient.contact.name)}</span>
+      <ContactAvatar contact={recipient.contact} />
       <div><strong>{recipient.contact.name}</strong><small>{recipient.contact.phone || recipient.contact.email || 'Sem contato informado'}</small></div>
       <Status value={recipient.status} />
     </header>

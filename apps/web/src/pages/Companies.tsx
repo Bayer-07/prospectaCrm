@@ -27,6 +27,7 @@ import { formatCnpj, isValidCnpj, normalizeCnpj } from '@prospecta/contracts';
 import { api, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import type { Company } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
+import { ContactAvatar } from '../components/ContactAvatar';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { toast } from '../lib/toast';
 import { StartConversationModal } from '../components/StartConversationModal';
@@ -671,7 +672,7 @@ function CompanyContactsModal({ company, onClose }: Readonly<{ company: Company;
     content = <p className="company-modal-error">Não foi possível carregar os contatos vinculados.</p>;
   } else if (contacts.length) {
     content = <div className="company-contacts-modal-list">{contacts.map(({ contact, isPrimary }) => <article key={contact.id}>
-            <span className="contact-avatar large">{initials(contact.name)}</span>
+            <ContactAvatar contact={contact} large />
             <div>
               <strong>{contact.name}{isPrimary && <em>Principal</em>}</strong>
               <small>{contact.jobTitle || 'Cargo não informado'}</small>
@@ -757,7 +758,7 @@ function CompanyDrawerContent({ data }: Readonly<{ data: CompanyDetails }>) {
               <h3><Users size={17} />Contatos vinculados</h3>
               {data.contacts.length
                 ? <div className="drawer-contact-list">{data.contacts.slice(0, 8).map(({ contact, isPrimary }) => <div key={contact.id}>
-                  <span className="contact-avatar">{initials(contact.name)}</span>
+                  <ContactAvatar contact={contact} />
                   <div>
                     <strong>{contact.name}{isPrimary && <em>Principal</em>}</strong>
                     <small>{contact.jobTitle || contact.email || 'Sem informações complementares'}</small>

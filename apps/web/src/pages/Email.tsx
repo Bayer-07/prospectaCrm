@@ -2,9 +2,10 @@ import { FormEvent, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { CheckCircle2, FileText, LoaderCircle, Mail, Pause, Play, Plus, Search, Send, Trash2, Users } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
-import { api, dateTime, initials, type Envelope } from '../lib/api';
+import { api, dateTime, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
+import { ContactAvatar } from '../components/ContactAvatar';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import {
   contactIsSelected,
@@ -352,7 +353,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
   } else if (available.length) {
     contactResults = available.map((contact) => {
       const isSelected = contactIsSelected(contact, selectedIds, selectedSearches, excludedIds);
-      return <button type="button" key={contact.id} className={isSelected ? 'selected' : ''} onClick={() => toggleContact(contact)}><span className="contact-avatar">{initials(contact.name)}</span><span><strong>{contact.name}</strong><small>{contact.email}</small></span><span>{isSelected ? <CheckCircle2 size={17} /> : <Plus size={17} />}</span></button>;
+      return <button type="button" key={contact.id} className={isSelected ? 'selected' : ''} onClick={() => toggleContact(contact)}><ContactAvatar contact={contact} /><span><strong>{contact.name}</strong><small>{contact.email}</small></span><span>{isSelected ? <CheckCircle2 size={17} /> : <Plus size={17} />}</span></button>;
     });
   } else {
     contactResults = <div className="campaign-picker-state">Nenhum contato com e-mail encontrado.</div>;
@@ -380,7 +381,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
         <small>{emailSearchStatus(contactSearchPending, currentContactSearch)}</small>
       </div>
       {selectedSearches.length > 0 && <div className="campaign-selected-searches">{selectedSearches.map((selectedSearch) => <span key={selectedSearch || '__all__'}><b>{selectedSearch ? `Todos com “${selectedSearch}”` : 'Todos os contatos com e-mail'}</b><button type="button" onClick={() => removeSelectedSearch(selectedSearch)} aria-label={`Remover seleção ${selectedSearch || 'de todos os contatos'}`}>×</button></span>)}</div>}
-      {selected.length > 0 && <div className="campaign-selected-contacts">{selected.map((contact) => <span key={contact.id}><i>{initials(contact.name)}</i><b>{contact.name}</b><button type="button" onClick={() => toggleContact(contact)}>×</button></span>)}</div>}
+      {selected.length > 0 && <div className="campaign-selected-contacts">{selected.map((contact) => <span key={contact.id}><ContactAvatar contact={contact} className="campaign-selected-contact-avatar" /><b>{contact.name}</b><button type="button" onClick={() => toggleContact(contact)}>×</button></span>)}</div>}
       <div className="campaign-contact-results">{contactResults}</div>
       <small className="campaign-selection-count"><Users size={13} /> {emailSelectionSummary(selectedSearches.length, selected.length, excluded.length)}</small>
     </div>
