@@ -598,7 +598,7 @@ export class EvolutionService {
       }),
       this.db.whatsappInstance.findFirst({
         where: { id: input.instanceId, ...this.conversationInstanceWhere(auth) },
-        select: { id: true },
+        select: { id: true, instanceKey: true },
       }),
     ]);
     if (!contact) throw new NotFoundException('Contato não encontrado');
@@ -613,6 +613,10 @@ export class EvolutionService {
     });
     if (existing?.status === 'OPEN' && auth.roleKey !== 'admin' && existing.assigneeId && existing.assigneeId !== assigneeId) {
       throw new NotFoundException('Conversa não encontrada');
+    }
+    if (!existing) {
+      const [whatsapp] = await this.checkWhatsappNumbers(instance.instanceKey, [contact.phone]);
+      if (!whatsapp?.exists) throw new BadRequestException('O contato não possui WhatsApp');
     }
 
     const defaultTeam = await this.defaultTeam(auth.organizationId);

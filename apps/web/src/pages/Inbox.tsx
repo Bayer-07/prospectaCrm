@@ -37,6 +37,7 @@ type QuickReplyShortcut = {
   mediaAsset?: { id: string; filename: string; contentType: string; sizeBytes: number } | null;
 };
 type ContactInlineField = 'phone' | 'email' | 'companyId';
+type ContactWhatsappStatus = { contactId: string; hasWhatsapp: boolean | null };
 type TicketContextMenuState = { conversation: Conversation; top: number; left: number };
 type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string; teamId: string };
 type ConversationFilterOptions = {
@@ -806,6 +807,14 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
     queryKey: ['conversation-contact-picker', debouncedSearch],
     queryFn: () => api<Envelope<Contact[]>>(`/contacts?limit=50&search=${encodeURIComponent(debouncedSearch)}`),
   });
+  const contactIds = useMemo(() => (contacts.data?.data || []).map((contact) => contact.id), [contacts.data?.data]);
+  const whatsappStatusQuery = useQuery({
+    queryKey: ['conversation-contact-whatsapp-status', contactIds],
+    queryFn: () => api<Envelope<ContactWhatsappStatus[]>>(`/whatsapp/contacts/status?ids=${contactIds.join(',')}`),
+    enabled: contactIds.length > 0,
+    staleTime: 5 * 60_000,
+  });
+  const whatsappStatuses = useMemo(() => new Map((whatsappStatusQuery.data?.data || []).map((status) => [status.contactId, status.hasWhatsapp])), [whatsappStatusQuery.data?.data]);
   const instances = useQuery({ queryKey: ['conversation-instances'], queryFn: () => api<Envelope<WhatsappInstance[]>>('/conversations/instances') });
   useEffect(() => {
     if (!instanceId && instances.data?.data[0]) setInstanceId(instances.data.data[0].id);
@@ -818,12 +827,21 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
     },
   });
   const selectedContact = contacts.data?.data.find((contact) => contact.id === contactId);
+  const selectedWhatsappStatus = selectedContact ? whatsappStatuses.get(selectedContact.id) : undefined;
+  useEffect(() => {
+    if (selectedWhatsappStatus === false) setContactId('');
+  }, [selectedWhatsappStatus]);
   let contactListContent: ReactNode = <div className="conversation-contact-empty"><strong>Nenhum contato encontrado</strong><span>Tente buscar usando outro nome, telefone ou e-mail.</span></div>;
   if (contacts.isLoading) contactListContent = <PageLoading />;
   else if (!contacts.error && contacts.data?.data.length) {
-    contactListContent = contacts.data.data.map((contact) => <button type="button" key={contact.id} className={contact.id === contactId ? 'selected' : ''} disabled={!contact.phone} onClick={() => setContactId(contact.id)}>
-      <span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong><small>{formatPhone(contact.phone) || 'Sem telefone'}{contact.email ? ` · ${contact.email}` : ''}</small></div>{contact.id === contactId && <Check size={17} />}
-    </button>);
+    contactListContent = contacts.data.data.map((contact) => {
+      const hasWhatsapp = whatsappStatuses.get(contact.id);
+      const unavailable = hasWhatsapp === false;
+      const whatsappLabel = unavailable ? 'Sem WhatsApp' : hasWhatsapp === true ? 'Com WhatsApp' : whatsappStatusQuery.isFetching ? 'Verificando WhatsApp…' : 'WhatsApp não verificado';
+      return <button type="button" key={contact.id} className={contact.id === contactId ? 'selected' : ''} disabled={!contact.phone || unavailable} onClick={() => setContactId(contact.id)}>
+        <span className="contact-avatar">{initials(contact.name)}</span><div><strong>{contact.name}</strong><small>{formatPhone(contact.phone) || 'Sem telefone'}{contact.email ? ` · ${contact.email}` : ''} · {whatsappLabel}</small></div>{contact.id === contactId && <Check size={17} />}
+      </button>;
+    });
   }
   let instancePicker: ReactNode = <div className="form-hint">Nenhuma conexão do WhatsApp está ativa.</div>;
   if (instances.isLoading) instancePicker = <PageLoading />;
@@ -831,12 +849,12 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
     instancePicker = <SelectField label="Número do WhatsApp" value={instanceId} onChange={(event) => setInstanceId(event.target.value)}>{instances.data.data.map((instance) => <option key={instance.id} value={instance.id}>{instance.name}{instance.phone ? ` · ${instance.phone}` : ''}</option>)}</SelectField>;
   }
   return <Modal title="Nova conversa" onClose={onClose} width={620}>
-    <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId) start.mutate(); }}>
+    <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId && selectedWhatsappStatus !== false) start.mutate(); }}>
       <label className="conversation-contact-search"><span>Selecionar contato</span><div><Search size={16} /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, telefone ou e-mail…" /></div></label>
       <div className="conversation-contact-list">{contactListContent}</div>
       {selectedContact && <div className="conversation-selected-contact"><Check size={15} /><span><strong>{selectedContact.name}</strong> será aberto em um novo ticket.</span></div>}
       {instancePicker}
-      <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={start.isPending} disabled={!contactId || !instanceId}><MessageCircle size={16} />Abrir ticket</Button></div>
+      <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={start.isPending} disabled={!contactId || !instanceId || selectedWhatsappStatus === false}><MessageCircle size={16} />Abrir ticket</Button></div>
     </form>
   </Modal>;
 }
