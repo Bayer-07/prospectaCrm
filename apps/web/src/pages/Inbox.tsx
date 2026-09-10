@@ -10,6 +10,7 @@ import { aiSuggestionDisposition } from '../lib/ai-suggestion';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
+import { CompanyPicker } from '../components/CompanyPicker';
 import { ContactModal } from '../components/ContactModal';
 import { FollowUpModal } from '../components/FollowUpModal';
 import { firstWhatsappLink, WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../components/WhatsappText';
@@ -2308,6 +2309,8 @@ function AiProposalSection(props: Readonly<{
   proposal: AiProposal;
   selected: string[];
   companies: Company[];
+  companiesLoading: boolean;
+  companiesError: boolean;
   companyId: string;
   pending: boolean;
   onSelection(fields: string[]): void;
@@ -2321,7 +2324,7 @@ function AiProposalSection(props: Readonly<{
     const normalized = apiField(field);
     props.onSelection(checked ? [...new Set([...props.selected, normalized])] : props.selected.filter((item) => item !== normalized));
   };
-  return <section className="ai-proposal-card"><h3><Sparkles size={15} />Sugestões da IA</h3><p>Revise e selecione somente os dados que deseja aplicar.</p><div className="ai-proposal-fields">{fields.map(([field, value]) => <label key={field}><input type="checkbox" checked={props.selected.includes(apiField(field))} onChange={(event) => toggle(field, event.target.checked)} /><span><strong>{labels[field] || field}</strong><small>{value}</small></span></label>)}</div>{props.selected.includes('company') && <label className="field"><span>Confirmar empresa existente</span><select value={props.companyId} onChange={(event) => props.onCompany(event.target.value)}><option value="">Usar correspondência exata pelo nome</option>{props.companies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></label>}<div className="ai-proposal-actions"><Button variant="ghost" disabled={props.pending} onClick={() => props.onAction('dismiss')}>Descartar</Button><Button disabled={!props.selected.length} loading={props.pending} onClick={() => props.onAction('apply')}><Check size={15} />Aplicar selecionadas</Button></div></section>;
+  return <section className="ai-proposal-card"><h3><Sparkles size={15} />Sugestões da IA</h3><p>Revise e selecione somente os dados que deseja aplicar.</p><div className="ai-proposal-fields">{fields.map(([field, value]) => <label key={field}><input type="checkbox" checked={props.selected.includes(apiField(field))} onChange={(event) => toggle(field, event.target.checked)} /><span><strong>{labels[field] || field}</strong><small>{value}</small></span></label>)}</div>{props.selected.includes('company') && <div className="field"><span>Confirmar empresa existente</span><CompanyPicker companies={props.companies} value={props.companyId} onChange={props.onCompany} loading={props.companiesLoading} error={props.companiesError} noCompanyLabel="Usar correspondência exata pelo nome" placeholder="Digite para buscar a empresa" /></div>}<div className="ai-proposal-actions"><Button variant="ghost" disabled={props.pending} onClick={() => props.onAction('dismiss')}>Descartar</Button><Button disabled={!props.selected.length} loading={props.pending} onClick={() => props.onAction('apply')}><Check size={15} />Aplicar selecionadas</Button></div></section>;
 }
 
 function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversation: Conversation; onClose(): void; onUpdated(): void }>) {
@@ -2404,10 +2407,7 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
         {icon}<span>{label}</span>
         <div className="contact-inline-editor">
           {field === 'companyId'
-            ? <select value={inlineValue} onChange={(event) => setInlineValue(event.target.value)} disabled={companies.isLoading || companies.isError} autoFocus aria-label="Empresa do contato">
-                <option value="">{companies.isLoading ? 'Carregando empresas…' : 'Sem empresa vinculada'}</option>
-                {sortedCompanies.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
-              </select>
+            ? <CompanyPicker companies={sortedCompanies} value={inlineValue} selectedLabel={company?.name} onChange={setInlineValue} loading={companies.isLoading} error={companies.isError} ariaLabel="Empresa do contato" />
             : <input
                 type={field === 'email' ? 'email' : 'tel'}
                 value={inlineValue}
@@ -2459,6 +2459,8 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
           proposal={proposal}
           selected={proposalSelections[proposal.id] || []}
           companies={sortedCompanies}
+          companiesLoading={companies.isLoading}
+          companiesError={companies.isError}
           companyId={proposalCompanies[proposal.id] || ''}
           pending={updateProposal.isPending && updateProposal.variables?.proposalId === proposal.id}
           onSelection={(fields) => setProposalSelections((current) => ({ ...current, [proposal.id]: fields }))}

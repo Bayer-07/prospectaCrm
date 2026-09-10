@@ -6,6 +6,7 @@ import type { Activity } from '../lib/activity';
 import type { Company, Contact, Opportunity } from '../lib/types';
 import { toast } from '../lib/toast';
 import { Button, Field, Modal, SelectField } from './ui';
+import { CompanyPicker } from './CompanyPicker';
 import { useAuth } from '../App';
 
 type ManualCategory = 'call' | 'note' | 'meeting';
@@ -141,7 +142,7 @@ export function ActivityModal({
       {outcomes.length > 0 && <SelectField label="Resultado" value={form.outcome} onChange={(event) => setForm({ ...form, outcome: event.target.value })}><option value="">Não informado</option>{outcomes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectField>}
       <label className="field"><span>{category === 'note' ? 'Texto da nota' : 'Observações'}</span><textarea rows={5} value={form.body} onChange={(event) => setForm({ ...form, body: event.target.value })} required={category === 'note'} /></label>
       {needsAssociationPicker ? <div className="form-grid three activity-associations">
-        <SelectField label="Empresa" value={form.companyId} onChange={(event) => setForm({ ...form, companyId: event.target.value })}><option value="">Nenhuma</option>{companies.data?.data.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField>
+        <div className="field"><span>Empresa</span><CompanyPicker companies={companies.data?.data || []} value={form.companyId} selectedLabel={association.companyName} onChange={(companyId) => setForm({ ...form, companyId })} loading={companies.isLoading} error={companies.isError} noCompanyLabel="Nenhuma" /></div>
         <SelectField label="Contato" value={form.contactId} onChange={(event) => setForm({ ...form, contactId: event.target.value })}><option value="">Nenhum</option>{contacts.data?.data.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</SelectField>
         <SelectField label="Oportunidade" value={form.opportunityId} onChange={(event) => setForm({ ...form, opportunityId: event.target.value })}><option value="">Nenhuma</option>{opportunities.data?.data.map((item) => <option key={item.id} value={item.id}>{item.title}</option>)}</SelectField>
       </div> : <div className="activity-linked-records"><span>Vinculada a</span><strong>{association.opportunityTitle || association.contactName || association.companyName || activity?.opportunity?.title || activity?.contact?.name || activity?.company?.name}</strong></div>}

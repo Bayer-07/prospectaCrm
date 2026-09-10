@@ -5,6 +5,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { api, dateTime, type Envelope } from '../lib/api';
 import { activityCategoryLabels, activityDuration, activityOriginLabels, activityOutcomeLabels, activitySourceUrl, activityStatusLabels, type Activity, type ActivityCategory } from '../lib/activity';
 import { ActivityModal } from '../components/ActivityModal';
+import { CompanyPicker } from '../components/CompanyPicker';
 import { Button, Empty, PageLoading, SelectField } from '../components/ui';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import type { Company, Contact, Opportunity } from '../lib/types';
@@ -71,7 +72,7 @@ export function ActivitiesPage() {
       <SelectField label="Resultado" value={filters.outcome} onChange={(event) => setFilters({ ...filters, outcome: event.target.value })}><option value="">Todos</option>{Object.entries(activityOutcomeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectField>
       <SelectField label="Usuário" value={filters.userId} onChange={(event) => setFilters({ ...filters, userId: event.target.value })}><option value="">Todos</option>{metadata.data?.data.users.map((user) => <option key={user.id} value={user.id}>{user.name}</option>)}</SelectField>
       <SelectField label="Equipe" value={filters.teamId} onChange={(event) => setFilters({ ...filters, teamId: event.target.value })}><option value="">Todas</option>{metadata.data?.data.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>
-      {canRead('companies') && <SelectField label="Empresa" value={filters.companyId} onChange={(event) => setFilters({ ...filters, companyId: event.target.value })}><option value="">Todas</option>{companies.data?.data.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</SelectField>}
+      {canRead('companies') && <div className="field"><span>Empresa</span><CompanyPicker companies={companies.data?.data || []} value={filters.companyId} onChange={(companyId) => setFilters({ ...filters, companyId })} loading={companies.isLoading} error={companies.isError} noCompanyLabel="Todas" placeholder="Buscar empresa" /></div>}
       {canRead('contacts') && <SelectField label="Contato" value={filters.contactId} onChange={(event) => setFilters({ ...filters, contactId: event.target.value })}><option value="">Todos</option>{contacts.data?.data.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}</SelectField>}
       {canRead('opportunities') && <SelectField label="Oportunidade" value={filters.opportunityId} onChange={(event) => setFilters({ ...filters, opportunityId: event.target.value })}><option value="">Todas</option>{opportunities.data?.data.map((opportunity) => <option key={opportunity.id} value={opportunity.id}>{opportunity.title}</option>)}</SelectField>}
     </section>

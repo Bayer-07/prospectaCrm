@@ -3,6 +3,7 @@ import { useMutation, useQuery } from '@tanstack/react-query';
 import { api, type Envelope } from '../lib/api';
 import type { Company, Contact } from '../lib/types';
 import { Button, Field, Modal, SelectField } from './ui';
+import { CompanyPicker } from './CompanyPicker';
 import { toast } from '../lib/toast';
 import { formatBrazilPhoneInput, toBrazilE164Phone } from '../lib/phone-input';
 
@@ -45,7 +46,7 @@ export function ContactModal({ contact, onClose, onSaved }: Readonly<{ contact?:
       <div className="form-grid"><Field label="E-mail" type="email" value={form.email} onChange={set('email')} /><Field label="Telefone" type="tel" inputMode="numeric" autoComplete="tel-national" value={form.phone} onChange={setPhone} pattern="\(\d{2}\) \d{4,5}-\d{4}" title="Informe o DDD e o telefone usando apenas números" hint="Digite apenas números. Ex.: (45) 99922-5389" /></div>
       <div className="form-grid">
         <Field label="Cargo" value={form.jobTitle} onChange={set('jobTitle')} />
-        <SelectField label="Empresa" value={form.companyId} onChange={set('companyId')} disabled={companies.isLoading || companies.isError}><option value="">{companies.isLoading ? 'Carregando empresas…' : 'Sem empresa'}</option>{sortedCompanies.map((company) => <option key={company.id} value={company.id}>{company.name}</option>)}</SelectField>
+        <div className="field"><span>Empresa</span><CompanyPicker companies={sortedCompanies} value={form.companyId} selectedLabel={contact?.companies?.find((item) => item.isPrimary)?.company.name || contact?.companies?.[0]?.company.name} onChange={(companyId) => setForm((current) => ({ ...current, companyId }))} loading={companies.isLoading} error={companies.isError} /></div>
       </div>
       <SelectField label="Consentimento WhatsApp" value={form.consentStatus} onChange={set('consentStatus')}><option value="unknown">Não informado</option><option value="granted">Consentido</option><option value="revoked">Revogado</option></SelectField>
       {contact && <label aria-label="Não enviar campanhas" className={`contact-campaign-block${form.campaignsBlocked ? ' active' : ''}`}>
