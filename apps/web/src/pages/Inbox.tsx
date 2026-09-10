@@ -348,7 +348,7 @@ export function InboxPage() {
   const client = useQueryClient();
   const realtimeConnected = useRealtimeConnected();
   const isAdmin = user?.roleKey === 'admin';
-  const [filter, setFilter] = useState<InboxFilter>('waiting');
+  const [filter, setFilter] = useState<InboxFilter>('open');
   const [search, setSearch] = useState('');
   const [startingConversation, setStartingConversation] = useState(false);
   const [showAll, setShowAll] = useState(false);
