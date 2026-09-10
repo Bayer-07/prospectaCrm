@@ -871,6 +871,7 @@ export class InboundProcessor {
         id: true,
         status: true,
         assigneeId: true,
+        teamId: true,
         lastMessageAt: true,
         contact: { select: { id: true, name: true } },
       },

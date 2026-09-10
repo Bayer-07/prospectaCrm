@@ -1,5 +1,12 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { createCipheriv, hkdfSync } from 'node:crypto';
+import { InboundProcessor } from './inbound.processor.js';
+
+vi.mock('@prospecta/database', () => ({
+  markLatestWhatsappActivityReplied: vi.fn().mockResolvedValue(null),
+  projectTaskActivity: vi.fn().mockResolvedValue(null),
+  projectWhatsappMessageActivity: vi.fn().mockResolvedValue(null),
+}));
 import { advanceEvolutionMessageStatus, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
 
 describe('normalização dos eventos da Evolution', () => {
@@ -64,6 +71,45 @@ describe('fila de atendimento', () => {
       assigneeId: 'user-id',
       reopened: false,
     });
+  });
+});
+
+describe('equipe da conversa ao processar mensagens', () => {
+  it('preserva a equipe atribuída em mensagens enviadas pelo WhatsApp', async () => {
+    const conversationFindFirst = vi.fn().mockImplementation(({ select }: { select?: { teamId?: boolean } }) => Promise.resolve({
+      id: 'conversation-1',
+      status: 'OPEN',
+      assigneeId: 'user-1',
+      lastMessageAt: null,
+      contact: { id: 'contact-1', name: 'Maria' },
+      ...(select?.teamId ? { teamId: 'team-atual' } : {}),
+    }));
+    const conversationUpdate = vi.fn().mockResolvedValue({ id: 'conversation-1', assigneeId: 'user-1' });
+    const db = {
+      conversation: { findFirst: conversationFindFirst, update: conversationUpdate },
+      message: {
+        findUnique: vi.fn().mockResolvedValue(null),
+        create: vi.fn().mockResolvedValue({ id: 'message-1' }),
+      },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-geral' }) },
+    };
+    const processor = new InboundProcessor(db as never, undefined, {} as never);
+
+    await (processor as unknown as { message(instance: object, payload: object): Promise<unknown> }).message(
+      { id: 'instance-1', organizationId: 'organization-1', instanceKey: 'comercial', teams: [] },
+      {
+        data: {
+          key: { id: 'provider-1', remoteJid: '5545999999999@s.whatsapp.net', fromMe: true },
+          message: { conversation: 'Mensagem enviada' },
+        },
+      },
+    );
+
+    expect(conversationUpdate).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'conversation-1' },
+      data: expect.objectContaining({ teamId: 'team-atual' }),
+    }));
+    expect(db.team.findFirst).not.toHaveBeenCalled();
   });
 });
 
