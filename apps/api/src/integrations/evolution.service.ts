@@ -584,10 +584,11 @@ export class EvolutionService {
     });
   }
 
-  async startConversation(auth: AuthContext, input: { contactId: string; instanceId: string }) {
+  async startConversation(auth: AuthContext, input: { contactId: string; instanceId: string; teamId?: string }) {
     if (!auth.userId) throw new BadRequestException('Iniciar atendimento exige sessão de usuário');
     const assigneeId = auth.userId;
-    const [contact, instance] = await Promise.all([
+    const requestedTeamId = primitiveText(input.teamId).trim();
+    const [contact, instance, team] = await Promise.all([
       this.db.contact.findFirst({
         where: {
           id: input.contactId,
@@ -600,10 +601,17 @@ export class EvolutionService {
         where: { id: input.instanceId, ...this.conversationInstanceWhere(auth) },
         select: { id: true, instanceKey: true },
       }),
+      requestedTeamId
+        ? this.db.team.findFirst({
+          where: this.conversationTeamWhere(auth, requestedTeamId),
+          select: { id: true, name: true, color: true },
+        })
+        : Promise.resolve(null),
     ]);
     if (!contact) throw new NotFoundException('Contato não encontrado');
     if (!contact.phone) throw new BadRequestException('O contato precisa ter um telefone para iniciar uma conversa');
     if (!instance) throw new BadRequestException('Selecione uma conexão do WhatsApp ativa');
+    if (requestedTeamId && !team) throw new BadRequestException('Você não tem acesso à equipe selecionada');
 
     const remoteJid = `${contact.phone.replace(/\D/g, '')}@s.whatsapp.net`;
     const existing = await this.db.conversation.findFirst({
@@ -619,15 +627,16 @@ export class EvolutionService {
       if (!whatsapp?.exists) throw new BadRequestException('O contato não possui WhatsApp');
     }
 
-    const defaultTeam = await this.defaultTeam(auth.organizationId);
-    if (auth.roleKey !== 'admin' && !authTeamIds(auth).includes(defaultTeam.id)) {
+    const defaultTeam = team || await this.defaultTeam(auth.organizationId);
+    if (!team && auth.roleKey !== 'admin' && !authTeamIds(auth).includes(defaultTeam.id)) {
       throw new BadRequestException('Você precisa ter acesso à equipe Geral para iniciar um atendimento');
     }
+    const nextTeamId = team?.id || existing?.teamId || defaultTeam.id;
     let conversation;
     if (existing) {
       conversation = await this.db.conversation.update({
         where: { id: existing.id },
-        data: { contactId: contact.id, assigneeId, teamId: existing.teamId || defaultTeam.id, status: 'OPEN', closedAt: null },
+        data: { contactId: contact.id, assigneeId, teamId: nextTeamId, status: 'OPEN', closedAt: null },
         include: { assignee: { select: { id: true, name: true } }, team: { select: { id: true, name: true, color: true } } },
       });
     } else {
@@ -637,7 +646,7 @@ export class EvolutionService {
           instanceId: instance.id,
           contactId: contact.id,
           assigneeId,
-          teamId: defaultTeam.id,
+          teamId: nextTeamId,
           remoteJid,
           status: 'OPEN',
         },
@@ -650,6 +659,8 @@ export class EvolutionService {
       instanceId: instance.id,
       previousAssigneeId: existing?.assigneeId || null,
       assigneeId,
+      previousTeamId: existing?.teamId || null,
+      teamId: nextTeamId,
     });
     await this.db.auditLog.create({
       data: {
@@ -663,6 +674,8 @@ export class EvolutionService {
           instanceId: instance.id,
           previousAssigneeId: existing?.assigneeId || null,
           assigneeId,
+          previousTeamId: existing?.teamId || null,
+          teamId: nextTeamId,
         },
       },
     });
@@ -808,7 +821,7 @@ export class EvolutionService {
 
   conversationTeams(auth: AuthContext) {
     return this.db.team.findMany({
-      where: { organizationId: auth.organizationId },
+      where: this.conversationTeamWhere(auth),
       select: { id: true, name: true, color: true, isDefault: true },
       orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
     });
@@ -1750,6 +1763,18 @@ export class EvolutionService {
       archivedAt: null,
       status: 'CONNECTED',
       ...teamAccessWhere(scope, authTeamIds(auth)),
+    };
+  }
+
+  private conversationTeamWhere(auth: AuthContext, teamId?: string): Prisma.TeamWhereInput {
+    if (auth.roleKey === 'admin') {
+      return { organizationId: auth.organizationId, ...(teamId ? { id: teamId } : {}) };
+    }
+    const teamIds = authTeamIds(auth);
+    if (!teamIds.length) return { organizationId: auth.organizationId, id: '__none__' };
+    return {
+      organizationId: auth.organizationId,
+      id: teamId ? { equals: teamId, in: teamIds } : { in: teamIds },
     };
   }
 

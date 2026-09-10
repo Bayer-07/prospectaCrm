@@ -685,6 +685,59 @@ describe('responsabilidade ao abrir um atendimento', () => {
       }),
     });
   });
+
+  it('usa a equipe escolhida quando ela pertence às equipes acessíveis ao usuário', async () => {
+    const existing = {
+      id: 'conversation-1',
+      status: 'CLOSED',
+      assigneeId: 'user-anterior',
+      teamId: 'team-anterior',
+    };
+    const selectedTeam = { id: 'team-comercial', name: 'Comercial', color: '#123456' };
+    const updated = { ...existing, status: 'OPEN', assigneeId: 'user-1', teamId: selectedTeam.id };
+    const update = vi.fn().mockResolvedValue(updated);
+    const db = {
+      contact: { findFirst: vi.fn().mockResolvedValue({ id: 'contact-1', phone: '+55 (11) 99999-9999' }) },
+      whatsappInstance: { findFirst: vi.fn().mockResolvedValue({ id: 'instance-1' }) },
+      team: { findFirst: vi.fn().mockResolvedValue(selectedTeam) },
+      conversation: { findFirst: vi.fn().mockResolvedValue(existing), update },
+      conversationEvent: { create: vi.fn().mockResolvedValue({ id: 'event-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+    };
+    const service = new EvolutionService(db as never, {} as never, {} as never, { notifyOrganization: vi.fn() } as never);
+    const scopedAuth = { ...auth, roleKey: 'sdr', teamIds: ['team-comercial'] };
+
+    await expect(service.startConversation(scopedAuth, {
+      contactId: 'contact-1',
+      instanceId: 'instance-1',
+      teamId: selectedTeam.id,
+    })).resolves.toEqual(updated);
+
+    expect(db.team.findFirst).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'organization-1',
+        id: { equals: selectedTeam.id, in: ['team-comercial'] },
+      },
+      select: { id: true, name: true, color: true },
+    });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ teamId: selectedTeam.id }),
+    }));
+  });
+
+  it('lista somente as equipes acessíveis ao usuário nas opções de atendimento', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = new EvolutionService({ team: { findMany } } as never, {} as never, {} as never, {} as never);
+    const scopedAuth = { ...auth, roleKey: 'sdr', teamIds: ['team-1', 'team-2'] };
+
+    await service.conversationTeams(scopedAuth);
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: { organizationId: 'organization-1', id: { in: ['team-1', 'team-2'] } },
+      select: { id: true, name: true, color: true, isDefault: true },
+      orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
+    });
+  });
 });
 
 describe('transferência entre filas', () => {

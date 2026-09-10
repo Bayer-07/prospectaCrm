@@ -805,6 +805,7 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
   const [search, setSearch] = useState('');
   const [contactId, setContactId] = useState('');
   const [instanceId, setInstanceId] = useState('');
+  const [teamId, setTeamId] = useState('');
   const debouncedSearch = useDebouncedValue(search);
   const contacts = useQuery({
     queryKey: ['conversation-contact-picker', debouncedSearch],
@@ -819,11 +820,15 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
   });
   const whatsappStatuses = useMemo(() => new Map((whatsappStatusQuery.data?.data || []).map((status) => [status.contactId, status.hasWhatsapp])), [whatsappStatusQuery.data?.data]);
   const instances = useQuery({ queryKey: ['conversation-instances'], queryFn: () => api<Envelope<WhatsappInstance[]>>('/conversations/instances') });
+  const teams = useQuery({ queryKey: ['conversation-teams'], queryFn: () => api<Envelope<TeamOption[]>>('/conversations/teams'), staleTime: 60_000 });
   useEffect(() => {
     if (!instanceId && instances.data?.data[0]) setInstanceId(instances.data.data[0].id);
   }, [instanceId, instances.data]);
+  useEffect(() => {
+    if (!teamId && teams.data?.data[0]) setTeamId(teams.data.data[0].id);
+  }, [teamId, teams.data]);
   const start = useMutation({
-    mutationFn: () => api<Envelope<{ id: string }>>('/conversations/start', { method: 'POST', body: JSON.stringify({ contactId, instanceId }) }),
+    mutationFn: () => api<Envelope<{ id: string }>>('/conversations/start', { method: 'POST', body: JSON.stringify({ contactId, instanceId, teamId }) }),
     onSuccess: (result) => {
       toast.success('Conversa iniciada.');
       onStarted(result.data.id);
@@ -851,13 +856,18 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
   else if (instances.data?.data.length) {
     instancePicker = <label className="field"><span>Número do WhatsApp</span><ConnectionPicker options={instances.data.data} value={instanceId} onChange={setInstanceId} ariaLabel="Número do WhatsApp" /></label>;
   }
+  let teamPicker: ReactNode = <div className="form-hint">Nenhuma equipe disponível para iniciar a conversa.</div>;
+  if (teams.isLoading) teamPicker = <PageLoading />;
+  else if (teams.data?.data.length) teamPicker = <SelectField label="Equipe" value={teamId} onChange={(event) => setTeamId(event.target.value)}>{teams.data.data.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>;
+  else if (teams.error) teamPicker = <div className="form-hint">Não foi possível carregar as equipes disponíveis.</div>;
   return <Modal title="Nova conversa" onClose={onClose} width={620}>
-    <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId && selectedWhatsappStatus !== false) start.mutate(); }}>
+    <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId && teamId && selectedWhatsappStatus !== false) start.mutate(); }}>
       <label className="conversation-contact-search"><span>Selecionar contato</span><div><Search size={16} /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, telefone ou e-mail…" /></div></label>
       <div className="conversation-contact-list">{contactListContent}</div>
       {selectedContact && <div className="conversation-selected-contact"><Check size={15} /><span><strong>{selectedContact.name}</strong> será aberto em um novo ticket.</span></div>}
+      {teamPicker}
       {instancePicker}
-      <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={start.isPending} disabled={!contactId || !instanceId || selectedWhatsappStatus === false}><MessageCircle size={16} />Abrir ticket</Button></div>
+      <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={start.isPending} disabled={!contactId || !instanceId || !teamId || selectedWhatsappStatus === false}><MessageCircle size={16} />Abrir ticket</Button></div>
     </form>
   </Modal>;
 }
@@ -870,16 +880,21 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
 }>) {
   const client = useQueryClient();
   const [instanceId, setInstanceId] = useState('');
+  const [teamId, setTeamId] = useState('');
   const instances = useQuery({
     queryKey: ['conversation-instances'],
     queryFn: () => api<Envelope<WhatsappInstance[]>>('/conversations/instances'),
     staleTime: 30_000,
   });
+  const teams = useQuery({ queryKey: ['conversation-teams'], queryFn: () => api<Envelope<TeamOption[]>>('/conversations/teams'), staleTime: 60_000 });
   useEffect(() => {
     if (instanceId || !instances.data?.data.length) return;
     const preferred = instances.data.data.find((instance) => instance.id === preferredInstanceId);
     setInstanceId(preferred?.id || instances.data.data[0].id);
   }, [instanceId, instances.data, preferredInstanceId]);
+  useEffect(() => {
+    if (!teamId && teams.data?.data[0]) setTeamId(teams.data.data[0].id);
+  }, [teamId, teams.data]);
   const start = useMutation({
     mutationFn: async () => {
       const saved = await api<Envelope<Contact>>('/contacts/shared', {
@@ -888,7 +903,7 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
       });
       return api<Envelope<{ id: string }>>('/conversations/start', {
         method: 'POST',
-        body: JSON.stringify({ contactId: saved.data.id, instanceId }),
+        body: JSON.stringify({ contactId: saved.data.id, instanceId, teamId }),
       });
     },
     onSuccess: (response) => {
@@ -899,22 +914,27 @@ function SharedContactConversationModal({ contact, preferredInstanceId, onClose,
       onStarted(response.data.id);
     },
   });
+  let teamPicker: ReactNode = <div className="form-hint">Nenhuma equipe disponível para iniciar a conversa.</div>;
+  if (teams.isLoading) teamPicker = <PageLoading />;
+  else if (teams.data?.data.length) teamPicker = <SelectField label="Equipe" value={teamId} onChange={(event) => setTeamId(event.target.value)}>{teams.data.data.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</SelectField>;
+  else if (teams.error) teamPicker = <div className="form-hint">Não foi possível carregar as equipes disponíveis.</div>;
   let instancePicker: ReactNode = <div className="form-hint">Nenhuma conexão do WhatsApp está ativa para iniciar a conversa.</div>;
   if (instances.isLoading) instancePicker = <PageLoading />;
   else if (instances.data?.data.length) {
     instancePicker = <label className="field"><span>Enviar pelo número</span><ConnectionPicker options={instances.data.data} value={instanceId} onChange={setInstanceId} ariaLabel="Enviar pelo número" /></label>;
   }
   return <Modal title="Iniciar conversa" onClose={() => { if (!start.isPending) onClose(); }} width={520}>
-    <form className="shared-contact-start-form" onSubmit={(event) => { event.preventDefault(); if (instanceId) start.mutate(); }}>
+    <form className="shared-contact-start-form" onSubmit={(event) => { event.preventDefault(); if (instanceId && teamId) start.mutate(); }}>
       <div className="shared-contact-start-person">
         <ContactAvatar name={contact.name} />
         <div><strong>{contact.name}</strong><small>{formatPhone(contact.phone)}</small></div>
       </div>
       <p>O contato será salvo automaticamente na agenda e o atendimento ficará atribuído a você.</p>
+      {teamPicker}
       {instancePicker}
       <div className="modal-actions">
         <Button type="button" variant="secondary" onClick={onClose} disabled={start.isPending}>Cancelar</Button>
-        <Button type="submit" loading={start.isPending} disabled={!instanceId}><MessageCircle size={16} />Salvar e iniciar</Button>
+        <Button type="submit" loading={start.isPending} disabled={!instanceId || !teamId}><MessageCircle size={16} />Salvar e iniciar</Button>
       </div>
     </form>
   </Modal>;

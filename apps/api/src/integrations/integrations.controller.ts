@@ -90,7 +90,7 @@ export class IntegrationsController {
 
   @RequirePermission('conversations', 'write')
   @Post('conversations/start')
-  async startConversation(@CurrentUser() auth: AuthContext, @Body() body: { contactId: string; instanceId: string }) {
+  async startConversation(@CurrentUser() auth: AuthContext, @Body() body: { contactId: string; instanceId: string; teamId?: string }) {
     return { data: await this.evolution.startConversation(auth, body) };
   }
 
