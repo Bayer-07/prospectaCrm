@@ -192,7 +192,7 @@ export class CrmService {
     return this.db.company.findMany({
       where: {
         organizationId: auth.organizationId, archivedAt: null, AND: filters,
-        ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { domain: { contains: query.search, mode: 'insensitive' } }, { cnpj: { contains: query.search } }] } : {}),
+        ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { email: { contains: query.search, mode: 'insensitive' } }, { domain: { contains: query.search, mode: 'insensitive' } }, { cnpj: { contains: query.search } }] } : {}),
       },
       include: {
         owner: { select: { id: true, name: true } },
@@ -243,7 +243,7 @@ export class CrmService {
       organizationId: auth.organizationId, ownerId: input.ownerId || auth.userId, teamId,
       externalId: input.externalId, name: input.name, legalName: input.legalName,
       cnpj: input.cnpj ? this.normalizeCnpj(input.cnpj) : undefined, domain: input.domain, linkedinUrl: input.linkedinUrl,
-      sector: input.sector, size: input.size, phone: input.phone, address: input.address as Prisma.InputJsonValue,
+      sector: input.sector, size: input.size, email: input.email, phone: input.phone, address: input.address as Prisma.InputJsonValue,
       customFields: input.customFields as Prisma.InputJsonValue,
     } });
     await this.activity(auth, 'company.created', 'Empresa criada', { companyId: company.id });

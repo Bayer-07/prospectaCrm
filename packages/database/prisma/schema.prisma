@@ -439,6 +439,7 @@ model Company {
   linkedinUrl    String?
   sector         String?
   size           String?
+  email          String?
   phone          String?
   address        Json             @default("{}")
   customFields   Json             @default("{}")

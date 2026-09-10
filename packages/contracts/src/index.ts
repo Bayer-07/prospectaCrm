@@ -199,6 +199,7 @@ export const companyInputSchema = z.object({
   linkedinUrl: linkedinUrlSchema,
   sector: z.string().trim().max(100).optional(),
   size: z.string().trim().max(60).optional(),
+  email: z.string().trim().toLowerCase().email().max(180).nullable().optional(),
   phone: z.string().trim().max(24).optional(),
   address: z.record(z.string(), z.unknown()).optional(),
   ownerId: z.string().uuid().optional(),

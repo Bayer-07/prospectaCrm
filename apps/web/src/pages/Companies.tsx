@@ -98,6 +98,7 @@ type CompanyForm = {
   linkedinUrl: string;
   sector: string;
   size: string;
+  email: string;
   phone: string;
   address: string;
 };
@@ -281,7 +282,7 @@ export function CompaniesPage() {
       <div className="toolbar-left">
         <div className="inline-search wide">
           <Search size={15} />
-          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, domínio ou CNPJ…" />
+          <input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, e-mail, domínio ou CNPJ…" />
         </div>
         <div className="list-filter-wrap">
           <button
@@ -398,6 +399,7 @@ function CompanyModal({ company, onClose, onSaved }: Readonly<{
     linkedinUrl: company?.linkedinUrl || '',
     sector: company?.sector || '',
     size: company?.size || '',
+    email: company?.email || '',
     phone: company?.phone ? formatPhone(company.phone) : '',
     address: companyAddressText(company?.address),
   });
@@ -504,11 +506,12 @@ function CompanyModal({ company, onClose, onSaved }: Readonly<{
   }, [lookup.data]);
   const mutation = useMutation({
     mutationFn: async () => {
-      const { address, ...fields } = form;
+      const { address, email, ...fields } = form;
       const saved = await api<Envelope<Company>>(company ? `/companies/${company.id}` : '/companies', {
         method: company ? 'PATCH' : 'POST',
         body: JSON.stringify({
           ...fields,
+          email: email.trim() || null,
           address: address.trim() ? { ...addressDetails, formatted: address.trim() } : undefined,
         }),
       });
@@ -620,9 +623,10 @@ function CompanyModal({ company, onClose, onSaved }: Readonly<{
         <Field label="Telefone" value={form.phone} onChange={set('phone')} placeholder="(00) 0000-0000" />
       </div>
       <div className="form-grid">
+        <Field label="E-mail" type="email" value={form.email} onChange={set('email')} placeholder="contato@empresa.com.br" autoComplete="email" />
         <Field label="Domínio" value={form.domain} onChange={set('domain')} placeholder="empresa.com.br" />
-        <Field label="Porte" value={form.size} onChange={set('size')} />
       </div>
+      <Field label="Porte" value={form.size} onChange={set('size')} />
       <Field label="LinkedIn" value={form.linkedinUrl} onChange={set('linkedinUrl')} placeholder="linkedin.com/company/empresa" inputMode="url" />
       <Field label="Setor" value={form.sector} onChange={set('sector')} title={form.sector} />
       <Field label="Endereço" value={form.address} onChange={set('address')} placeholder="Rua, número, cidade e estado" title={form.address} />
@@ -748,6 +752,7 @@ function CompanyDrawerContent({ data }: Readonly<{ data: CompanyDetails }>) {
               <div><h3><Building2 size={17} />CNPJ</h3><p>{data.cnpj ? formatCnpj(data.cnpj) : 'Não informado'}</p></div>
               <div><h3><BriefcaseBusiness size={17} />Setor</h3><p>{data.sector || 'Não informado'}</p></div>
               <div><h3><Building2 size={17} />Porte</h3><p>{data.size || 'Não informado'}</p></div>
+              <div><h3><Mail size={17} />E-mail</h3>{data.email ? <a href={`mailto:${data.email}`}>{data.email}</a> : <p>Não informado</p>}</div>
               <div><h3><UserRound size={17} />Responsável</h3><p>{data.owner?.name || 'Não atribuído'}</p></div>
               <div><h3><Users size={17} />Equipe</h3><p>{data.team?.name || 'Não atribuída'}</p></div>
               <div><h3><CalendarDays size={17} />Atualizada</h3><p>{dateTime(data.updatedAt)}</p></div>

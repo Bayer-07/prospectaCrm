@@ -31,6 +31,9 @@ export class CompanyCreateRequest {
   @ApiPropertyOptional({ description: 'Razão social.', maxLength: 180, example: 'BZS Tecnologia Ltda.' })
   legalName?: string;
 
+  @ApiPropertyOptional({ description: 'E-mail comercial válido. Envie null para remover.', format: 'email', nullable: true, maxLength: 180, example: 'contato@bzs.com.br' })
+  email?: string | null;
+
   @ApiPropertyOptional({
     description: 'CNPJ válido. Aceita somente 14 dígitos ou a máscara padrão.',
     pattern: String.raw`^(?:\d{14}|\d{2}\.\d{3}\.\d{3}\/\d{4}-\d{2})$`,
@@ -373,6 +376,9 @@ export class CompanyResponse {
 
   @ApiPropertyOptional({ type: String, nullable: true, example: 'BZS Tecnologia Ltda.' })
   legalName?: string | null;
+
+  @ApiPropertyOptional({ type: String, format: 'email', nullable: true, example: 'contato@bzs.com.br' })
+  email?: string | null;
 
   @ApiPropertyOptional({ type: String, nullable: true, description: 'CNPJ armazenado com 14 dígitos.', example: '29277764000100' })
   cnpj?: string | null;

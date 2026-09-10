@@ -21,10 +21,17 @@ describe('contratos', () => {
       name: ' Acme Brasil ',
       domain: 'ACME.COM.BR',
       linkedinUrl: 'www.linkedin.com/company/acme-brasil',
+      email: ' COMERCIAL@ACME.COM.BR ',
     });
     expect(result.name).toBe('Acme Brasil');
     expect(result.domain).toBe('acme.com.br');
     expect(result.linkedinUrl).toBe('https://www.linkedin.com/company/acme-brasil');
+    expect(result.email).toBe('comercial@acme.com.br');
+  });
+
+  it('valida e permite limpar o e-mail da empresa', () => {
+    expect(companyInputSchema.safeParse({ name: 'Empresa', email: 'email-invalido' }).success).toBe(false);
+    expect(companyInputSchema.parse({ name: 'Empresa', email: null }).email).toBeNull();
   });
 
   it('rejeita um link externo no campo do LinkedIn', () => {

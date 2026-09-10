@@ -83,10 +83,14 @@ describe('dados visuais e sociais da empresa', () => {
     await service.createCompany(auth, {
       name: 'BZS Tecnologia',
       linkedinUrl: 'www.linkedin.com/company/bzs-tecnologia',
+      email: 'CONTATO@BZS.COM.BR',
     });
 
     expect(create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ linkedinUrl: 'https://www.linkedin.com/company/bzs-tecnologia' }),
+      data: expect.objectContaining({
+        email: 'contato@bzs.com.br',
+        linkedinUrl: 'https://www.linkedin.com/company/bzs-tecnologia',
+      }),
     });
   });
 

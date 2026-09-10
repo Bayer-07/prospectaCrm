@@ -76,6 +76,7 @@ describe('documentação OpenAPI do CRM', () => {
     expect(properties).toEqual([
       'name',
       'legalName',
+      'email',
       'cnpj',
       'domain',
       'linkedinUrl',
@@ -90,8 +91,10 @@ describe('documentação OpenAPI do CRM', () => {
     ]);
 
     const name = Reflect.getMetadata(MODEL_PROPERTY, CompanyCreateRequest.prototype, 'name') as SwaggerParameter;
+    const email = Reflect.getMetadata(MODEL_PROPERTY, CompanyCreateRequest.prototype, 'email') as SwaggerParameter;
     const cnpj = Reflect.getMetadata(MODEL_PROPERTY, CompanyCreateRequest.prototype, 'cnpj') as SwaggerParameter;
     expect(name).toMatchObject({ description: 'Nome fantasia da empresa.', minLength: 2 });
+    expect(email).toMatchObject({ format: 'email', required: false });
     expect(cnpj.description).toContain('CNPJ válido');
   });
 
