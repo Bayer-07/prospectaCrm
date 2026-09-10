@@ -305,7 +305,7 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .task-calendar-event.priority-low, .task-week-event.priority-low { border-color: color-mix(in srgb, var(--blue) 22%, transparent); background: color-mix(in srgb, var(--blue-soft) 78%, var(--surface)); }
 .task-calendar-event.completed, .task-week-event.completed { opacity: .58; }
 .task-calendar-event.completed strong, .task-week-event.completed strong { text-decoration: line-through; }
-.task-event-check { position: absolute; top: 0; right: 0; width: 24px; height: 100%; display: grid; place-items: center; opacity: .65; }
+.task-event-check { position: absolute; top: 0; right: 0; width: 24px; height: 100%; padding: 0; border: 0; border-radius: 50%; appearance: none; background: transparent; color: inherit; display: grid; place-items: center; opacity: .65; }
 .task-event-check:hover { opacity: 1; }
 .task-more-events { min-height: 24px; padding: 2px 6px; border: 0; background: transparent; color: var(--violet); font-size: 10px; font-weight: 700; text-align: left; }
 .task-week-header { min-width: 820px; height: 70px; padding-left: 68px; border-bottom: 1px solid var(--line); display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); background: var(--surface); }
