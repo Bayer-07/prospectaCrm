@@ -327,9 +327,9 @@ function InboxSidebar(props: InboxSidebarProps) {
   return <aside className="conversation-sidebar">
     <div className="conversation-sidebar-heading"><strong>Conversas</strong><div className="conversation-sidebar-actions">{props.isAdmin && <button type="button" className={`icon-button conversation-view-all${props.showAll ? ' active' : ''}`} onClick={props.onToggleAll} aria-label={allLabel} title={allLabel}><Eye size={16} /></button>}<button type="button" className="icon-button conversation-new-button" onClick={props.onNewConversation} aria-label="Nova conversa" title="Nova conversa"><MessageCirclePlus size={18} /></button></div></div>
     <div className="inbox-tabs">
+      <button type="button" className={props.filter === 'open' ? 'active' : ''} onClick={() => props.onFilterChange('open')}>Abertos <span>{props.counts?.open || 0}</span></button>
       <button type="button" className={props.filter === 'waiting' ? 'active' : ''} onClick={() => props.onFilterChange('waiting')}>Aguardando <span>{props.counts?.waiting || 0}</span></button>
-      <button type="button" className={props.filter === 'open' ? 'active' : ''} onClick={() => props.onFilterChange('open')}>Abertas <span>{props.counts?.open || 0}</span></button>
-      <button type="button" className={props.filter === 'closed' ? 'active' : ''} onClick={() => props.onFilterChange('closed')}>Encerradas <span>{props.counts?.closed || 0}</span></button>
+      <button type="button" className={props.filter === 'closed' ? 'active' : ''} onClick={() => props.onFilterChange('closed')}>Resolvidos <span>{props.counts?.closed || 0}</span></button>
     </div>
     <div className="conversation-search">
       <Search size={15} />
