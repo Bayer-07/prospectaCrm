@@ -7,7 +7,7 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { createPortal } from 'react-dom';
 import {
   Building2, CalendarDays, ChevronDown, CircleDollarSign, Clock3, ExternalLink, FileText, Filter,
-  LayoutGrid, Link2, Mail, Paperclip, Phone, Plus, Search, Tag, Upload, UserRound, UsersRound, X,
+  LayoutGrid, Link2, Mail, Paperclip, Phone, Plus, Search, Tag, Trash2, Upload, UserRound, UsersRound, X,
 } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import { api, apiErrorMessage, apiUrl, dateTime, initials, money, type Envelope } from '../lib/api';
@@ -73,6 +73,20 @@ function applyMovedOpportunity(
     }),
   }));
   return { ...current, data: { ...current.data, stages } };
+}
+
+function removeOpportunityFromPipeline(current: Envelope<Pipeline> | undefined, opportunityId: string) {
+  if (!current) return current;
+  return {
+    ...current,
+    data: {
+      ...current.data,
+      stages: current.data.stages.map((stage) => ({
+        ...stage,
+        opportunities: stage.opportunities.filter((opportunity) => opportunity.id !== opportunityId),
+      })),
+    },
+  };
 }
 
 const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, overlay = false }: Readonly<{ opportunity: Opportunity; onOpen?: () => void; overlay?: boolean }>) {
@@ -220,16 +234,44 @@ function OpportunityDrawerContent({ opportunity }: Readonly<{ opportunity: Oppor
 }
 
 function OpportunityDrawer({ id, onClose }: Readonly<{ id: string; onClose(): void }>) {
+  const { user } = useAuth();
+  const [deleting, setDeleting] = useState(false);
   const details = useQuery({ queryKey: ['opportunity', id], queryFn: () => api<Envelope<OpportunityDetails>>(`/opportunities/${id}`) });
   const opportunity = details.data?.data;
   const unavailable = Boolean(details.error);
+  const canDelete = Boolean(user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
   if (unavailable) return <><button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes" /><aside className="opportunity-drawer" aria-label="Detalhes da oportunidade"><header><div><span className="eyebrow">Oportunidade</span><h2>Detalhes indisponíveis</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header></aside></>;
 
   let content = null;
   if (details.isLoading) content = <PageLoading />;
   else if (opportunity) content = <OpportunityDrawerContent opportunity={opportunity} />;
 
-  return <><button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes" /><aside className="opportunity-drawer" aria-label="Detalhes da oportunidade"><header><div><span className="eyebrow">Oportunidade</span><h2>{opportunity?.title || 'Carregando…'}</h2></div><button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></header>{content}</aside></>;
+  return <><button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes" /><aside className="opportunity-drawer" aria-label="Detalhes da oportunidade"><header><div className="opportunity-drawer-title"><span className="eyebrow">Oportunidade</span><h2>{opportunity?.title || 'Carregando…'}</h2></div><div className="opportunity-drawer-header-actions">{canDelete && opportunity && <button type="button" className="opportunity-delete-trigger" onClick={() => setDeleting(true)}><Trash2 size={15} />Excluir</button>}<button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></div></header>{content}</aside>{deleting && opportunity && <DeleteOpportunityModal opportunity={opportunity} onClose={() => setDeleting(false)} onDeleted={onClose} />}</>;
+}
+
+function DeleteOpportunityModal({ opportunity, onClose, onDeleted }: Readonly<{ opportunity: OpportunityDetails; onClose(): void; onDeleted(): void }>) {
+  const client = useQueryClient();
+  const remove = useMutation({
+    mutationFn: () => api(`/opportunities/${opportunity.id}`, { method: 'DELETE' }),
+    onSuccess: () => {
+      client.setQueriesData<Envelope<Pipeline>>({ queryKey: ['kanban'] }, (current) => removeOpportunityFromPipeline(current, opportunity.id));
+      client.removeQueries({ queryKey: ['opportunity', opportunity.id], exact: true });
+      void client.invalidateQueries({ queryKey: ['kanban'] });
+      void client.invalidateQueries({ queryKey: ['dashboard'] });
+      void client.invalidateQueries({ queryKey: ['contacts'] });
+      void client.invalidateQueries({ queryKey: ['companies'] });
+      void client.invalidateQueries({ queryKey: ['activity-associations', 'opportunities'] });
+      void client.invalidateQueries({ queryKey: ['activity-filters', 'opportunities'] });
+      void client.invalidateQueries({ queryKey: ['global-search'] });
+      toast.success('Oportunidade excluída.');
+      onDeleted();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível excluir a oportunidade')),
+  });
+  return <Modal title="Excluir oportunidade" onClose={() => !remove.isPending && onClose()}>
+    <div className="delete-confirm"><div className="delete-confirm-icon"><Trash2 size={22} /></div><div><h3>Excluir “{opportunity.title}”?</h3><p>A oportunidade deixará de aparecer no funil e nas listagens. As atividades já registradas serão preservadas para auditoria.</p></div></div>
+    <div className="modal-actions delete-actions"><Button variant="secondary" disabled={remove.isPending} onClick={onClose}>Cancelar</Button><Button variant="danger" loading={remove.isPending} onClick={() => remove.mutate()}><Trash2 size={16} />Excluir oportunidade</Button></div>
+  </Modal>;
 }
 
 const PROPOSAL_ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document,application/vnd.ms-excel,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet,application/vnd.ms-powerpoint,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/plain';
