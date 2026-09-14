@@ -42,11 +42,13 @@ export function incomingMessageNotificationUrl(payload: InboxRealtimePayload | u
 }
 
 export function incomingMessageNotificationContent(payload: InboxRealtimePayload | undefined) {
+  const conversationId = payload?.conversationId;
+  if (!conversationId) return null;
   const actionUrl = incomingMessageNotificationUrl(payload);
-  if (!actionUrl) return null;
   const contactName = payload?.newMessage?.contactName?.trim() || 'Contato';
   const preview = payload?.newMessage?.preview?.trim() || 'Nova mensagem recebida';
-  return { title: `Nova mensagem de ${contactName}`, body: preview, actionUrl };
+  const contactPhotoPath = `/conversations/${encodeURIComponent(conversationId)}/profile-picture?v=1`;
+  return { title: `Nova mensagem de ${contactName}`, body: preview, actionUrl, contactPhotoPath };
 }
 
 export function createNotificationAudioContext() {

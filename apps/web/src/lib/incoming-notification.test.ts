@@ -70,6 +70,12 @@ describe('som de nova mensagem', () => {
       title: 'Nova mensagem de Maria',
       body: 'Preciso de atendimento',
       actionUrl: '/inbox/conversation-2',
+      contactPhotoPath: '/conversations/conversation-2/profile-picture?v=1',
     });
+  });
+
+  it('escapa o identificador ao montar a foto do contato', () => {
+    expect(incomingMessageNotificationContent(incoming('ticket com espaço'))?.contactPhotoPath)
+      .toBe('/conversations/ticket%20com%20espa%C3%A7o/profile-picture?v=1');
   });
 });

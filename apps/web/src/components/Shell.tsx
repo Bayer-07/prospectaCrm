@@ -7,7 +7,7 @@ import {
   Inbox, KanbanSquare, KeyRound, ListChecks, LogOut, Mail, Menu, MessageSquareReply, MessageSquareText, Moon, Network, Plug, Plus,
   Settings, Sun, Trash2, UserRound, Users, Webhook, X,
 } from 'lucide-react';
-import { api, dateTime, type Envelope } from '../lib/api';
+import { api, apiUrl, dateTime, type Envelope } from '../lib/api';
 import { Button, Field, Modal } from './ui';
 import { useTheme } from '../lib/theme';
 import { mergeLatestHistory, RealtimeContext, type RealtimeHistoryData, type RealtimeHistoryPage } from '../lib/realtime';
@@ -361,7 +361,8 @@ export function Shell() {
           try {
             const browserNotification = new Notification(notificationContent.title, {
               body: notificationContent.body,
-              icon: '/brand-logo.png',
+              icon: apiUrl(notificationContent.contactPhotoPath),
+              badge: '/brand-logo.png',
               tag: `inbox-message-${payload?.conversationId}`,
             });
             browserNotification.onclick = () => {
