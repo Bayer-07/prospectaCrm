@@ -184,6 +184,7 @@ enum FollowUpStepStatus {
 enum AiGenerationType {
   SUMMARY
   REPLY_SUGGESTION
+  MESSAGE_IMPROVEMENT
   CHATBOT_REPLY
   CONFIG_TEST
 }

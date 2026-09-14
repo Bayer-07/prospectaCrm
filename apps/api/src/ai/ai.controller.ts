@@ -56,7 +56,7 @@ export class AiController {
   createGeneration(
     @CurrentUser() auth: AuthContext,
     @Param('id') conversationId: string,
-    @Body() body: { type: 'SUMMARY' | 'REPLY_SUGGESTION'; scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION' },
+    @Body() body: { type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'MESSAGE_IMPROVEMENT'; scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION'; message?: string },
   ) {
     return this.ai.createGeneration(auth, conversationId, body).then((data) => ({ data }));
   }

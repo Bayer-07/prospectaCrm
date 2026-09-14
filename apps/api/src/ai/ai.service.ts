@@ -41,7 +41,7 @@ function contactUpdates(fields: string[], changes: Record<string, unknown>) {
 }
 
 function generationPriority(type: AiGenerationType) {
-  const priorities: Record<AiGenerationType, number> = { CHATBOT_REPLY: 1, REPLY_SUGGESTION: 2, SUMMARY: 3, CONFIG_TEST: 4 };
+  const priorities: Record<AiGenerationType, number> = { CHATBOT_REPLY: 1, REPLY_SUGGESTION: 2, MESSAGE_IMPROVEMENT: 2, SUMMARY: 3, CONFIG_TEST: 4 };
   return priorities[type];
 }
 
@@ -270,15 +270,38 @@ export class AiService {
   async createGeneration(
     auth: AuthContext,
     conversationId: string,
-    input: { type: 'SUMMARY' | 'REPLY_SUGGESTION'; scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION' },
+    input: { type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'MESSAGE_IMPROVEMENT'; scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION'; message?: string },
   ) {
     this.assertFeatureEnabled();
     await this.assertOrganizationEnabled(auth.organizationId);
-    if (!['SUMMARY', 'REPLY_SUGGESTION'].includes(input.type)) throw new BadRequestException('Tipo de geração não suportado');
+    if (!['SUMMARY', 'REPLY_SUGGESTION', 'MESSAGE_IMPROVEMENT'].includes(input.type)) throw new BadRequestException('Tipo de geração não suportado');
     if (input.scope !== undefined && !['CURRENT_ATTENDANCE', 'FULL_CONVERSATION'].includes(input.scope)) {
       throw new BadRequestException('Escopo de resumo não suportado');
     }
     const conversation = await this.visibleConversation(auth, conversationId);
+    if (input.type === 'MESSAGE_IMPROVEMENT') {
+      const message = typeof input.message === 'string' ? input.message.trim() : '';
+      if (!message) throw new BadRequestException('Escreva uma mensagem antes de solicitar a melhoria');
+      if (message.length > 4_096) throw new BadRequestException('A mensagem deve ter no máximo 4096 caracteres');
+      const key = hashKey([input.type, conversationId, auth.userId, message]);
+      let generation = await this.db.conversationAiGeneration.upsert({
+        where: { deduplicationKey: key },
+        create: {
+          organizationId: auth.organizationId,
+          conversationId,
+          requestedById: auth.userId,
+          type: input.type,
+          deduplicationKey: key,
+          input: { message },
+        },
+        update: {},
+      });
+      generation = await this.retryFailedGeneration(generation, auth.userId);
+      if (['PENDING', 'WAITING_INPUT'].includes(generation.status)) {
+        await this.enqueue(generation.id, generation.type, generation.updatedAt);
+      }
+      return generation;
+    }
     const scope: AiSummaryScope | null = input.type === 'SUMMARY' ? (input.scope || 'CURRENT_ATTENDANCE') : null;
     const boundary = scope === 'CURRENT_ATTENDANCE' ? await this.currentAttendanceStart(conversationId) : null;
     const messageWhere = { conversationId, ...(boundary ? { createdAt: { gte: boundary } } : {}) };

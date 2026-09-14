@@ -6,6 +6,7 @@ import {
   isProbablyEnglishText,
   splitTranscript,
   validateChatbotDecision,
+  validateImprovedMessage,
   validateSuggestedReply,
   validateSummary,
 } from './ai.processor.js';
@@ -52,7 +53,45 @@ describe('processamento estruturado da IA', () => {
 
   it('rejeita respostas incompletas ou confiança fora do intervalo', () => {
     expect(() => validateSuggestedReply({ reply: '' })).toThrow(/resposta sugerida/);
+    expect(() => validateImprovedMessage({ reply: 'a'.repeat(4_097) })).toThrow(/excede 4096/);
     expect(() => validateChatbotDecision({ reply: 'Olá', action: 'continue', confidence: 1.2, proposal: {} })).toThrow(/confiança/);
+  });
+
+  it('melhora o texto do composer sem carregar o histórico da conversa', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    const generation = {
+      id: 'generation-improvement', organizationId: 'org-1', conversationId: 'conversation-1', chatbotSessionId: null,
+      type: 'MESSAGE_IMPROVEMENT', status: 'PENDING', input: { message: 'oi td bem consegue mandar proposta' },
+    };
+    const update = vi.fn().mockResolvedValue({});
+    const db = {
+      conversationAiGeneration: {
+        findUnique: vi.fn().mockResolvedValue(generation),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update,
+      },
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, globalInstructions: 'Use um tom cordial.', model: 'gpt-5.6-luna' }) },
+    };
+    const ai = { generate: vi.fn().mockResolvedValue({
+      data: { reply: 'Olá, tudo bem? Você consegue me enviar a proposta?' },
+      model: 'gpt-5.6-luna', metrics: {}, sources: [],
+    }) };
+    const processor = new AiGenerationProcessor(db as never, {} as never, {} as never, {} as never, {} as never, ai as never);
+
+    await expect(processor.process({ data: { generationId: 'generation-improvement' } } as never)).resolves.toMatchObject({
+      payload: { conversationId: 'conversation-1', generationId: 'generation-improvement', status: 'COMPLETED' },
+    });
+
+    expect(ai.generate).toHaveBeenCalledWith(expect.objectContaining({
+      system: expect.stringContaining('Não responda à mensagem: apenas a reescreva'),
+      prompt: expect.stringContaining('oi td bem consegue mandar proposta'),
+      validate: validateImprovedMessage,
+    }));
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'generation-improvement' },
+      data: expect.objectContaining({ status: 'COMPLETED', result: { reply: 'Olá, tudo bem? Você consegue me enviar a proposta?' } }),
+    }));
+    expect(db).not.toHaveProperty('message');
   });
 
   it('mantém somente propostas textuais declaradas pelo modelo', () => {

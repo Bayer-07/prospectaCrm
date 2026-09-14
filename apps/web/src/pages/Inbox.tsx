@@ -6,7 +6,7 @@ import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@pros
 import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
-import { aiSuggestionDisposition } from '../lib/ai-suggestion';
+import { aiMessageImprovementDisposition, aiSuggestionDisposition } from '../lib/ai-suggestion';
 import { describeMessageFailure, type MessageFailure } from '../lib/message-error';
 import type { Company, Contact, Conversation, ConversationEvent, Message, Opportunity, Pipeline } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
@@ -59,7 +59,7 @@ type MessageLinkPreviewData = {
 };
 type AiGeneration = {
   id: string;
-  type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'CHATBOT_REPLY' | 'CONFIG_TEST';
+  type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'MESSAGE_IMPROVEMENT' | 'CHATBOT_REPLY' | 'CONFIG_TEST';
   status: 'PENDING' | 'WAITING_INPUT' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE';
   scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION' | null;
   result?: { reply?: string; overview?: string; need?: string; commitments?: string[]; nextSteps?: string[]; pending?: string[] } | null;
@@ -75,10 +75,23 @@ type AiProposal = {
   changes: { name?: string; email?: string; jobTitle?: string; companyName?: string; qualificationNote?: string };
   appliedFields: string[];
 };
+type AiComposerRequest = {
+  generationId: string;
+  kind: 'suggestion' | 'improvement';
+  revision: number;
+  sourceText: string;
+};
+type AiGenerationRequest = {
+  type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'MESSAGE_IMPROVEMENT';
+  scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION';
+  message?: string;
+  composerRevision?: number;
+};
 const AI_TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED', 'STALE'];
 
-function completedSuggestion(generation: AiGeneration, requestedGenerationId?: string) {
-  if (generation.status !== 'COMPLETED' || generation.type !== 'REPLY_SUGGESTION' || requestedGenerationId !== generation.id) return '';
+function completedComposerGeneration(generation: AiGeneration, request?: AiComposerRequest | null) {
+  const expectedType = request?.kind === 'improvement' ? 'MESSAGE_IMPROVEMENT' : 'REPLY_SUGGESTION';
+  if (generation.status !== 'COMPLETED' || generation.type !== expectedType || request?.generationId !== generation.id) return '';
   return generation.result?.reply?.trim() || '';
 }
 
@@ -1060,7 +1073,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [aiMenuOpen, setAiMenuOpen] = useState(false);
   const [aiSummaryOpen, setAiSummaryOpen] = useState(false);
   const [activeAiGenerationId, setActiveAiGenerationId] = useState<string | null>(null);
-  const [readyAiSuggestion, setReadyAiSuggestion] = useState('');
+  const [readyAiSuggestion, setReadyAiSuggestion] = useState<{ text: string; kind: AiComposerRequest['kind'] } | null>(null);
   const [sharedContactToStart, setSharedContactToStart] = useState<SharedWhatsappContact | null>(null);
   const [actionNotice, setActionNotice] = useState('');
   const [actionError, setActionError] = useState('');
@@ -1081,7 +1094,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<WhatsappComposerHandle>(null);
   const composerRevisionRef = useRef(0);
-  const aiSuggestionRequestRef = useRef<{ generationId: string; revision: number } | null>(null);
+  const aiSuggestionRequestRef = useRef<AiComposerRequest | null>(null);
   const emojiButtonRef = useRef<HTMLButtonElement>(null);
   const emojiPickerRef = useRef<HTMLDialogElement>(null);
   const highlightTimerRef = useRef<number | null>(null);
@@ -1143,37 +1156,51 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     enabled: aiSummaryOpen,
   });
   const createAiGeneration = useMutation({
-    mutationFn: (input: { type: 'SUMMARY' | 'REPLY_SUGGESTION'; scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION' }) => api<Envelope<AiGeneration>>(`/conversations/${conversation.id}/ai/generations`, { method: 'POST', body: JSON.stringify(input) }),
+    mutationFn: ({ composerRevision: _composerRevision, ...input }: AiGenerationRequest) => api<Envelope<AiGeneration>>(`/conversations/${conversation.id}/ai/generations`, { method: 'POST', body: JSON.stringify(input) }),
     onSuccess: (response, input) => {
       const generation = response.data;
       setActiveAiGenerationId(generation.id);
       setAiMenuOpen(false);
-      if (input.type === 'REPLY_SUGGESTION') {
-        aiSuggestionRequestRef.current = { generationId: generation.id, revision: composerRevisionRef.current };
-        setReadyAiSuggestion('');
+      if (input.type === 'REPLY_SUGGESTION' || input.type === 'MESSAGE_IMPROVEMENT') {
+        aiSuggestionRequestRef.current = {
+          generationId: generation.id,
+          kind: input.type === 'MESSAGE_IMPROVEMENT' ? 'improvement' : 'suggestion',
+          revision: input.composerRevision ?? composerRevisionRef.current,
+          sourceText: input.message || '',
+        };
+        setReadyAiSuggestion(null);
       } else {
         setAiSummaryOpen(true);
       }
     },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível iniciar a geração da IA.')),
   });
   useEffect(() => {
     const generation = activeAiGeneration.data?.data;
     if (!generation || !activeAiGenerationId) return;
     const request = aiSuggestionRequestRef.current;
-    const reply = completedSuggestion(generation, request?.generationId);
+    const reply = completedComposerGeneration(generation, request);
     if (reply && request) {
-        if (aiSuggestionDisposition({
+      const shouldApply = request.kind === 'improvement'
+        ? aiMessageImprovementDisposition({
+          composerText: text,
+          requestedText: request.sourceText,
+          requestedRevision: request.revision,
+          currentRevision: composerRevisionRef.current,
+        }) === 'replace'
+        : aiSuggestionDisposition({
           composerText: text,
           hasAttachment: Boolean(file),
           requestedRevision: request.revision,
           currentRevision: composerRevisionRef.current,
-        }) === 'insert') {
-          setText(reply);
-          window.setTimeout(() => textRef.current?.moveCaretToEnd(), 0);
-        } else {
-          setReadyAiSuggestion(reply);
-        }
-        aiSuggestionRequestRef.current = null;
+        }) === 'insert';
+      if (shouldApply) {
+        setText(reply);
+        window.setTimeout(() => textRef.current?.moveCaretToEnd(), 0);
+      } else {
+        setReadyAiSuggestion({ text: reply, kind: request.kind });
+      }
+      aiSuggestionRequestRef.current = null;
     }
     if (generation.status === 'COMPLETED' && generation.type === 'SUMMARY') {
       void latestAiSummary.refetch();
@@ -1182,7 +1209,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       && aiSuggestionRequestRef.current?.generationId === generation.id;
     if (failedSuggestion) {
       aiSuggestionRequestRef.current = null;
-      if (generation.status === 'FAILED') toast.error(generation.error || 'A IA não conseguiu gerar a resposta.');
+      if (generation.status === 'FAILED') toast.error(generation.error || 'A IA não conseguiu processar a mensagem.');
     }
     if (AI_TERMINAL_STATUSES.includes(generation.status)) setActiveAiGenerationId(null);
   }, [activeAiGeneration.data, activeAiGenerationId, file, latestAiSummary, text]);
@@ -1492,6 +1519,11 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     setDeletingMessage(null);
     setText('');
     setFile(null);
+    setAiMenuOpen(false);
+    setAiSummaryOpen(false);
+    setActiveAiGenerationId(null);
+    setReadyAiSuggestion(null);
+    aiSuggestionRequestRef.current = null;
     setAttachmentError('');
     setActionError('');
     setAutomationMenuOpen(false);
@@ -2005,13 +2037,13 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     {editingMessage && <div className="composer-reply composer-edit"><Pencil size={16} /><div><strong>Editando mensagem</strong><span>{messagePreview(editingMessage)}</span></div><button type="button" onClick={cancelEdit} aria-label="Cancelar edição"><X size={15} /></button></div>}
     {replyingTo && <div className="composer-reply"><Reply size={16} /><div><strong>Respondendo a {replyingTo.direction === 'OUTBOUND' ? 'você' : conversation.contact.name}</strong><span>{messagePreview(replyingTo)}</span></div><button type="button" onClick={() => setReplyingTo(null)} aria-label="Cancelar resposta"><X size={15} /></button></div>}
     {file && <span className={`composer-file${filePreviewUrl ? ' has-preview' : ''}`}>{filePreviewUrl ? <img src={filePreviewUrl} alt="Prévia da imagem colada" /> : <FileText size={14} />}<span>{file.name}</span><button type="button" onClick={() => { setFile(null); setAttachmentError(''); }} aria-label="Remover anexo"><X size={12} /></button></span>}
-    {readyAiSuggestion && <div className="composer-ai-suggestion"><Sparkles size={16} /><div><strong>Sugestão pronta</strong><span>{readyAiSuggestion}</span></div><button type="button" onClick={() => { setText(readyAiSuggestion); setReadyAiSuggestion(''); window.setTimeout(() => textRef.current?.moveCaretToEnd(), 0); }}>Inserir</button><button type="button" onClick={() => setReadyAiSuggestion('')} aria-label="Descartar sugestão"><X size={14} /></button></div>}
+    {readyAiSuggestion && <div className="composer-ai-suggestion"><Sparkles size={16} /><div><strong>{readyAiSuggestion.kind === 'improvement' ? 'Melhoria pronta' : 'Sugestão pronta'}</strong><span>{readyAiSuggestion.text}</span></div><button type="button" onClick={() => { setText(readyAiSuggestion.text); setReadyAiSuggestion(null); window.setTimeout(() => textRef.current?.moveCaretToEnd(), 0); }}>{readyAiSuggestion.kind === 'improvement' ? 'Substituir' : 'Inserir'}</button><button type="button" onClick={() => setReadyAiSuggestion(null)} aria-label={readyAiSuggestion.kind === 'improvement' ? 'Descartar melhoria' : 'Descartar sugestão'}><X size={14} /></button></div>}
     <WhatsappComposer ref={textRef} value={text} disabled={!canReply} onPaste={pasteImage} onKeyDown={handleComposerKeyDown} onChange={handleComposerChange} placeholder={composerPlaceholder} onSubmit={handleComposerSubmit} />
   </div>;
   const renderIdleComposer = () => <>
     {renderEmojiPicker()}
     <div className="composer-capsule">
-      <div className="composer-tools"><input ref={fileRef} hidden type="file" accept={INBOX_ATTACHMENT_ACCEPT} onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAiMenuOpen(false); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button><div className="composer-ai-wrap"><button type="button" disabled={!canReply || Boolean(editingMessage)} className={aiMenuOpen ? 'active' : ''} onClick={() => { setAiMenuOpen((current) => !current); setEmojiPickerOpen(false); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); }} title="Assistente de IA" aria-label="Assistente de IA" aria-haspopup="menu" aria-expanded={aiMenuOpen}><Sparkles size={19} /></button>{aiMenuOpen && <div className="composer-ai-menu" role="menu"><header><Sparkles size={16} /><div><strong>Assistente de IA</strong><span>OpenAI · processamento em nuvem</span></div></header><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'REPLY_SUGGESTION' })}>Sugerir resposta</button><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'SUMMARY', scope: 'CURRENT_ATTENDANCE' })}>Resumir atendimento atual</button><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'SUMMARY', scope: 'FULL_CONVERSATION' })}>Resumir conversa completa</button><button type="button" role="menuitem" onClick={() => { setAiMenuOpen(false); setAiSummaryOpen(true); }}>Ver último resumo</button></div>}</div></div>
+      <div className="composer-tools"><input ref={fileRef} hidden type="file" accept={INBOX_ATTACHMENT_ACCEPT} onChange={(event) => { attachFile(event.target.files?.[0] || null); event.currentTarget.value = ''; }} /><button type="button" disabled={!canReply || Boolean(editingMessage)} onClick={() => fileRef.current?.click()} title="Anexar arquivo" aria-label="Anexar arquivo"><Plus size={22} /></button><button ref={emojiButtonRef} type="button" disabled={!canReply} onMouseDown={(event) => event.preventDefault()} onClick={() => { setEmojiPickerOpen((current) => !current); setAiMenuOpen(false); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); textRef.current?.focus(); }} title="Emojis" aria-label="Emojis" aria-haspopup="dialog" aria-expanded={emojiPickerOpen}><Smile size={20} /></button><div className="composer-ai-wrap"><button type="button" disabled={!canReply || Boolean(editingMessage)} className={aiMenuOpen ? 'active' : ''} onClick={() => { setAiMenuOpen((current) => !current); setEmojiPickerOpen(false); setAutomationMenuOpen(false); setQuickReplyMenuOpen(false); }} title="Assistente de IA" aria-label="Assistente de IA" aria-haspopup="menu" aria-expanded={aiMenuOpen}><Sparkles size={19} /></button>{aiMenuOpen && <div className="composer-ai-menu" role="menu"><header><Sparkles size={16} /><div><strong>Assistente de IA</strong><span>OpenAI · processamento em nuvem</span></div></header><button type="button" role="menuitem" disabled={createAiGeneration.isPending || !text.trim()} title={text.trim() ? undefined : 'Escreva uma mensagem para melhorá-la'} onClick={() => createAiGeneration.mutate({ type: 'MESSAGE_IMPROVEMENT', message: text, composerRevision: composerRevisionRef.current })}>Melhorar mensagem</button><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'REPLY_SUGGESTION', composerRevision: composerRevisionRef.current })}>Sugerir resposta</button><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'SUMMARY', scope: 'CURRENT_ATTENDANCE' })}>Resumir atendimento atual</button><button type="button" role="menuitem" disabled={createAiGeneration.isPending} onClick={() => createAiGeneration.mutate({ type: 'SUMMARY', scope: 'FULL_CONVERSATION' })}>Resumir conversa completa</button><button type="button" role="menuitem" onClick={() => { setAiMenuOpen(false); setAiSummaryOpen(true); }}>Ver último resumo</button></div>}</div></div>
       {renderComposerInput()}
       {canReply && (text.trim() || (!editingMessage && file)) && <div className="composer-send"><Button type="submit" loading={send.isPending || edit.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label={currentSendAction.label} title={currentSendAction.label}>{currentSendAction.icon}</Button></div>}
       {canReply && !text.trim() && !file && !editingMessage && <div className="composer-send"><button type="button" className="composer-record" onClick={startVoiceRecording} disabled={send.isPending || startWorkflow.isPending || insertQuickReply.isPending} aria-label="Gravar áudio" title="Gravar áudio"><Mic size={20} /></button></div>}

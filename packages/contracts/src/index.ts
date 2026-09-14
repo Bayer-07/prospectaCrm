@@ -310,7 +310,7 @@ export type ChatbotNodeType = (typeof chatbotNodeTypes)[number];
 export const chatbotResponseProviders = ['RULES', 'OPENAI'] as const;
 export type ChatbotResponseProvider = (typeof chatbotResponseProviders)[number];
 
-export const aiGenerationTypes = ['SUMMARY', 'REPLY_SUGGESTION', 'CHATBOT_REPLY', 'CONFIG_TEST'] as const;
+export const aiGenerationTypes = ['SUMMARY', 'REPLY_SUGGESTION', 'MESSAGE_IMPROVEMENT', 'CHATBOT_REPLY', 'CONFIG_TEST'] as const;
 export type AiGenerationType = (typeof aiGenerationTypes)[number];
 
 export const aiGenerationStatuses = ['PENDING', 'WAITING_INPUT', 'RUNNING', 'COMPLETED', 'FAILED', 'CANCELLED', 'STALE'] as const;

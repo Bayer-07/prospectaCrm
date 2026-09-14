@@ -8,3 +8,14 @@ export function aiSuggestionDisposition(input: Readonly<{
     ? 'insert'
     : 'offer';
 }
+
+export function aiMessageImprovementDisposition(input: Readonly<{
+  composerText: string;
+  requestedText: string;
+  requestedRevision: number;
+  currentRevision: number;
+}>) {
+  return input.composerText === input.requestedText && input.requestedRevision === input.currentRevision
+    ? 'replace'
+    : 'offer';
+}

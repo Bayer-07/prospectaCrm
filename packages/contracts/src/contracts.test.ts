@@ -6,7 +6,7 @@ describe('contratos', () => {
     expect(chatbotResponseProviders).toContain('OPENAI');
     expect(chatbotNodeTypes).toContain('ai_conversation');
     expect(chatbotNodeTypes).toContain('http_request');
-    expect(aiGenerationTypes).toEqual(['SUMMARY', 'REPLY_SUGGESTION', 'CHATBOT_REPLY', 'CONFIG_TEST']);
+    expect(aiGenerationTypes).toEqual(['SUMMARY', 'REPLY_SUGGESTION', 'MESSAGE_IMPROVEMENT', 'CHATBOT_REPLY', 'CONFIG_TEST']);
     expect(aiGenerationStatuses).toContain('WAITING_INPUT');
     expect(aiSummaryScopes).toEqual(['CURRENT_ATTENDANCE', 'FULL_CONVERSATION']);
     expect(aiProposalStatuses).toContain('PARTIALLY_APPLIED');

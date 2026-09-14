@@ -67,6 +67,47 @@ describe('serviço de IA', () => {
     }));
   });
 
+  it('cria uma melhoria a partir do texto do composer sem exigir mensagens anteriores', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const generation = { id: 'generation-improvement', type: 'MESSAGE_IMPROVEMENT', status: 'PENDING', updatedAt: new Date('2026-09-14T12:00:00.000Z') };
+    const db = {
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+      conversation: { findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', assigneeId: 'user-1', status: 'OPEN', contactId: 'contact-1' }) },
+      conversationAiGeneration: { upsert: vi.fn().mockResolvedValue(generation) },
+    };
+    const queue = { add: vi.fn().mockResolvedValue({}) };
+    const service = new AiService(db as never, queue as never, {} as never, {} as never);
+
+    await expect(service.createGeneration(admin, 'conversation-1', {
+      type: 'MESSAGE_IMPROVEMENT', message: '  oi, consegue me ajudar?  ',
+    })).resolves.toBe(generation);
+
+    expect(db.conversationAiGeneration.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      where: { deduplicationKey: expect.stringMatching(/^[a-f0-9]{64}$/) },
+      create: expect.objectContaining({
+        requestedById: 'user-1',
+        type: 'MESSAGE_IMPROVEMENT',
+        input: { message: 'oi, consegue me ajudar?' },
+      }),
+    }));
+    expect(queue.add).toHaveBeenCalledWith('generate', { generationId: 'generation-improvement' }, expect.objectContaining({ priority: 2 }));
+  });
+
+  it.each([undefined, '', '   '])('rejeita melhoria sem texto no composer', async (message) => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const db = {
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+      conversation: { findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', assigneeId: 'user-1', status: 'OPEN', contactId: 'contact-1' }) },
+    };
+    const service = new AiService(db as never, {} as never, {} as never, {} as never);
+
+    await expect(service.createGeneration(admin, 'conversation-1', {
+      type: 'MESSAGE_IMPROVEMENT', message,
+    })).rejects.toThrow(/Escreva uma mensagem/);
+  });
+
   it('mantém a IA desligada quando o ambiente não foi habilitado', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'false');
     const service = new AiService({} as never, {} as never, {} as never, {} as never);

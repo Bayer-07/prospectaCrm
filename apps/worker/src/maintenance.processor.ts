@@ -38,7 +38,7 @@ export async function runMaintenance(db: PrismaClient) {
     ...updates,
     db.session.deleteMany({ where: { expiresAt: { lt: now } } }),
     db.idempotencyRecord.deleteMany({ where: { expiresAt: { lt: now } } }),
-    db.conversationAiGeneration.deleteMany({ where: { type: 'REPLY_SUGGESTION', createdAt: { lt: suggestionCutoff } } }),
+    db.conversationAiGeneration.deleteMany({ where: { type: { in: ['REPLY_SUGGESTION', 'MESSAGE_IMPROVEMENT'] }, createdAt: { lt: suggestionCutoff } } }),
     db.conversationAiGeneration.deleteMany({ where: { OR: [{ type: 'CONFIG_TEST' }, { type: 'CHATBOT_REPLY', proposal: null }], createdAt: { lt: diagnosticCutoff } } }),
   ]);
   for (const organization of organizations) {
