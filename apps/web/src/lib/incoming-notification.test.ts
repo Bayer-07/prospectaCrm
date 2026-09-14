@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { openInboxConversationId, shouldPlayIncomingMessageSound, type InboxRealtimePayload } from './incoming-notification';
+import { incomingMessageNotificationUrl, openInboxConversationId, shouldPlayIncomingMessageSound, type InboxRealtimePayload } from './incoming-notification';
 
 const incoming = (conversationId = 'conversation-2', assigneeId: string | null = 'user-1', teamId?: string | null): InboxRealtimePayload => ({
   conversationId,
@@ -56,5 +56,10 @@ describe('som de nova mensagem', () => {
 
   it('extrai a conversa aberta de uma rota da inbox', () => {
     expect(openInboxConversationId('/inbox/conversation%202')).toBe('conversation 2');
+  });
+
+  it('monta a rota segura para abrir o ticket pela notificação', () => {
+    expect(incomingMessageNotificationUrl(incoming('ticket com espaço'))).toBe('/inbox/ticket%20com%20espa%C3%A7o');
+    expect(incomingMessageNotificationUrl(undefined)).toBe('');
   });
 });

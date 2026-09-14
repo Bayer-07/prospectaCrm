@@ -22,6 +22,7 @@ import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { isMessageEdited, messageEditedAt, messageEditHistory } from '../lib/message-edit-history';
 import { toast } from '../lib/toast';
 import { inboxFilterForStatus, shouldSyncInboxFilter, type InboxFilter } from '../lib/inbox-navigation';
+import { queueTransferAssigneeId } from '../lib/inbox-queue';
 import { extractWhatsappLocation, type WhatsappLocation } from '../lib/whatsapp-location';
 import { composerCommandSearch, detectComposerCommand } from '../lib/composer-command';
 import { INBOX_ATTACHMENT_ACCEPT, prepareInboxAttachment } from '../lib/outgoing-attachment';
@@ -1051,6 +1052,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [transferTarget, setTransferTarget] = useState('');
   const [transferTeam, setTransferTeam] = useState('');
   const [transferMode, setTransferMode] = useState<'assignee' | 'queue'>('assignee');
+  const [queueMenu, setQueueMenu] = useState<{ top: number; left: number } | null>(null);
   const [instanceChangeOpen, setInstanceChangeOpen] = useState(false);
   const [instanceTarget, setInstanceTarget] = useState('');
   const [opportunityOpen, setOpportunityOpen] = useState(false);
@@ -1112,6 +1114,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const canCreateOpportunity = Boolean(user?.roleKey === 'admin' || user?.permissions.some((permission) =>
     (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
   const canScheduleFollowUp = canWriteResource(user, 'conversations') && canWriteResource(user, 'tasks');
+  const canTransfer = canWriteResource(user, 'conversations') && conversation.status !== 'CLOSED';
   const workflows = useQuery({
     queryKey: ['workflow-shortcuts'],
     queryFn: () => api<Envelope<WorkflowShortcut[]>>('/workflows'),
@@ -1348,16 +1351,18 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     enabled: transferOpen,
     staleTime: 60_000,
   });
-  const transferTeams = useQuery({ queryKey: ['conversation-teams'], queryFn: () => api<Envelope<TeamOption[]>>('/conversations/teams'), enabled: transferOpen, staleTime: 60_000 });
+  const transferTeams = useQuery({ queryKey: ['conversation-teams'], queryFn: () => api<Envelope<TeamOption[]>>('/conversations/teams'), enabled: transferOpen || Boolean(queueMenu), staleTime: 60_000 });
   const transfer = useMutation({
-    mutationFn: (input: { assigneeId: string | null; teamId: string }) => onTransfer(input),
-    onSuccess: () => {
+    mutationFn: ({ source: _source, ...input }: { assigneeId: string | null; teamId: string; source?: 'queue-badge' }) => onTransfer(input),
+    onSuccess: (_response, input) => {
       setTransferOpen(false);
+      setQueueMenu(null);
       setTransferTarget('');
       setTransferTeam('');
-      setActionNotice('Atendimento transferido');
+      setActionNotice(input.source === 'queue-badge' ? 'Fila alterada' : 'Atendimento transferido');
       onSend();
     },
+    onError: (error) => setActionError(apiErrorMessage(error, 'Não foi possível alterar a fila')),
   });
   const availableInstances = useQuery({
     queryKey: ['conversation-instances'],
@@ -1453,6 +1458,14 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     document.addEventListener('pointerdown', closePicker);
     return () => document.removeEventListener('pointerdown', closePicker);
   }, [emojiPickerOpen]);
+  useEffect(() => {
+    if (!queueMenu) return;
+    const closeMenu = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setQueueMenu(null);
+    };
+    window.addEventListener('keydown', closeMenu);
+    return () => window.removeEventListener('keydown', closeMenu);
+  }, [queueMenu]);
   useEffect(() => () => {
     recordingRequestIdRef.current += 1;
     sendRecordingRef.current = false;
@@ -1931,11 +1944,41 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     if (!send.isPending && !edit.isPending && !startWorkflow.isPending && !insertQuickReply.isPending) submitCurrentMessage();
   };
 
+  const openQueueMenu = (event: React.MouseEvent<HTMLButtonElement>) => {
+    if (!canTransfer || transfer.isPending) return;
+    if (queueMenu) {
+      setQueueMenu(null);
+      return;
+    }
+    const rect = event.currentTarget.getBoundingClientRect();
+    const width = Math.min(280, window.innerWidth - 16);
+    const estimatedHeight = 320;
+    const below = rect.bottom + 8;
+    setQueueMenu({
+      top: below + estimatedHeight <= window.innerHeight ? below : Math.max(8, rect.top - estimatedHeight - 8),
+      left: Math.max(8, Math.min(rect.left + rect.width / 2 - width / 2, window.innerWidth - width - 8)),
+    });
+    setConversationMenu(null);
+    transfer.reset();
+  };
   const renderHeader = () => <header className="conversation-header">
-    <button type="button" className="conversation-person conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
-      <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
-      <div><strong>{conversation.contact.name}</strong><div className="conversation-person-details"><span className="conversation-person-phone"><i />{formatPhone(conversation.contact.phone) || 'Sem telefone'}</span><span className="conversation-instance-badge">{conversation.instance.name}</span><QueueBadge team={conversation.team} /></div></div>
-    </button>
+    <div className="conversation-person">
+      <button type="button" className="conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
+        <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
+        <div><strong>{conversation.contact.name}</strong><div className="conversation-person-details"><span className="conversation-person-phone"><i />{formatPhone(conversation.contact.phone) || 'Sem telefone'}</span><span className="conversation-instance-badge">{conversation.instance.name}</span></div></div>
+      </button>
+      <button
+        type="button"
+        className={`queue-badge queue-switcher-trigger${conversation.team ? '' : ' neutral'}${queueMenu ? ' active' : ''}`}
+        style={conversation.team ? { '--queue-color': conversation.team.color } as React.CSSProperties : undefined}
+        onClick={openQueueMenu}
+        disabled={!canTransfer || transfer.isPending}
+        aria-label={`Alterar fila atual: ${conversation.team?.name || 'Sem fila'}`}
+        aria-haspopup="menu"
+        aria-expanded={Boolean(queueMenu)}
+        title={canTransfer ? 'Trocar equipe / fila' : conversation.status === 'CLOSED' ? 'Reabra a conversa para alterar a fila' : 'Você não possui permissão para alterar a fila'}
+      ><i /><span>{conversation.team?.name || 'Sem fila'}</span><ChevronDown size={12} /></button>
+    </div>
     <div className="conversation-actions">
       {connectionUnavailable && <button type="button" className="button button-secondary conversation-change-instance-button" onClick={() => { setInstanceTarget(''); changeInstance.reset(); setInstanceChangeOpen(true); }} title="Escolher outra conexão para as próximas mensagens"><Cable size={15} /><span>Trocar conexão</span></button>}
       <button type="button" className="button button-secondary" onClick={onAssign} disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa para alterar o responsável' : undefined}>{conversation.assignee ? <><UserCheck size={15} />{conversation.assignee.name}</> : <><UserPlus size={15} />Assumir</>}</button>
@@ -2006,6 +2049,34 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         <button type="button" role="menuitem" disabled={exportPdf.isPending} onClick={() => { setConversationMenu(null); setActionError(''); exportPdf.mutate(); }}><Download size={17} /><span>{exportPdf.isPending ? 'Exportando PDF…' : 'Exportar para PDF'}</span></button>
       </div>
     </>, document.body);
+  const renderQueueMenu = () => queueMenu && createPortal(<>
+    <button type="button" className="message-menu-scrim" onClick={() => setQueueMenu(null)} aria-label="Fechar seleção de filas" />
+    <div className="queue-switcher-menu" role="menu" aria-label="Filas disponíveis" style={{ top: queueMenu.top, left: queueMenu.left }}>
+      <header><strong>Trocar equipe / fila</strong><small>Filas disponíveis para o seu usuário</small></header>
+      <div>
+        {transferTeams.isLoading && <span className="queue-switcher-state"><LoaderCircle className="spin" size={16} />Carregando filas…</span>}
+        {transferTeams.isError && <span className="queue-switcher-state error">Não foi possível carregar as filas.</span>}
+        {!transferTeams.isLoading && !transferTeams.isError && !transferTeams.data?.data.length && <span className="queue-switcher-state">Nenhuma fila disponível.</span>}
+        {(transferTeams.data?.data || []).map((team) => {
+          const current = team.id === conversation.team?.id;
+          const changing = transfer.isPending && transfer.variables?.source === 'queue-badge' && transfer.variables.teamId === team.id;
+          return <button
+            type="button"
+            role="menuitemradio"
+            aria-checked={current}
+            key={team.id}
+            className={current ? 'selected' : ''}
+            disabled={current || transfer.isPending}
+            onClick={() => transfer.mutate({
+              assigneeId: queueTransferAssigneeId(conversation.assignee?.id, user?.userId),
+              teamId: team.id,
+              source: 'queue-badge',
+            })}
+          ><i style={{ backgroundColor: team.color }} /><span><strong>{team.name}</strong><small>{current ? 'Fila atual' : 'Mover atendimento'}</small></span>{changing ? <LoaderCircle className="spin" size={16} /> : current ? <Check size={16} /> : null}</button>;
+        })}
+      </div>
+    </div>
+  </>, document.body);
   const renderConversationModals = () => <>
     {opportunityOpen && <ContactOpportunityModal
       contact={conversation.contact}
@@ -2090,6 +2161,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     {renderComposer()}
     {renderMessageMenu()}
     {renderConversationActions()}
+    {renderQueueMenu()}
     {renderConversationModals()}
     {renderInstanceChangeModal()}
   </section>;

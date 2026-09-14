@@ -14,8 +14,9 @@ import { mergeLatestHistory, RealtimeContext, type RealtimeHistoryData, type Rea
 import { useAuth } from '../App';
 import {
   createNotificationAudioContext,
+  incomingMessageNotificationUrl,
   playIncomingMessageSound,
-  shouldPlayIncomingMessageSound,
+  shouldNotifyIncomingMessage,
   type InboxRealtimePayload,
 } from '../lib/incoming-notification';
 import { GlobalSearch } from './GlobalSearch';
@@ -30,6 +31,12 @@ type NotificationItem = {
   createdAt: string;
   readAt?: string | null;
 };
+
+type BrowserNotificationPermission = NotificationPermission | 'unsupported';
+
+function currentBrowserNotificationPermission(): BrowserNotificationPermission {
+  return typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported';
+}
 
 type NavItem = {
   to: string;
@@ -192,6 +199,7 @@ export function Shell() {
     return new Set(initiallyOpen);
   });
   const [realtimeConnected, setRealtimeConnected] = useState(false);
+  const [browserNotificationPermission, setBrowserNotificationPermission] = useState<BrowserNotificationPermission>(currentBrowserNotificationPermission);
   const historyRefreshes = useRef(new Map<string, { running: boolean; rerun: boolean }>());
   const { theme, toggleTheme } = useTheme();
   const { user, logout } = useAuth();
@@ -199,10 +207,12 @@ export function Shell() {
   const navigate = useNavigate();
   const queryClient = useQueryClient();
   const locationPathRef = useRef(location.pathname);
+  const navigateRef = useRef(navigate);
   const currentUserRef = useRef(user);
   const notificationAudioRef = useRef<AudioContext | null>(null);
-  const soundedMessageIdsRef = useRef(new Set<string>());
+  const notifiedMessageIdsRef = useRef(new Set<string>());
   locationPathRef.current = location.pathname;
+  navigateRef.current = navigate;
   currentUserRef.current = user;
   const notifications = useQuery({ queryKey: ['notifications'], queryFn: () => api<Envelope<NotificationItem[]>>('/notifications'), refetchInterval: realtimeConnected ? false : 30_000 });
   const unreadNotifications = useMemo(() => notifications.data?.data.filter((item) => !item.readAt) || [], [notifications.data?.data]);
@@ -241,6 +251,21 @@ export function Shell() {
     if (notification.actionUrl) navigate(notification.actionUrl);
     setNotificationsOpen(false);
   };
+  const requestBrowserNotifications = async () => {
+    if (!('Notification' in window)) {
+      setBrowserNotificationPermission('unsupported');
+      toast.warning('Este navegador não oferece notificações nativas.');
+      return;
+    }
+    try {
+      const permission = await Notification.requestPermission();
+      setBrowserNotificationPermission(permission);
+      if (permission === 'granted') toast.success('Notificações de novas mensagens ativadas.');
+      else if (permission === 'denied') toast.warning('As notificações foram bloqueadas pelo navegador.');
+    } catch {
+      toast.error('Não foi possível ativar as notificações neste navegador.');
+    }
+  };
 
   useEffect(() => {
     const activeParents = nav.flatMap((group) => group.items)
@@ -252,6 +277,10 @@ export function Shell() {
       return new Set([...current, ...activeParents]);
     });
   }, [location.pathname]);
+
+  useEffect(() => {
+    if (notificationsOpen) setBrowserNotificationPermission(currentBrowserNotificationPermission());
+  }, [notificationsOpen]);
 
   useEffect(() => {
     const unlockNotificationAudio = () => {
@@ -313,19 +342,36 @@ export function Shell() {
     };
     const refreshInbox = (payload?: InboxRealtimePayload, fullHistory = false) => {
       const messageId = payload?.newMessage?.id;
-      if (messageId && !soundedMessageIdsRef.current.has(messageId)
-        && shouldPlayIncomingMessageSound(
+      if (messageId && !notifiedMessageIdsRef.current.has(messageId)
+        && shouldNotifyIncomingMessage(
           payload,
           locationPathRef.current,
           currentUserRef.current,
           document.visibilityState === 'visible' && document.hasFocus(),
         )) {
-        soundedMessageIdsRef.current.add(messageId);
-        if (soundedMessageIdsRef.current.size > 500) soundedMessageIdsRef.current.delete(soundedMessageIdsRef.current.values().next().value!);
+        notifiedMessageIdsRef.current.add(messageId);
+        if (notifiedMessageIdsRef.current.size > 500) notifiedMessageIdsRef.current.delete(notifiedMessageIdsRef.current.values().next().value!);
         const context = notificationAudioRef.current || createNotificationAudioContext();
         if (context) {
           notificationAudioRef.current = context;
           void playIncomingMessageSound(context).catch(() => undefined);
+        }
+        const actionUrl = incomingMessageNotificationUrl(payload);
+        if (actionUrl && currentBrowserNotificationPermission() === 'granted') {
+          try {
+            const browserNotification = new Notification('Nova mensagem no WhatsApp', {
+              body: 'Clique para abrir o atendimento.',
+              icon: '/brand-logo.png',
+              tag: `inbox-message-${payload?.conversationId}`,
+            });
+            browserNotification.onclick = () => {
+              window.focus();
+              navigateRef.current(actionUrl);
+              browserNotification.close();
+            };
+          } catch {
+            // Some embedded browsers expose the API but reject construction.
+          }
         }
       }
       scheduleInvalidation(['conversations']);
@@ -446,7 +492,7 @@ export function Shell() {
             </>}
           </div>
           <button type="button" className="icon-button theme-toggle" onClick={toggleTheme} aria-label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'} title={theme === 'dark' ? 'Tema claro' : 'Tema escuro'}>{theme === 'dark' ? <Sun size={18} /> : <Moon size={18} />}</button>
-          <div className="popover-wrap"><button type="button" className="icon-button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notificações"><Bell size={18} />{unread > 0 && <i>{unread}</i>}</button>{notificationsOpen && <div className="popover notifications-popover"><div className="popover-header notification-popover-header"><strong>Notificações</strong><div><span>{unread} novas</span>{unread > 0 && <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending} title="Marcar todas como lidas"><CheckCheck size={14} />Marcar todas como lidas</button>}</div></div><div className="notification-list">{unreadNotifications.length ? unreadNotifications.slice(0, 8).map((item) => <div key={item.id} className="notification-item unread"><button type="button" className="notification-main" onClick={() => openNotification(item)}><span className="notification-icon"><Bell size={14} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{dateTime(item.createdAt)}</small></div></button><button type="button" className="notification-read" onClick={() => markRead.mutate(item.id)} disabled={markRead.isPending && markRead.variables === item.id} aria-label={`Marcar ${item.title} como lida`} title="Marcar como lida"><CheckCheck size={16} /></button></div>) : <p className="popover-empty">Tudo lido por aqui.</p>}</div></div>}</div>
+          <div className="popover-wrap"><button type="button" className="icon-button" onClick={() => setNotificationsOpen(!notificationsOpen)} aria-label="Notificações"><Bell size={18} />{unread > 0 && <i>{unread}</i>}</button>{notificationsOpen && <div className="popover notifications-popover"><div className="popover-header notification-popover-header"><strong>Notificações</strong><div><span>{unread} novas</span>{unread > 0 && <button type="button" onClick={() => markAllRead.mutate()} disabled={markAllRead.isPending} title="Marcar todas como lidas"><CheckCheck size={14} />Marcar todas como lidas</button>}</div></div><div className={`browser-notification-control ${browserNotificationPermission}`}><div><span><Bell size={14} /></span><p><strong>Avisos no navegador</strong><small>{browserNotificationPermission === 'granted' ? 'Ativos enquanto o BZS One estiver aberto.' : browserNotificationPermission === 'denied' ? 'Permissão bloqueada nas configurações do navegador.' : browserNotificationPermission === 'unsupported' ? 'Este navegador não oferece esse recurso.' : 'Receba avisos de novas mensagens em outras abas.'}</small></p></div><button type="button" onClick={() => void requestBrowserNotifications()} disabled={browserNotificationPermission !== 'default'}>{browserNotificationPermission === 'granted' ? <><CheckCheck size={14} />Ativas</> : browserNotificationPermission === 'denied' ? 'Bloqueadas' : browserNotificationPermission === 'unsupported' ? 'Indisponível' : 'Ativar'}</button></div><div className="notification-list">{unreadNotifications.length ? unreadNotifications.slice(0, 8).map((item) => <div key={item.id} className="notification-item unread"><button type="button" className="notification-main" onClick={() => openNotification(item)}><span className="notification-icon"><Bell size={14} /></span><div><strong>{item.title}</strong><p>{item.body}</p><small>{dateTime(item.createdAt)}</small></div></button><button type="button" className="notification-read" onClick={() => markRead.mutate(item.id)} disabled={markRead.isPending && markRead.variables === item.id} aria-label={`Marcar ${item.title} como lida`} title="Marcar como lida"><CheckCheck size={16} /></button></div>) : <p className="popover-empty">Tudo lido por aqui.</p>}</div></div>}</div>
           <div className="popover-wrap"><button type="button" className="profile-button" onClick={() => setProfileOpen(!profileOpen)}><UserAvatar user={user} /><div><strong>{user?.name}</strong><small>{user?.roleKey === 'admin' ? 'Administrador' : user?.roleKey}</small></div><ChevronDown size={14} /></button>{profileOpen && <div className="popover profile-popover"><button type="button" onClick={() => { setProfileOpen(false); setProfileModalOpen(true); }}><UserRound size={16} />Meu perfil</button><button type="button" disabled={!canRead('users')} title={!canRead('users') ? 'Você não possui acesso à gestão da equipe' : undefined} onClick={() => { setProfileOpen(false); navigate('/configuracoes?tab=users'); }}><Users size={16} />Minha equipe</button><button type="button" className="profile-logout" disabled={signOut.isPending} onClick={() => signOut.mutate()}><LogOut size={16} />{signOut.isPending ? 'Saindo…' : 'Sair'}</button></div>}</div>
         </div>
       </header>

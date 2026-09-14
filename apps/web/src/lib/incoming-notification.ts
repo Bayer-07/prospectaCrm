@@ -22,13 +22,21 @@ export function openInboxConversationId(pathname: string) {
   catch { return match[1]; }
 }
 
-export function shouldPlayIncomingMessageSound(payload: InboxRealtimePayload | undefined, pathname: string, user: NotificationUser | null, pageFocused = true) {
+export function shouldNotifyIncomingMessage(payload: InboxRealtimePayload | undefined, pathname: string, user: NotificationUser | null, pageFocused = true) {
   if (!payload?.conversationId || payload.newMessage?.direction !== 'INBOUND') return false;
   if (pageFocused && openInboxConversationId(pathname) === payload.conversationId) return false;
   if (payload.newMessage.assigneeId) return payload.newMessage.assigneeId === user?.userId;
   if (!payload.newMessage.teamId) return false;
   const teamIds = user?.teamIds?.length ? user.teamIds : user?.teamId ? [user.teamId] : [];
   return teamIds.includes(payload.newMessage.teamId);
+}
+
+export function shouldPlayIncomingMessageSound(payload: InboxRealtimePayload | undefined, pathname: string, user: NotificationUser | null, pageFocused = true) {
+  return shouldNotifyIncomingMessage(payload, pathname, user, pageFocused);
+}
+
+export function incomingMessageNotificationUrl(payload: InboxRealtimePayload | undefined) {
+  return payload?.conversationId ? `/inbox/${encodeURIComponent(payload.conversationId)}` : '';
 }
 
 export function createNotificationAudioContext() {
