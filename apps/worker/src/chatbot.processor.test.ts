@@ -282,7 +282,7 @@ describe('espera do chatbot', () => {
       data: { currentNodeId: 'end' },
     });
     expect(db.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: expect.objectContaining({
-      OR: [{ teamMemberships: { some: { teamId: 'team-2' } } }, { role: { key: 'admin' } }],
+      teamMemberships: { some: { teamId: 'team-2' } },
     }) }));
     expect(updateConversation).toHaveBeenCalledWith({
       where: { id: 'conversation-1' },

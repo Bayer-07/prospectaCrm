@@ -50,6 +50,26 @@ function primitiveText(value: unknown) {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
 }
 
+function providerInstancePhone(providerInstance: Record<string, any>) {
+  const candidates = [
+    providerInstance.ownerJid,
+    providerInstance.owner,
+    providerInstance.number,
+    providerInstance.phone,
+    providerInstance.instance?.ownerJid,
+    providerInstance.instance?.owner,
+    providerInstance.instance?.number,
+    providerInstance.instance?.phone,
+    providerInstance.me?.id,
+    providerInstance.user?.id,
+  ];
+  for (const candidate of candidates) {
+    const digits = primitiveText(candidate).split('@')[0].split(':')[0].replace(/\D/g, '');
+    if (digits.length >= 8 && digits.length <= 15) return `+${digits}`;
+  }
+  return null;
+}
+
 function teamAccessWhere(scope: string, teamIds: string[]) {
   if (scope === 'ALL') return {};
   return teamIds.length ? { teams: { some: { teamId: { in: teamIds } } } } : { id: '__none__' };
@@ -1170,7 +1190,7 @@ export class EvolutionService {
         where: {
           organizationId: auth.organizationId,
           status: 'ACTIVE',
-          OR: [{ role: { key: 'admin' } }, { teamMemberships: { some: { teamId: team.id } } }],
+          teamMemberships: { some: { teamId: team.id } },
         },
         select: { id: true },
       });
@@ -1840,6 +1860,7 @@ export class EvolutionService {
   private async reconcileProviderInstanceStatuses<T extends {
     id: string;
     instanceKey: string;
+    phone: string | null;
     status: string;
     connectedAt: Date | null;
   }>(instances: T[]) {
@@ -1854,32 +1875,34 @@ export class EvolutionService {
       return instances;
     }
 
-    const providerStatuses = new Map<string, EvolutionInstanceStatus>();
+    const providerStates = new Map<string, { status: EvolutionInstanceStatus; phone: string | null }>();
     for (const providerInstance of providerInstances) {
       const instanceKey = String(providerInstance.name || providerInstance.instanceName || '').trim();
       if (!instanceKey) continue;
-      providerStatuses.set(
-        instanceKey,
-        normalizeEvolutionInstanceStatus(
+      providerStates.set(instanceKey, {
+        status: normalizeEvolutionInstanceStatus(
           providerInstance.connectionStatus
           || providerInstance.state
           || providerInstance.instance?.state,
         ),
-      );
+        phone: providerInstancePhone(providerInstance),
+      });
     }
 
     const now = new Date();
     const updates: Array<Promise<unknown>> = [];
     const reconciled = instances.map((instance) => {
-      const status = providerStatuses.get(instance.instanceKey) || 'DISCONNECTED';
+      const providerState = providerStates.get(instance.instanceKey);
+      const status = providerState?.status || 'DISCONNECTED';
+      const phone = providerState?.phone || instance.phone || null;
       const connectedAt = status === 'CONNECTED' ? instance.connectedAt || now : null;
-      if (status !== instance.status || connectedAt?.getTime() !== instance.connectedAt?.getTime()) {
+      if (status !== instance.status || connectedAt?.getTime() !== instance.connectedAt?.getTime() || phone !== instance.phone) {
         updates.push(this.db.whatsappInstance.update({
           where: { id: instance.id },
-          data: { status, connectedAt },
+          data: { status, connectedAt, phone },
         }));
       }
-      return { ...instance, status, connectedAt };
+      return { ...instance, status, connectedAt, phone };
     });
     await Promise.all(updates);
     return reconciled;

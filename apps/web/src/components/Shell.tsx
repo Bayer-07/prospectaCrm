@@ -381,6 +381,7 @@ export function Shell() {
       scheduleInvalidation(['ai-generation', payload?.conversationId, payload?.generationId]);
       scheduleInvalidation(['ai-summary', payload?.conversationId]);
       scheduleInvalidation(['ai-proposals', payload?.conversationId]);
+      scheduleInvalidation(['notifications']);
     });
     socket.on('ai.knowledge.updated', () => scheduleInvalidation(['ai-knowledge-documents']));
     return () => {

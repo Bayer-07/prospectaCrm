@@ -245,6 +245,49 @@ describe('processamento estruturado da IA', () => {
     }));
   });
 
+  it('notifica somente membros da equipe quando a IA transfere o ticket para atendimento', async () => {
+    const findRecipients = vi.fn().mockResolvedValue([{ id: 'user-team-1' }]);
+    const createMany = vi.fn().mockResolvedValue({ count: 1 });
+    const db = {
+      conversation: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'conversation-1',
+          organizationId: 'organization-1',
+          teamId: 'team-1',
+          contact: { name: 'Maria' },
+        }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversationEvent: { create: vi.fn().mockResolvedValue({}) },
+      chatbotSession: { update: vi.fn().mockResolvedValue({}) },
+      user: { findMany: findRecipients },
+      notification: { createMany },
+      $transaction: vi.fn(async (operations: Array<Promise<unknown>>) => Promise.all(operations)),
+    };
+    const processor = new AiGenerationProcessor(db as never, {} as never, {} as never, {} as never, {} as never, {} as never);
+
+    await (processor as unknown as { handoff(generation: Record<string, unknown>, reason: string): Promise<void> }).handoff({
+      id: 'generation-1',
+      organizationId: 'organization-1',
+      conversationId: 'conversation-1',
+      chatbotSessionId: 'session-1',
+    }, 'Transferência solicitada');
+
+    expect(findRecipients).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'organization-1',
+        status: 'ACTIVE',
+        teamMemberships: { some: { teamId: 'team-1' } },
+      },
+      select: { id: true },
+    });
+    expect(createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({
+      userId: 'user-team-1',
+      type: 'ai.handoff',
+      actionUrl: '/inbox/conversation-1',
+    })] });
+  });
+
   it('reconcilia jobs perdidos e recupera uma geração abandonada pelo worker', async () => {
     const updatedAt = new Date('2026-08-17T12:00:00Z');
     const db = { conversationAiGeneration: {

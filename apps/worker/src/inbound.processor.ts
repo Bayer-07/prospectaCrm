@@ -15,6 +15,7 @@ type StoredMessageResult = {
     id: string;
     direction: 'INBOUND' | 'OUTBOUND';
     assigneeId: string | null;
+    teamId: string | null;
   };
 };
 type ProcessedInboundEvent = Partial<StoredMessageResult>;
@@ -763,6 +764,7 @@ export class InboundProcessor {
         id: storedMessage.id,
         direction: fromMe ? 'OUTBOUND' : 'INBOUND',
         assigneeId: conversation.assigneeId,
+        teamId: conversation.teamId,
       },
     };
   }
@@ -942,7 +944,7 @@ export class InboundProcessor {
           unreadCount: { increment: 1 },
         } : {}),
       },
-      select: { id: true, assigneeId: true },
+      select: { id: true, assigneeId: true, teamId: true },
     });
     if (!fromMe && currentConversation.status === 'CLOSED') {
       await this.createConversationStartEvent(instance.organizationId, conversation.id, occurredAt, 'Novo atendimento iniciado por mensagem do cliente');
@@ -965,7 +967,7 @@ export class InboundProcessor {
         unreadCount: fromMe ? 0 : 1,
         lastMessageAt: occurredAt,
       },
-      select: { id: true, assigneeId: true },
+      select: { id: true, assigneeId: true, teamId: true },
     });
     const eventText = fromMe ? 'Atendimento iniciado pelo WhatsApp conectado' : 'Atendimento iniciado por nova mensagem';
     await this.createConversationStartEvent(instance.organizationId, conversation.id, occurredAt, eventText);
@@ -1033,7 +1035,7 @@ export class InboundProcessor {
 
   private async handleInboundEffects(
     instance: InboundInstance,
-    conversation: { id: string; assigneeId: string | null },
+    conversation: { id: string; assigneeId: string | null; teamId: string | null },
     contact: { id: string; name: string },
     messageId: string,
     text: string | null,
@@ -1086,6 +1088,24 @@ export class InboundProcessor {
         body: text?.slice(0, 180),
         actionUrl: `/inbox/${conversation.id}`,
       } });
+      else if (conversation.teamId) {
+        const recipients = await tx.user.findMany({
+          where: {
+            organizationId: instance.organizationId,
+            status: 'ACTIVE',
+            teamMemberships: { some: { teamId: conversation.teamId } },
+          },
+          select: { id: true },
+        });
+        if (recipients.length) await tx.notification.createMany({ data: recipients.map((recipient) => ({
+          organizationId: instance.organizationId,
+          userId: recipient.id,
+          type: 'conversation.message',
+          title: `Nova mensagem de ${contact.name}`,
+          body: text?.slice(0, 180),
+          actionUrl: `/inbox/${conversation.id}`,
+        })) });
+      }
       return {
         alertId: followUp?.emailResponsible ? followUp.id : null,
         changed: Boolean(followUp),

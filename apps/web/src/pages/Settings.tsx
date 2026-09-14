@@ -2,7 +2,7 @@ import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
 import { AlertTriangle, BookOpen, BrainCircuit, Check, Copy, ExternalLink, FileText, KeyRound, LockKeyhole, Mail, MoreHorizontal, Network, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, ShieldCheck, Smartphone, Trash2, Unplug, UploadCloud, UserPlus, Users } from 'lucide-react';
-import { api, dateTime, type Envelope } from '../lib/api';
+import { api, dateTime, formatPhone, type Envelope } from '../lib/api';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { useAuth } from '../App';
 import { toast } from '../lib/toast';
@@ -565,7 +565,7 @@ function WhatsappSettings() {
     <div className="settings-heading"><div><h2>Números do WhatsApp</h2><p>Instâncias Evolution API acessíveis pelas equipes.</p></div><Button onClick={() => setModal(true)}><Plus size={16} />Adicionar número</Button></div>
     <div className="instance-list">{instances.data?.data.length ? instances.data.data.map((instance) => <article key={instance.id}>
       <div className="instance-icon"><Smartphone size={22} /></div>
-      <div className="instance-info"><div><strong>{instance.name}</strong><Status value={instance.status} /></div><p>{instance.phone || instance.instanceKey}</p><small>{instance.teams.map((item) => item.team.name).join(', ') || 'Sem equipe'} · Último evento {dateTime(instance.lastEventAt)}</small></div>
+      <div className="instance-info"><div><strong>{instance.name}</strong><Status value={instance.status} /></div><p>{formatPhone(instance.phone) || instance.instanceKey}</p><small>{instance.teams.map((item) => item.team.name).join(', ') || 'Sem equipe'} · Último evento {dateTime(instance.lastEventAt)}</small></div>
       <div className="warmup-meter"><span>Aquecimento</span><div><i style={{ width: `${Math.min((instance.warmupProfile.sentToday / Math.max(instance.warmupProfile.currentDailyCap, 1)) * 100, 100)}%` }} /></div><small>{instance.warmupProfile.sentToday} / {instance.warmupProfile.currentDailyCap} hoje</small></div>
       <div className="instance-actions">
         <Button variant="secondary" onClick={() => connect.mutate(instance.id)} loading={connect.isPending && connect.variables === instance.id}><QrCode size={16} />{instance.status === 'CONNECTED' ? 'Novo QR' : 'Conectar'}</Button>

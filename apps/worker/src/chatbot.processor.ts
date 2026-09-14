@@ -801,11 +801,13 @@ export class ChatbotProcessor {
         text: 'Chatbot transferiu o atendimento para a fila de espera',
       } }),
     ]);
-    const userTargets = conversation.teamId
-      ? [{ teamMemberships: { some: { teamId: conversation.teamId } } }, { role: { key: 'admin' } }]
-      : [{ role: { key: 'admin' } }];
+    if (!conversation.teamId) return;
     const users = await this.db.user.findMany({
-      where: { organizationId: conversation.organizationId, status: 'ACTIVE', OR: userTargets },
+      where: {
+        organizationId: conversation.organizationId,
+        status: 'ACTIVE',
+        teamMemberships: { some: { teamId: conversation.teamId } },
+      },
       select: { id: true },
     });
     if (users.length) await this.db.notification.createMany({ data: users.map((user) => ({

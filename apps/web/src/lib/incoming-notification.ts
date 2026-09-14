@@ -4,11 +4,14 @@ export type InboxRealtimePayload = {
     id: string;
     direction: 'INBOUND' | 'OUTBOUND';
     assigneeId: string | null;
+    teamId?: string | null;
   };
 };
 
 type NotificationUser = {
   userId?: string;
+  teamId?: string;
+  teamIds?: string[];
   roleKey?: string;
 };
 
@@ -22,8 +25,10 @@ export function openInboxConversationId(pathname: string) {
 export function shouldPlayIncomingMessageSound(payload: InboxRealtimePayload | undefined, pathname: string, user: NotificationUser | null, pageFocused = true) {
   if (!payload?.conversationId || payload.newMessage?.direction !== 'INBOUND') return false;
   if (pageFocused && openInboxConversationId(pathname) === payload.conversationId) return false;
-  if (!payload.newMessage.assigneeId || payload.newMessage.assigneeId !== user?.userId) return false;
-  return true;
+  if (payload.newMessage.assigneeId) return payload.newMessage.assigneeId === user?.userId;
+  if (!payload.newMessage.teamId) return false;
+  const teamIds = user?.teamIds?.length ? user.teamIds : user?.teamId ? [user.teamId] : [];
+  return teamIds.includes(payload.newMessage.teamId);
 }
 
 export function createNotificationAudioContext() {

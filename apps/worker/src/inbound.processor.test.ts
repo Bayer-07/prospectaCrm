@@ -113,6 +113,51 @@ describe('equipe da conversa ao processar mensagens', () => {
   });
 });
 
+describe('notificações de mensagens recebidas', () => {
+  it('notifica somente os usuários ativos vinculados à equipe do ticket aguardando', async () => {
+    const findRecipients = vi.fn().mockResolvedValue([{ id: 'user-team-1' }, { id: 'user-team-2' }]);
+    const createMany = vi.fn().mockResolvedValue({ count: 2 });
+    const tx = {
+      campaignRecipient: { findMany: vi.fn().mockResolvedValue([]), updateMany: vi.fn() },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      workflowEnrollment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationFollowUp: { findFirst: vi.fn().mockResolvedValue(null) },
+      user: { findMany: findRecipients },
+      notification: { create: vi.fn(), createMany },
+    };
+    const db = { $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)) };
+    const processor = new InboundProcessor(db as never, undefined, {} as never);
+
+    await (processor as unknown as { handleInboundEffects(
+      instance: object,
+      conversation: object,
+      contact: object,
+      messageId: string,
+      text: string,
+    ): Promise<boolean> }).handleInboundEffects(
+      { id: 'instance-1', organizationId: 'organization-1', instanceKey: 'comercial', teams: [{ teamId: 'team-1' }] },
+      { id: 'conversation-1', assigneeId: null, teamId: 'team-1' },
+      { id: 'contact-1', name: 'Maria' },
+      'message-1',
+      'Preciso de atendimento',
+    );
+
+    expect(findRecipients).toHaveBeenCalledWith({
+      where: {
+        organizationId: 'organization-1',
+        status: 'ACTIVE',
+        teamMemberships: { some: { teamId: 'team-1' } },
+      },
+      select: { id: true },
+    });
+    expect(createMany).toHaveBeenCalledWith({ data: [
+      expect.objectContaining({ userId: 'user-team-1', type: 'conversation.message', actionUrl: '/inbox/conversation-1' }),
+      expect.objectContaining({ userId: 'user-team-2', type: 'conversation.message', actionUrl: '/inbox/conversation-1' }),
+    ] });
+    expect(tx.notification.create).not.toHaveBeenCalled();
+  });
+});
+
 describe('reações da Evolution', () => {
   it('identifica a mensagem original sem criar uma nova bolha', () => {
     expect(evolutionReaction({

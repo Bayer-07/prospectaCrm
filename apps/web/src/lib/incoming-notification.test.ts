@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { openInboxConversationId, shouldPlayIncomingMessageSound, type InboxRealtimePayload } from './incoming-notification';
 
-const incoming = (conversationId = 'conversation-2', assigneeId: string | null = 'user-1'): InboxRealtimePayload => ({
+const incoming = (conversationId = 'conversation-2', assigneeId: string | null = 'user-1', teamId?: string | null): InboxRealtimePayload => ({
   conversationId,
-  newMessage: { id: 'message-1', direction: 'INBOUND', assigneeId },
+  newMessage: { id: 'message-1', direction: 'INBOUND', assigneeId, teamId },
 });
 
 describe('som de nova mensagem', () => {
@@ -32,6 +32,22 @@ describe('som de nova mensagem', () => {
 
   it('não toca para tickets sem atendente', () => {
     expect(shouldPlayIncomingMessageSound(incoming('conversation-2', null), '/', { userId: 'user-1' })).toBe(false);
+  });
+
+  it('toca para ticket aguardando quando o usuário pertence à equipe', () => {
+    expect(shouldPlayIncomingMessageSound(
+      incoming('conversation-2', null, 'team-2'),
+      '/',
+      { userId: 'user-1', teamIds: ['team-1', 'team-2'] },
+    )).toBe(true);
+  });
+
+  it('não toca para ticket aguardando de uma equipe não atribuída ao usuário', () => {
+    expect(shouldPlayIncomingMessageSound(
+      incoming('conversation-2', null, 'team-3'),
+      '/',
+      { userId: 'user-1', teamIds: ['team-1', 'team-2'], roleKey: 'admin' },
+    )).toBe(false);
   });
 
   it('não avisa administradores sobre conversa atribuída a outra pessoa', () => {

@@ -61,16 +61,16 @@ describe('conexões do WhatsApp', () => {
 
   it('reconcilia cada conexão pelo instanceKey sem compartilhar o estado entre os cards', async () => {
     const instances = [
-      { id: 'instance-1', instanceKey: 'comercial', status: 'CONNECTED', connectedAt: new Date('2026-07-28T10:00:00Z') },
-      { id: 'instance-2', instanceKey: 'teste', status: 'DISCONNECTED', connectedAt: null },
-      { id: 'instance-3', instanceKey: 'financeiro', status: 'CONNECTING', connectedAt: null },
+      { id: 'instance-1', instanceKey: 'comercial', phone: '+5545888888888', status: 'CONNECTED', connectedAt: new Date('2026-07-28T10:00:00Z') },
+      { id: 'instance-2', instanceKey: 'teste', phone: null, status: 'DISCONNECTED', connectedAt: null },
+      { id: 'instance-3', instanceKey: 'financeiro', phone: null, status: 'CONNECTING', connectedAt: null },
     ];
     const update = vi.fn().mockImplementation(({ where, data }) => Promise.resolve({ id: where.id, ...data }));
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
       text: vi.fn().mockResolvedValue(JSON.stringify([
         { name: 'comercial', connectionStatus: 'close' },
-        { name: 'teste', connectionStatus: 'open' },
+        { name: 'teste', connectionStatus: 'open', ownerJid: '5545999999999:7@s.whatsapp.net' },
         { name: 'financeiro', connectionStatus: 'connecting' },
       ])),
     });
@@ -88,19 +88,19 @@ describe('conexões do WhatsApp', () => {
       const result = await service.listInstances(auth);
 
       expect(result).toEqual([
-        expect.objectContaining({ id: 'instance-1', status: 'DISCONNECTED', connectedAt: null }),
-        expect.objectContaining({ id: 'instance-2', status: 'CONNECTED', connectedAt: expect.any(Date) }),
+        expect.objectContaining({ id: 'instance-1', phone: '+5545888888888', status: 'DISCONNECTED', connectedAt: null }),
+        expect.objectContaining({ id: 'instance-2', phone: '+5545999999999', status: 'CONNECTED', connectedAt: expect.any(Date) }),
         expect.objectContaining({ id: 'instance-3', status: 'CONNECTING', connectedAt: null }),
       ]);
       expect(fetchMock).toHaveBeenCalledTimes(1);
       expect(update).toHaveBeenCalledTimes(2);
       expect(update).toHaveBeenCalledWith({
         where: { id: 'instance-1' },
-        data: { status: 'DISCONNECTED', connectedAt: null },
+        data: { status: 'DISCONNECTED', connectedAt: null, phone: '+5545888888888' },
       });
       expect(update).toHaveBeenCalledWith({
         where: { id: 'instance-2' },
-        data: { status: 'CONNECTED', connectedAt: expect.any(Date) },
+        data: { status: 'CONNECTED', connectedAt: expect.any(Date), phone: '+5545999999999' },
       });
     } finally {
       if (previousApiKey === undefined) delete process.env.EVOLUTION_API_KEY;
@@ -775,6 +775,11 @@ describe('transferência entre filas', () => {
     const service = new EvolutionService(db as never, {} as never, {} as never, realtime as never);
     await service.assign(auth, 'conversation-1', null, 'team-new');
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ assigneeId: null, teamId: 'team-new', status: 'WAITING' }) }));
+    expect(db.user.findMany).toHaveBeenCalledWith(expect.objectContaining({ where: {
+      organizationId: 'organization-1',
+      status: 'ACTIVE',
+      teamMemberships: { some: { teamId: 'team-new' } },
+    } }));
     expect(db.notification.createMany).toHaveBeenCalledWith({ data: [expect.objectContaining({ userId: 'user-3', type: 'conversation.queued' })] });
   });
 
