@@ -92,13 +92,19 @@ export class CrmService {
     private readonly activities?: ActivitiesService,
   ) {}
 
-  async dashboard(auth: AuthContext, query: { from?: string; to?: string } = {}) {
+  async dashboard(auth: AuthContext, query: { from?: string; to?: string; timeZone?: string } = {}) {
     const opportunityScope = scopedWhere(auth, 'opportunities');
     const contactScope = scopedWhere(auth, 'contacts');
     const today = new Date(); today.setHours(0, 0, 0, 0);
     const activityTo = query.to ? new Date(query.to) : new Date();
     const activityFrom = query.from ? new Date(query.from) : new Date(activityTo.getTime() - 30 * 86_400_000);
     if (Number.isNaN(activityFrom.getTime()) || Number.isNaN(activityTo.getTime()) || activityFrom > activityTo) throw new BadRequestException('Período de atividades inválido');
+    const activityTimeZone = String(query.timeZone || 'America/Sao_Paulo').trim();
+    try {
+      new Intl.DateTimeFormat('pt-BR', { timeZone: activityTimeZone }).format(activityFrom);
+    } catch {
+      throw new BadRequestException('Fuso horário inválido');
+    }
     const [openOpportunities, totalContacts, overdueTasks, conversations, won, stages, recentActivityPage, conversationMetrics, connectedInstances, activitySummary] = await Promise.all([
       this.db.opportunity.aggregate({ where: { organizationId: auth.organizationId, archivedAt: null, status: 'OPEN', ...opportunityScope }, _count: true, _sum: { valueCents: true } }),
       this.db.contact.count({ where: { organizationId: auth.organizationId, archivedAt: null, ...contactScope } }),
@@ -125,7 +131,7 @@ export class CrmService {
           AND ${conversationVisibilitySql(auth)}
       `),
       this.db.whatsappInstance.count({ where: { organizationId: auth.organizationId, status: 'CONNECTED' } }),
-      this.activities ? this.activities.summary(auth, activityFrom, activityTo) : null,
+      this.activities ? this.activities.summary(auth, activityFrom, activityTo, { granularity: 'auto', timeZone: activityTimeZone }) : null,
     ]);
     const conversationStats = conversationMetrics[0] || { total: 0, responded: 0, resolvedToday: 0, averageMs: null };
     return {

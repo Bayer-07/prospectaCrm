@@ -20,6 +20,7 @@ import {
 } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { api, dateTime, money, type Envelope } from '../lib/api';
+import { activityRequestRange, buildActivityChartSeries, localDateKey, type ActivityGranularity, type ActivityPeriodMode } from '../lib/dashboard-activity';
 import { PageLoading } from '../components/ui';
 
 type Dashboard = {
@@ -50,6 +51,7 @@ type Dashboard = {
   activitySummary: {
     totals: { calls: number; connectedCalls: number; connectionRate: number; whatsapp: number; emails: number; meetings: number; notes: number; completedTasks: number };
     origins: Record<string, number>;
+    granularity: ActivityGranularity;
     series: Array<{ date: string; category: string; count: number }>;
     byUser: Array<{ userId: string; userName: string; count: number }>;
   };
@@ -89,14 +91,23 @@ function activityDestination(item: Dashboard['recentActivities'][number]) {
 }
 
 export function DashboardPage() {
-  const [activityPeriod, setActivityPeriod] = useState(30);
-  const activityRange = useMemo(() => {
-    const to = new Date();
-    const from = new Date(to.getTime() - (activityPeriod - 1) * 86_400_000);
-    from.setHours(0, 0, 0, 0);
-    return { from: from.toISOString(), to: to.toISOString() };
-  }, [activityPeriod]);
-  const query = useQuery({ queryKey: ['dashboard', activityPeriod], queryFn: () => api<Envelope<Dashboard>>(`/dashboard?from=${encodeURIComponent(activityRange.from)}&to=${encodeURIComponent(activityRange.to)}`) });
+  const today = localDateKey();
+  const [activityPeriod, setActivityPeriod] = useState<ActivityPeriodMode>('today');
+  const [customFrom, setCustomFrom] = useState(today);
+  const [customTo, setCustomTo] = useState(today);
+  const timeZone = useMemo(() => Intl.DateTimeFormat().resolvedOptions().timeZone || 'America/Sao_Paulo', []);
+  const activityRange = useMemo(
+    () => activityRequestRange(activityPeriod, customFrom, customTo),
+    [activityPeriod, customFrom, customTo, today],
+  );
+  const query = useQuery({
+    queryKey: ['dashboard', activityRange?.from, activityRange?.to, timeZone],
+    enabled: Boolean(activityRange),
+    queryFn: () => {
+      if (!activityRange) throw new Error('Período de atividades inválido');
+      return api<Envelope<Dashboard>>(`/dashboard?from=${encodeURIComponent(activityRange.from)}&to=${encodeURIComponent(activityRange.to)}&timeZone=${encodeURIComponent(timeZone)}`);
+    },
+  });
   if (query.isLoading) return <PageLoading />;
 
   const fallback: Dashboard = {
@@ -109,7 +120,7 @@ export function DashboardPage() {
     wonValueCents: 0,
     stageDistribution: [],
     recentActivities: [],
-    activitySummary: { totals: { calls: 0, connectedCalls: 0, connectionRate: 0, whatsapp: 0, emails: 0, meetings: 0, notes: 0, completedTasks: 0 }, origins: {}, series: [], byUser: [] },
+    activitySummary: { totals: { calls: 0, connectedCalls: 0, connectionRate: 0, whatsapp: 0, emails: 0, meetings: 0, notes: 0, completedTasks: 0 }, origins: {}, granularity: activityRange?.granularity || 'hour', series: [], byUser: [] },
     inbox: {
       averageFirstResponseMinutes: null,
       resolvedToday: 0,
@@ -126,12 +137,23 @@ export function DashboardPage() {
     inbox: { ...fallback.inbox, ...response?.inbox },
   };
   const maxStage = Math.max(...data.stageDistribution.map((item) => item.count), 1);
-  const activitySeries = Object.values(data.activitySummary.series.reduce<Record<string, Record<string, string | number>>>((days, item) => {
-    const key = item.date.slice(0, 10);
-    days[key] ||= { date: key };
-    days[key][item.category] = Number(days[key][item.category] || 0) + item.count;
-    return days;
-  }, {}));
+  const activityGranularity = data.activitySummary.granularity || activityRange?.granularity || 'day';
+  const activitySeries = activityRange ? buildActivityChartSeries(data.activitySummary.series, {
+    granularity: activityGranularity,
+    fromKey: activityRange.fromKey,
+    toKey: activityRange.toKey,
+    throughHour: activityPeriod === 'today' ? new Date().getHours() : undefined,
+  }) : [];
+  const hourlyActivity = activityGranularity === 'hour';
+
+  const changeCustomFrom = (value: string) => {
+    setCustomFrom(value);
+    if (value > customTo) setCustomTo(value);
+  };
+  const changeCustomTo = (value: string) => {
+    setCustomTo(value);
+    if (value < customFrom) setCustomFrom(value);
+  };
 
   return <div className="dashboard-grid">
     <section className="metric-grid">
@@ -164,7 +186,17 @@ export function DashboardPage() {
     <section className="panel commercial-activity-panel">
       <header className="panel-header">
         <div><h2>Atividade comercial</h2><p>Indicadores reais dentro do seu escopo de acesso</p></div>
-        <div className="segmented dashboard-activity-period" aria-label="Período da atividade">{[7, 30, 90].map((days) => <button type="button" key={days} className={activityPeriod === days ? 'active' : ''} onClick={() => setActivityPeriod(days)}>{days} dias</button>)}</div>
+        <div className="dashboard-activity-filters">
+          <div className="segmented dashboard-activity-period" aria-label="Período da atividade">
+            <button type="button" className={activityPeriod === 'today' ? 'active' : ''} onClick={() => setActivityPeriod('today')}>Hoje</button>
+            <button type="button" className={activityPeriod === 'custom' ? 'active' : ''} onClick={() => setActivityPeriod('custom')}>Data personalizada</button>
+          </div>
+          {activityPeriod === 'custom' && <div className="dashboard-activity-custom-range">
+            <label><span>De</span><input type="date" value={customFrom} max={customTo} required aria-invalid={!customFrom} onChange={(event) => changeCustomFrom(event.target.value)} /></label>
+            <label><span>Até</span><input type="date" value={customTo} min={customFrom} required aria-invalid={!customTo} onChange={(event) => changeCustomTo(event.target.value)} /></label>
+          </div>}
+          <small className="dashboard-activity-granularity">{!activityRange ? 'Selecione o período completo' : hourlyActivity ? 'Dados organizados por hora' : 'Dados organizados por dia'}</small>
+        </div>
       </header>
       <div className="commercial-activity-kpis">
         <Link to="/atividades?category=CALL"><span><PhoneCall size={16} />Ligações</span><strong>{data.activitySummary.totals.calls}</strong><small>{data.activitySummary.totals.connectionRate}% atendidas</small></Link>
@@ -176,7 +208,7 @@ export function DashboardPage() {
       <div className="commercial-activity-content">
         <div className="commercial-activity-chart">
           <div className="activity-origin-legend"><span><i className="human" />Ações humanas: {(data.activitySummary.origins.manual || 0) + (data.activitySummary.origins.inbox || 0)}</span><span><i className="automatic" />Campanhas e automações: {(data.activitySummary.origins.campaign || 0) + (data.activitySummary.origins.automation || 0)}</span></div>
-          {activitySeries.length ? <ResponsiveContainer width="100%" height={230}><BarChart data={activitySeries} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}><CartesianGrid vertical={false} stroke="var(--line)" /><XAxis dataKey="date" tickFormatter={(value) => new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T12:00:00`))} tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} /><Tooltip labelFormatter={(value) => new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(`${value}T12:00:00`))} /><Bar dataKey="call" name="Ligações" stackId="activity" fill="#df8e12" /><Bar dataKey="meeting" name="Reuniões" stackId="activity" fill="#7167dc" /><Bar dataKey="task" name="Tarefas" stackId="activity" fill="#139b6b" /><Bar dataKey="whatsapp" name="WhatsApp" stackId="activity" fill="#2f80ed" /><Bar dataKey="email" name="E-mails" stackId="activity" fill="#7c3aed" /><Bar dataKey="note" name="Notas" stackId="activity" fill="#94a3b8" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="popover-empty">Ainda não há atividades neste período.</p>}
+          {activitySeries.length ? <ResponsiveContainer width="100%" height={230}><BarChart data={activitySeries} margin={{ top: 8, right: 8, bottom: 0, left: -24 }}><CartesianGrid vertical={false} stroke="var(--line)" /><XAxis dataKey="date" tickFormatter={(value: string) => hourlyActivity ? `${Number(value.slice(11, 13))}h` : new Intl.DateTimeFormat('pt-BR', { day: '2-digit', month: '2-digit' }).format(new Date(`${value}T12:00:00`))} minTickGap={hourlyActivity ? 12 : 8} tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} /><YAxis allowDecimals={false} tick={{ fontSize: 9, fill: 'var(--muted)' }} axisLine={false} tickLine={false} /><Tooltip labelFormatter={(value) => { const label = String(value); return hourlyActivity ? `${new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(`${label.slice(0, 10)}T12:00:00`))}, ${Number(label.slice(11, 13))}h` : new Intl.DateTimeFormat('pt-BR', { dateStyle: 'medium' }).format(new Date(`${label}T12:00:00`)); }} /><Bar dataKey="call" name="Ligações" stackId="activity" fill="#df8e12" /><Bar dataKey="meeting" name="Reuniões" stackId="activity" fill="#7167dc" /><Bar dataKey="task" name="Tarefas" stackId="activity" fill="#139b6b" /><Bar dataKey="whatsapp" name="WhatsApp" stackId="activity" fill="#2f80ed" /><Bar dataKey="email" name="E-mails" stackId="activity" fill="#7c3aed" /><Bar dataKey="note" name="Notas" stackId="activity" fill="#94a3b8" radius={[3, 3, 0, 0]} /></BarChart></ResponsiveContainer> : <p className="popover-empty">Ainda não há atividades neste período.</p>}
         </div>
         {data.activitySummary.byUser.length > 1 && <div className="activity-by-user"><strong>Por responsável</strong>{data.activitySummary.byUser.slice(0, 6).map((item) => <div key={item.userId}><span>{item.userName}</span><b>{item.count}</b></div>)}</div>}
       </div>

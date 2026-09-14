@@ -2,7 +2,7 @@ import { ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ActivityOrigin } from '@prisma/client';
 import { describe, expect, it, vi } from 'vitest';
 import type { AuthContext } from '../auth/types.js';
-import { ActivitiesService } from './activities.service.js';
+import { ActivitiesService, activitySeriesGranularity } from './activities.service.js';
 
 const ids = {
   organization: '11111111-1111-4111-8111-111111111111',
@@ -24,6 +24,19 @@ function auth(scope: 'OWN' | 'TEAM' | 'ALL' = 'ALL'): AuthContext {
 }
 
 describe('ActivitiesService', () => {
+  it('alterna a série entre horas e dias no fuso consultado', () => {
+    expect(activitySeriesGranularity(
+      new Date('2026-09-14T03:00:00.000Z'),
+      new Date('2026-09-15T02:59:59.999Z'),
+      'America/Sao_Paulo',
+    )).toBe('hour');
+    expect(activitySeriesGranularity(
+      new Date('2026-09-14T03:00:00.000Z'),
+      new Date('2026-09-16T02:59:59.999Z'),
+      'America/Sao_Paulo',
+    )).toBe('day');
+  });
+
   it('aplica organização, exclusão lógica e escopo da equipe na listagem', async () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const service = new ActivitiesService({ activity: { findMany } } as never, { notifyOrganization: vi.fn() } as never);

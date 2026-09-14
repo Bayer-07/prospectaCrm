@@ -32,6 +32,22 @@ const ACTIVITY_INCLUDE = {
 } satisfies Prisma.ActivityInclude;
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+type ActivitySeriesGranularity = 'hour' | 'day';
+
+function dateKeyInTimeZone(value: Date, timeZone: string) {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).formatToParts(value);
+  const part = (type: Intl.DateTimeFormatPartTypes) => parts.find((item) => item.type === type)?.value || '';
+  return `${part('year')}-${part('month')}-${part('day')}`;
+}
+
+export function activitySeriesGranularity(from: Date, to: Date, timeZone = 'America/Sao_Paulo'): ActivitySeriesGranularity {
+  return dateKeyInTimeZone(from, timeZone) === dateKeyInTimeZone(to, timeZone) ? 'hour' : 'day';
+}
 
 @Injectable()
 export class ActivitiesService {
@@ -224,7 +240,16 @@ export class ActivitiesService {
     return { id: current.id, deletedAt };
   }
 
-  async summary(auth: AuthContext, from = new Date(Date.now() - 30 * 86_400_000), to = new Date()) {
+  async summary(
+    auth: AuthContext,
+    from = new Date(Date.now() - 30 * 86_400_000),
+    to = new Date(),
+    options: { granularity?: ActivitySeriesGranularity | 'auto'; timeZone?: string } = {},
+  ) {
+    const timeZone = options.timeZone || 'America/Sao_Paulo';
+    const granularity = options.granularity === 'auto'
+      ? activitySeriesGranularity(from, to, timeZone)
+      : options.granularity || 'day';
     const where: Prisma.ActivityWhereInput = {
       organizationId: auth.organizationId,
       deletedAt: null,
@@ -236,7 +261,7 @@ export class ActivitiesService {
       this.db.activity.groupBy({ by: ['category', 'origin', 'status'], where, _count: { _all: true } }),
       this.db.activity.count({ where: { ...where, category: ActivityCategory.CALL, outcome: 'connected' } }),
       this.db.activity.groupBy({ by: ['userId'], where: { ...where, userId: { not: null }, origin: { in: [ActivityOrigin.MANUAL, ActivityOrigin.INBOX] } }, _count: { _all: true } }),
-      this.activitySeries(auth, from, to),
+      this.activitySeries(auth, from, to, granularity, timeZone),
     ]);
     const users = byUsers.length ? await this.db.user.findMany({
       where: { id: { in: byUsers.flatMap((item) => item.userId ? [item.userId] : []) }, organizationId: auth.organizationId },
@@ -260,6 +285,7 @@ export class ActivitiesService {
         completedTasks: count(ActivityCategory.TASK, ActivityStatus.COMPLETED),
       },
       origins: Object.fromEntries(Object.values(ActivityOrigin).map((origin) => [origin.toLowerCase(), groups.filter((item) => item.origin === origin).reduce((total, item) => total + item._count._all, 0)])),
+      granularity,
       series,
       byUser: byUsers.map((item) => ({ userId: item.userId, userName: item.userId ? userNames.get(item.userId) || 'Usuário' : 'Automação', count: item._count._all })).sort((a, b) => b.count - a.count),
     };
@@ -326,7 +352,7 @@ export class ActivitiesService {
     };
   }
 
-  private async activitySeries(auth: AuthContext, from: Date, to: Date) {
+  private async activitySeries(auth: AuthContext, from: Date, to: Date, granularity: ActivitySeriesGranularity, timeZone: string) {
     const scope = permissionScope(auth, 'activities');
     let scopeSql = Prisma.sql`TRUE`;
     if (scope === 'OWN') scopeSql = auth.userId ? Prisma.sql`activity."userId" = ${auth.userId}::uuid` : Prisma.sql`FALSE`;
@@ -339,8 +365,11 @@ export class ActivitiesService {
       this.associationSql(auth, 'Contact', 'contactId', 'contacts'),
       this.associationSql(auth, 'Opportunity', 'opportunityId', 'opportunities'),
     ], ' AND ');
-    const rows = await this.db.$queryRaw<Array<{ date: Date; category: string; count: number }>>(Prisma.sql`
-      SELECT date_trunc('day', activity."occurredAt") AS "date", activity."category"::text AS "category", COUNT(*)::integer AS "count"
+    const bucketSql = granularity === 'hour'
+      ? Prisma.sql`to_char(date_trunc('hour', activity."occurredAt" AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}), 'YYYY-MM-DD"T"HH24:00:00')`
+      : Prisma.sql`to_char(date_trunc('day', activity."occurredAt" AT TIME ZONE 'UTC' AT TIME ZONE ${timeZone}), 'YYYY-MM-DD')`;
+    const rows = await this.db.$queryRaw<Array<{ date: string; category: string; count: number }>>(Prisma.sql`
+      SELECT ${bucketSql} AS "date", activity."category"::text AS "category", COUNT(*)::integer AS "count"
       FROM "Activity" AS activity
       WHERE activity."organizationId" = ${auth.organizationId}::uuid
         AND activity."deletedAt" IS NULL
@@ -352,7 +381,7 @@ export class ActivitiesService {
       GROUP BY 1, 2
       ORDER BY 1 ASC, 2 ASC
     `);
-    return rows.map((row) => ({ date: row.date.toISOString(), category: row.category.toLowerCase(), count: row.count }));
+    return rows.map((row) => ({ date: row.date, category: row.category.toLowerCase(), count: row.count }));
   }
 
   private associationSql(auth: AuthContext, table: 'Company' | 'Contact' | 'Opportunity', foreignKey: 'companyId' | 'contactId' | 'opportunityId', resource: 'companies' | 'contacts' | 'opportunities') {
