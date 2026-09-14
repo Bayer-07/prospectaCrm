@@ -7,7 +7,7 @@ vi.mock('@prospecta/database', () => ({
   projectTaskActivity: vi.fn().mockResolvedValue(null),
   projectWhatsappMessageActivity: vi.fn().mockResolvedValue(null),
 }));
-import { advanceEvolutionMessageStatus, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
+import { advanceEvolutionMessageStatus, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, incomingMessagePreview, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
 
 describe('normalização dos eventos da Evolution', () => {
   it.each([
@@ -114,6 +114,12 @@ describe('equipe da conversa ao processar mensagens', () => {
 });
 
 describe('notificações de mensagens recebidas', () => {
+  it('usa o texto como prévia e identifica mensagens de mídia sem legenda', () => {
+    expect(incomingMessagePreview('text', '  Preciso\n de atendimento  ')).toBe('Preciso de atendimento');
+    expect(incomingMessagePreview('image', null)).toBe('Imagem recebida');
+    expect(incomingMessagePreview('audio', null)).toBe('Áudio recebido');
+  });
+
   it('notifica somente os usuários ativos vinculados à equipe do ticket aguardando', async () => {
     const findRecipients = vi.fn().mockResolvedValue([{ id: 'user-team-1' }, { id: 'user-team-2' }]);
     const createMany = vi.fn().mockResolvedValue({ count: 2 });
@@ -151,8 +157,8 @@ describe('notificações de mensagens recebidas', () => {
       select: { id: true },
     });
     expect(createMany).toHaveBeenCalledWith({ data: [
-      expect.objectContaining({ userId: 'user-team-1', type: 'conversation.message', actionUrl: '/inbox/conversation-1' }),
-      expect.objectContaining({ userId: 'user-team-2', type: 'conversation.message', actionUrl: '/inbox/conversation-1' }),
+      expect.objectContaining({ userId: 'user-team-1', type: 'conversation.message', body: 'Preciso de atendimento', actionUrl: '/inbox/conversation-1' }),
+      expect.objectContaining({ userId: 'user-team-2', type: 'conversation.message', body: 'Preciso de atendimento', actionUrl: '/inbox/conversation-1' }),
     ] });
     expect(tx.notification.create).not.toHaveBeenCalled();
   });

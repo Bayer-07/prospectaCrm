@@ -5,6 +5,8 @@ export type InboxRealtimePayload = {
     direction: 'INBOUND' | 'OUTBOUND';
     assigneeId: string | null;
     teamId?: string | null;
+    contactName?: string;
+    preview?: string;
   };
 };
 
@@ -37,6 +39,14 @@ export function shouldPlayIncomingMessageSound(payload: InboxRealtimePayload | u
 
 export function incomingMessageNotificationUrl(payload: InboxRealtimePayload | undefined) {
   return payload?.conversationId ? `/inbox/${encodeURIComponent(payload.conversationId)}` : '';
+}
+
+export function incomingMessageNotificationContent(payload: InboxRealtimePayload | undefined) {
+  const actionUrl = incomingMessageNotificationUrl(payload);
+  if (!actionUrl) return null;
+  const contactName = payload?.newMessage?.contactName?.trim() || 'Contato';
+  const preview = payload?.newMessage?.preview?.trim() || 'Nova mensagem recebida';
+  return { title: `Nova mensagem de ${contactName}`, body: preview, actionUrl };
 }
 
 export function createNotificationAudioContext() {

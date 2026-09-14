@@ -14,7 +14,7 @@ import { mergeLatestHistory, RealtimeContext, type RealtimeHistoryData, type Rea
 import { useAuth } from '../App';
 import {
   createNotificationAudioContext,
-  incomingMessageNotificationUrl,
+  incomingMessageNotificationContent,
   playIncomingMessageSound,
   shouldNotifyIncomingMessage,
   type InboxRealtimePayload,
@@ -356,17 +356,17 @@ export function Shell() {
           notificationAudioRef.current = context;
           void playIncomingMessageSound(context).catch(() => undefined);
         }
-        const actionUrl = incomingMessageNotificationUrl(payload);
-        if (actionUrl && currentBrowserNotificationPermission() === 'granted') {
+        const notificationContent = incomingMessageNotificationContent(payload);
+        if (notificationContent && currentBrowserNotificationPermission() === 'granted') {
           try {
-            const browserNotification = new Notification('Nova mensagem no WhatsApp', {
-              body: 'Clique para abrir o atendimento.',
+            const browserNotification = new Notification(notificationContent.title, {
+              body: notificationContent.body,
               icon: '/brand-logo.png',
               tag: `inbox-message-${payload?.conversationId}`,
             });
             browserNotification.onclick = () => {
               window.focus();
-              navigateRef.current(actionUrl);
+              navigateRef.current(notificationContent.actionUrl);
               browserNotification.close();
             };
           } catch {

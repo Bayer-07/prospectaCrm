@@ -16,6 +16,8 @@ type StoredMessageResult = {
     direction: 'INBOUND' | 'OUTBOUND';
     assigneeId: string | null;
     teamId: string | null;
+    contactName: string;
+    preview: string;
   };
 };
 type ProcessedInboundEvent = Partial<StoredMessageResult>;
@@ -193,6 +195,21 @@ export const evolutionMessageType = (input: AnyObject) => {
   if (message.locationMessage || message.liveLocationMessage) return 'location';
   if (message.reactionMessage) return 'reaction';
   return 'text';
+};
+
+export const incomingMessagePreview = (type: string, text?: string | null) => {
+  const normalizedText = text?.replace(/\s+/g, ' ').trim();
+  if (normalizedText) return normalizedText.slice(0, 180);
+  const mediaLabels: Record<string, string> = {
+    image: 'Imagem recebida',
+    audio: 'Áudio recebido',
+    video: 'Vídeo recebido',
+    document: 'Documento recebido',
+    sticker: 'Figurinha recebida',
+    contact: 'Contato compartilhado',
+    location: 'Localização compartilhada',
+  };
+  return mediaLabels[type] || 'Nova mensagem recebida';
 };
 
 export const evolutionMessageDate = (data: AnyObject, fallback = new Date()) => {
@@ -750,8 +767,9 @@ export class InboundProcessor {
       replyProviderMessageId,
       occurredAt,
     });
+    const notificationPreview = incomingMessagePreview(type, text);
     const tasksUpdated = !fromMe
-      ? await this.handleInboundEffects(instance, conversation, ensuredContact, storedMessage.id, text)
+      ? await this.handleInboundEffects(instance, conversation, ensuredContact, storedMessage.id, text, notificationPreview)
       : false;
     const activity = fromMe
       ? await projectWhatsappMessageActivity(this.db, storedMessage.id)
@@ -765,6 +783,8 @@ export class InboundProcessor {
         direction: fromMe ? 'OUTBOUND' : 'INBOUND',
         assigneeId: conversation.assigneeId,
         teamId: conversation.teamId,
+        contactName: ensuredContact.name,
+        preview: notificationPreview,
       },
     };
   }
@@ -1039,6 +1059,7 @@ export class InboundProcessor {
     contact: { id: string; name: string },
     messageId: string,
     text: string | null,
+    notificationPreview = incomingMessagePreview('text', text),
   ) {
     const optOut = this.isOptOut(text);
     const followUpResult = await this.db.$transaction(async (tx) => {
@@ -1085,7 +1106,7 @@ export class InboundProcessor {
         userId: conversation.assigneeId,
         type: 'conversation.message',
         title: `Nova mensagem de ${contact.name}`,
-        body: text?.slice(0, 180),
+        body: notificationPreview,
         actionUrl: `/inbox/${conversation.id}`,
       } });
       else if (conversation.teamId) {
@@ -1102,7 +1123,7 @@ export class InboundProcessor {
           userId: recipient.id,
           type: 'conversation.message',
           title: `Nova mensagem de ${contact.name}`,
-          body: text?.slice(0, 180),
+          body: notificationPreview,
           actionUrl: `/inbox/${conversation.id}`,
         })) });
       }

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { incomingMessageNotificationUrl, openInboxConversationId, shouldPlayIncomingMessageSound, type InboxRealtimePayload } from './incoming-notification';
+import { incomingMessageNotificationContent, incomingMessageNotificationUrl, openInboxConversationId, shouldPlayIncomingMessageSound, type InboxRealtimePayload } from './incoming-notification';
 
 const incoming = (conversationId = 'conversation-2', assigneeId: string | null = 'user-1', teamId?: string | null): InboxRealtimePayload => ({
   conversationId,
@@ -61,5 +61,15 @@ describe('som de nova mensagem', () => {
   it('monta a rota segura para abrir o ticket pela notificação', () => {
     expect(incomingMessageNotificationUrl(incoming('ticket com espaço'))).toBe('/inbox/ticket%20com%20espa%C3%A7o');
     expect(incomingMessageNotificationUrl(undefined)).toBe('');
+  });
+
+  it('monta o conteúdo da notificação com contato e mensagem', () => {
+    const payload = incoming('conversation-2');
+    payload.newMessage = { ...payload.newMessage!, contactName: 'Maria', preview: 'Preciso de atendimento' };
+    expect(incomingMessageNotificationContent(payload)).toEqual({
+      title: 'Nova mensagem de Maria',
+      body: 'Preciso de atendimento',
+      actionUrl: '/inbox/conversation-2',
+    });
   });
 });
