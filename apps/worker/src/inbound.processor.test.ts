@@ -7,7 +7,7 @@ vi.mock('@prospecta/database', () => ({
   projectTaskActivity: vi.fn().mockResolvedValue(null),
   projectWhatsappMessageActivity: vi.fn().mockResolvedValue(null),
 }));
-import { advanceEvolutionMessageStatus, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, incomingMessagePreview, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
+import { advanceEvolutionMessageStatus, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageJids, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, incomingMessagePreview, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
 
 describe('normalização dos eventos da Evolution', () => {
   it.each([
@@ -74,6 +74,126 @@ describe('fila de atendimento', () => {
   });
 });
 
+describe('endereçamento de mensagens com LID', () => {
+  it('usa o JID numérico alternativo para manter a conversa do contato', () => {
+    expect(evolutionMessageJids({
+      key: {
+        remoteJid: '83953759293475:1@lid',
+        remoteJidAlt: '5545999999999:2@s.whatsapp.net',
+      },
+    })).toEqual(['83953759293475@lid', '5545999999999@s.whatsapp.net']);
+  });
+
+  it('não cria outro contato quando o webhook chega com LID e telefone alternativo', async () => {
+    const conversationUpdate = vi.fn().mockResolvedValue({ id: 'conversation-1', assigneeId: null, teamId: 'team-1' });
+    const messageCreate = vi.fn().mockResolvedValue({ id: 'message-1' });
+    const db = {
+      conversation: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'conversation-1',
+          status: 'OPEN',
+          assigneeId: null,
+          teamId: 'team-1',
+          lastMessageAt: null,
+          unreadCount: 0,
+          remoteJid: '5545999999999@s.whatsapp.net',
+          phoneJid: '5545999999999@s.whatsapp.net',
+          contact: { id: 'contact-1', name: 'Maria', phone: '+5545999999999' },
+        }]),
+        update: conversationUpdate,
+      },
+      contact: { findFirst: vi.fn().mockResolvedValue({ id: 'contact-1', name: 'Maria' }), create: vi.fn() },
+      message: { findUnique: vi.fn().mockResolvedValue(null), create: messageCreate },
+      team: { findFirst: vi.fn() },
+    };
+    const processor = new InboundProcessor(db as never, undefined, {} as never);
+
+    await (processor as unknown as { message(instance: object, payload: object): Promise<unknown> }).message(
+      { id: 'instance-1', organizationId: 'organization-1', instanceKey: 'comercial', teams: [{ teamId: 'team-1' }] },
+      {
+        data: {
+          key: {
+            id: 'provider-lid-1',
+            remoteJid: '83953759293475@lid',
+            remoteJidAlt: '5545999999999@s.whatsapp.net',
+            fromMe: true,
+          },
+          message: { conversation: 'Mensagem do contato' },
+        },
+      },
+    );
+
+    expect(db.contact.create).not.toHaveBeenCalled();
+    expect(messageCreate).toHaveBeenCalledWith(expect.objectContaining({ data: expect.objectContaining({ conversationId: 'conversation-1' }) }));
+    expect(conversationUpdate).toHaveBeenCalledWith(expect.objectContaining({ where: { id: 'conversation-1' } }));
+  });
+
+  it('publica a conversa canônica quando corrige uma duplicata criada antes do vínculo do LID', async () => {
+    const currentConversation = {
+      id: 'conversation-lid',
+      instanceId: 'instance-1',
+      contactId: 'contact-duplicate',
+      remoteJid: '83953759293475@lid',
+      phoneJid: null,
+      unreadCount: 1,
+      lastMessageAt: new Date('2026-09-21T10:00:00Z'),
+      contact: { id: 'contact-duplicate', phone: null },
+    };
+    const canonicalConversation = {
+      id: 'conversation-phone',
+      instanceId: 'instance-1',
+      contactId: 'contact-1',
+      remoteJid: '5545999999999@s.whatsapp.net',
+      phoneJid: '5545999999999@s.whatsapp.net',
+      unreadCount: 0,
+      lastMessageAt: new Date('2026-09-21T09:00:00Z'),
+      contact: { id: 'contact-1', phone: '+5545999999999' },
+    };
+    const tx = {
+      message: { update: vi.fn(), updateMany: vi.fn().mockResolvedValue({ count: 1 }) },
+      conversationEvent: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationFollowUp: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationAiProposal: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationPin: { findMany: vi.fn().mockResolvedValue([]), deleteMany: vi.fn() },
+      chatbotSession: { findUnique: vi.fn().mockResolvedValue(null) },
+      conversation: {
+        findUnique: vi.fn().mockResolvedValue(currentConversation),
+        findMany: vi.fn().mockResolvedValue([canonicalConversation]),
+        update: vi.fn().mockResolvedValue({}),
+        delete: vi.fn().mockResolvedValue({}),
+      },
+    };
+    const db = {
+      message: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'message-1',
+          conversationId: currentConversation.id,
+          status: 'SENT',
+          deliveredAt: null,
+          readAt: null,
+        }),
+      },
+      $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
+    };
+    const processor = new InboundProcessor(db as never, undefined, {} as never);
+
+    await expect((processor as unknown as { messageUpdate(instanceId: string, payload: object): Promise<unknown> }).messageUpdate(
+      'instance-1',
+      {
+        data: {
+          keyId: 'provider-1',
+          key: { remoteJid: '83953759293475@lid', remoteJidAlt: '5545999999999@s.whatsapp.net' },
+          status: 'READ',
+        },
+      },
+    )).resolves.toEqual({ conversationId: 'conversation-phone', mergedConversationIds: ['conversation-lid'] });
+
+    expect(tx.message.updateMany).toHaveBeenCalledWith({ where: { conversationId: 'conversation-lid' }, data: { conversationId: 'conversation-phone' } });
+    expect(tx.conversation.delete).toHaveBeenCalledWith({ where: { id: 'conversation-lid' } });
+  });
+});
+
 describe('equipe da conversa ao processar mensagens', () => {
   it('preserva a equipe atribuída em mensagens enviadas pelo WhatsApp', async () => {
     const conversationFindFirst = vi.fn().mockImplementation(({ select }: { select?: { teamId?: boolean } }) => Promise.resolve({
@@ -84,9 +204,21 @@ describe('equipe da conversa ao processar mensagens', () => {
       contact: { id: 'contact-1', name: 'Maria' },
       ...(select?.teamId ? { teamId: 'team-atual' } : {}),
     }));
+    const conversationFindMany = vi.fn().mockResolvedValue([{
+      id: 'conversation-1',
+      status: 'OPEN',
+      assigneeId: 'user-1',
+      teamId: 'team-atual',
+      lastMessageAt: null,
+      unreadCount: 0,
+      remoteJid: '5545999999999@s.whatsapp.net',
+      phoneJid: '5545999999999@s.whatsapp.net',
+      contact: { id: 'contact-1', name: 'Maria', phone: '+5545999999999' },
+    }]);
     const conversationUpdate = vi.fn().mockResolvedValue({ id: 'conversation-1', assigneeId: 'user-1' });
     const db = {
-      conversation: { findFirst: conversationFindFirst, update: conversationUpdate },
+      conversation: { findFirst: conversationFindFirst, findMany: conversationFindMany, update: conversationUpdate },
+      contact: { findFirst: vi.fn().mockResolvedValue({ id: 'contact-1', name: 'Maria' }) },
       message: {
         findUnique: vi.fn().mockResolvedValue(null),
         create: vi.fn().mockResolvedValue({ id: 'message-1' }),

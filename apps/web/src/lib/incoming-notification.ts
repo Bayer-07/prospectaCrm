@@ -1,5 +1,6 @@
 export type InboxRealtimePayload = {
   conversationId?: string;
+  mergedConversationIds?: string[];
   newMessage?: {
     id: string;
     direction: 'INBOUND' | 'OUTBOUND';

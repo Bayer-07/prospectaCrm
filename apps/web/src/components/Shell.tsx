@@ -15,6 +15,7 @@ import { useAuth } from '../App';
 import {
   createNotificationAudioContext,
   incomingMessageNotificationContent,
+  openInboxConversationId,
   playIncomingMessageSound,
   shouldNotifyIncomingMessage,
   type InboxRealtimePayload,
@@ -341,6 +342,16 @@ export function Shell() {
       }
     };
     const refreshInbox = (payload?: InboxRealtimePayload, fullHistory = false) => {
+      if (payload?.mergedConversationIds?.length && payload.conversationId) {
+        const currentConversationId = openInboxConversationId(locationPathRef.current);
+        for (const mergedConversationId of payload.mergedConversationIds) {
+          queryClient.removeQueries({ queryKey: ['conversation', mergedConversationId], exact: true });
+          queryClient.removeQueries({ queryKey: ['conversation-messages', mergedConversationId], exact: true });
+          if (currentConversationId === mergedConversationId) {
+            navigateRef.current(`/inbox/${encodeURIComponent(payload.conversationId)}`, { replace: true });
+          }
+        }
+      }
       const messageId = payload?.newMessage?.id;
       if (messageId && !notifiedMessageIdsRef.current.has(messageId)
         && shouldNotifyIncomingMessage(

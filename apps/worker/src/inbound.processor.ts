@@ -9,6 +9,7 @@ import { storeInboundMedia } from './storage.js';
 type AnyObject = Record<string, any>;
 type StoredMessageResult = {
   conversationId: string;
+  mergedConversationIds?: string[];
   tasksUpdated?: boolean;
   activityUpdated?: boolean;
   newMessage?: {
@@ -21,6 +22,7 @@ type StoredMessageResult = {
   };
 };
 type ProcessedInboundEvent = Partial<StoredMessageResult>;
+type ConversationUpdateResult = string | { conversationId: string; mergedConversationIds: string[] };
 type HandledMessage =
   | { handled: false }
   | { handled: true; result: StoredMessageResult | undefined };
@@ -219,10 +221,35 @@ export const evolutionMessageDate = (data: AnyObject, fallback = new Date()) => 
   return Number.isNaN(occurredAt.getTime()) ? fallback : occurredAt;
 };
 
+const normalizedEvolutionJid = (value: unknown) => {
+  const jid = typeof value === 'string' ? value.trim() : '';
+  return jid.includes('@') ? jid.replace(/:\d+@/, '@') : '';
+};
+
+export const evolutionMessageJids = (input: AnyObject) => {
+  const data = Array.isArray(input?.data) ? input.data[0] || {} : input?.data || input || {};
+  const key = data.key || data.Info || data.info || {};
+  return [...new Set([
+    key.remoteJid,
+    key.remoteJidAlt,
+    key.senderPn,
+    key.Chat,
+    data.remoteJid,
+    data.remoteJidAlt,
+    data.senderPn,
+    data.phoneJid,
+    data.Chat,
+    data.from,
+  ].map(normalizedEvolutionJid).filter(Boolean))];
+};
+
+export const evolutionMessagePhoneJid = (input: AnyObject) => evolutionMessageJids(input)
+  .find((jid) => jid.endsWith('@s.whatsapp.net')) || null;
+
 export const isSynchronizableEvolutionMessage = (data: AnyObject, since: Date) => {
   const key = data.key || data.Info || data.info || {};
   const providerMessageId = String(key.id || key.ID || data.id || '');
-  const remoteJid = String(key.remoteJid || key.Chat || data.remoteJid || data.from || '');
+  const remoteJid = evolutionMessageJids(data)[0] || '';
   if (!providerMessageId || !remoteJid || remoteJid.includes('@g.us') || remoteJid.includes('@broadcast')) return false;
   if (evolutionMessageDate(data, new Date(0)) < since) return false;
   const content = data.message || data.Message || data;
@@ -563,12 +590,12 @@ export class InboundProcessor {
       const eventType = normalizeEvolutionEventType(event.eventType);
       await this.touchInstanceEvent(instance.id);
       this.markEvolutionActivity(instance.id);
-      const { conversationId, newMessage, tasksUpdated, activityUpdated } = await this.dispatchEvent(instance, payload, eventType);
+      const { conversationId, mergedConversationIds, newMessage, tasksUpdated, activityUpdated } = await this.dispatchEvent(instance, payload, eventType);
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'processed', processedAt: new Date() } });
       return {
         organizationId: instance.organizationId,
         event: eventType.includes('CONNECTION') ? 'whatsapp.updated' : 'inbox.updated',
-        payload: { instanceId: instance.id, ...(conversationId ? { conversationId } : {}), ...(newMessage ? { newMessage } : {}), ...(tasksUpdated ? { tasksUpdated: true } : {}), ...(activityUpdated ? { activityUpdated: true } : {}) },
+        payload: { instanceId: instance.id, ...(conversationId ? { conversationId } : {}), ...(mergedConversationIds?.length ? { mergedConversationIds } : {}), ...(newMessage ? { newMessage } : {}), ...(tasksUpdated ? { tasksUpdated: true } : {}), ...(activityUpdated ? { activityUpdated: true } : {}) },
       };
     } catch (error) {
       await this.db.inboundWebhookEvent.update({ where: { id: event.id }, data: { status: 'failed', error: error instanceof Error ? error.message : String(error) } });
@@ -586,8 +613,10 @@ export class InboundProcessor {
     }
     if (eventType.includes('MESSAGES_EDITED')) return { conversationId: await this.messageEdited(instance.id, payload) };
     if (eventType.includes('MESSAGES_UPDATE')) {
-      const conversationId = await this.messageUpdate(instance.id, payload);
-      return { conversationId, activityUpdated: Boolean(conversationId) };
+      const result = await this.messageUpdate(instance.id, payload);
+      if (!result) return {};
+      if (typeof result === 'string') return { conversationId: result, activityUpdated: true };
+      return { ...result, activityUpdated: true };
     }
     if (eventType.includes('MESSAGES_DELETE')) return { conversationId: await this.messageDelete(instance.id, payload) };
     return {};
@@ -729,10 +758,10 @@ export class InboundProcessor {
     if (secretEdit.handled) return secretEdit.result;
     const identity = this.messageIdentity(data);
     if (!identity) return;
-    const { key, remoteJid, providerMessageId, fromMe } = identity;
+    const { key, remoteJid, remoteJids, phoneJid, providerMessageId, fromMe } = identity;
     const reaction = await this.handleReaction(instance.id, data, key, fromMe);
     if (reaction.handled) return reaction.result;
-    const { phone, text, type, replyProviderMessageId } = this.messageContent(data, remoteJid);
+    const { phone, text, type, replyProviderMessageId } = this.messageContent(data, phoneJid);
     const [existing, replyTarget] = await this.relatedMessages(instance.id, providerMessageId, replyProviderMessageId);
     if (existing) return this.reconcileExistingMessage({
       existing,
@@ -746,12 +775,14 @@ export class InboundProcessor {
     });
     const pushName = String(data.pushName || key.PushName || data.senderName || phone || 'Contato WhatsApp');
     const teamId = instance.teams[0]?.teamId;
-    const { ensuredContact, knownConversation } = await this.resolveInboundContact(instance, remoteJid, phone, pushName, teamId);
-    const conversation = await this.upsertInboundConversation({
+    const { ensuredContact, knownConversation, conversationCandidates } = await this.resolveInboundContact(instance, remoteJid, remoteJids, phone, phoneJid, pushName, teamId);
+    const { conversation, mergedConversationIds } = await this.upsertInboundConversation({
       instance,
       ensuredContact,
       knownConversation,
+      conversationCandidates,
       remoteJid,
+      phoneJid,
       occurredAt,
       fromMe,
     });
@@ -776,6 +807,7 @@ export class InboundProcessor {
       : await markLatestWhatsappActivityReplied(this.db, conversation.id);
     return {
       conversationId: conversation.id,
+      ...(mergedConversationIds.length ? { mergedConversationIds } : {}),
       tasksUpdated,
       activityUpdated: Boolean(activity),
       newMessage: {
@@ -804,12 +836,13 @@ export class InboundProcessor {
 
   private messageIdentity(data: AnyObject) {
     const key = data.key || data.Info || data.info || {};
-    const remoteJid = String(key.remoteJid || key.Chat || data.remoteJid || data.from || '');
+    const remoteJids = evolutionMessageJids(data);
+    const remoteJid = remoteJids[0] || '';
     if (!remoteJid || remoteJid.includes('@g.us')) return null;
     const providerMessageId = String(key.id || key.ID || data.id || '');
     if (!providerMessageId) return null;
     const fromMe = Boolean(key.fromMe ?? key.IsFromMe ?? data.fromMe);
-    return { key, remoteJid, providerMessageId, fromMe };
+    return { key, remoteJid, remoteJids, phoneJid: evolutionMessagePhoneJid(data), providerMessageId, fromMe };
   }
 
   private async handleReaction(instanceId: string, data: AnyObject, key: AnyObject, fromMe: boolean): Promise<HandledMessage> {
@@ -822,8 +855,8 @@ export class InboundProcessor {
     return { handled: true, result };
   }
 
-  private messageContent(data: AnyObject, remoteJid: string) {
-    const phoneDigits = remoteJid.includes('@s.whatsapp.net') ? remoteJid.split('@')[0].split(':')[0].replace(/\D/g, '') : '';
+  private messageContent(data: AnyObject, phoneJid: string | null) {
+    const phoneDigits = phoneJid ? phoneJid.split('@')[0].replace(/\D/g, '') : '';
     const phone = phoneDigits ? `+${phoneDigits}` : undefined;
     const content = data.message || data.Message || data;
     return {
@@ -883,33 +916,49 @@ export class InboundProcessor {
   private async resolveInboundContact(
     instance: InboundInstance,
     remoteJid: string,
+    remoteJids: string[],
     phone: string | undefined,
+    phoneJid: string | null,
     pushName: string,
     teamId: string | undefined,
   ) {
-    const knownConversation = await this.db.conversation.findFirst({
-      where: { instanceId: instance.id, OR: [{ remoteJid }, { phoneJid: remoteJid }] },
+    const phoneKey = normalizePhoneKey(phone);
+    const phoneContact = phoneKey
+      ? await this.db.contact.findFirst({
+        where: { organizationId: instance.organizationId, phoneKey, archivedAt: null },
+        select: { id: true, name: true },
+      })
+      : null;
+    const addresses = [...new Set([remoteJid, ...remoteJids, phoneJid].filter((value): value is string => Boolean(value)))];
+    const conversationCandidates: AnyObject[] = await this.db.conversation.findMany({
+      where: {
+        instanceId: instance.id,
+        OR: [
+          { remoteJid: { in: addresses } },
+          { phoneJid: { in: addresses } },
+          ...(phoneContact ? [{ contactId: phoneContact.id }] : []),
+        ],
+      },
       select: {
         id: true,
         status: true,
         assigneeId: true,
         teamId: true,
         lastMessageAt: true,
-        contact: { select: { id: true, name: true } },
+        unreadCount: true,
+        remoteJid: true,
+        phoneJid: true,
+        contact: { select: { id: true, name: true, phone: true } },
       },
-      orderBy: { updatedAt: 'desc' },
+      orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
     });
-    const phoneKey = normalizePhoneKey(phone);
-    const phoneContact = !knownConversation && phoneKey
-      ? await this.db.contact.findFirst({
-        where: { organizationId: instance.organizationId, phoneKey, archivedAt: null },
-        select: { id: true, name: true },
-      })
-      : null;
+    const knownConversation = conversationCandidates.find((candidate) => phoneContact && candidate.contact.id === phoneContact.id)
+      || conversationCandidates.find((candidate) => phoneJid && candidate.phoneJid === phoneJid)
+      || conversationCandidates[0];
     const existingContact = phoneContact || knownConversation?.contact;
-    if (existingContact) return { ensuredContact: existingContact, knownConversation };
+    if (existingContact) return { ensuredContact: existingContact, knownConversation, conversationCandidates };
     const ensuredContact = await this.createInboundContact(instance, phone, phoneKey, pushName, teamId);
-    return { ensuredContact, knownConversation };
+    return { ensuredContact, knownConversation, conversationCandidates };
   }
 
   private async createInboundContact(
@@ -936,18 +985,90 @@ export class InboundProcessor {
   }
 
   private async upsertInboundConversation(context: AnyObject) {
-    const { instance, ensuredContact, knownConversation } = context;
+    const { instance, ensuredContact, knownConversation, conversationCandidates = [] } = context;
     const currentConversation = knownConversation || await this.db.conversation.findFirst({
       where: { instanceId: instance.id, contactId: ensuredContact.id },
-      select: { id: true, status: true, assigneeId: true, teamId: true, lastMessageAt: true },
+      select: { id: true, status: true, assigneeId: true, teamId: true, lastMessageAt: true, unreadCount: true, remoteJid: true, phoneJid: true, contact: { select: { id: true, name: true, phone: true } } },
       orderBy: { updatedAt: 'desc' },
     });
-    if (currentConversation) return this.updateInboundConversation(context, currentConversation);
-    return this.createInboundConversation(context);
+    const mergedConversationIds: string[] = [];
+    if (currentConversation) {
+      const duplicates = conversationCandidates.filter((candidate: AnyObject) => candidate.id !== currentConversation.id);
+      if (duplicates.length) {
+        mergedConversationIds.push(...duplicates.map((duplicate: AnyObject) => duplicate.id));
+        await this.mergeInboundConversations(currentConversation, duplicates);
+      }
+      return { conversation: await this.updateInboundConversation(context, currentConversation), mergedConversationIds };
+    }
+    return { conversation: await this.createInboundConversation(context), mergedConversationIds };
+  }
+
+  private mergeInboundConversations(canonical: AnyObject, duplicates: AnyObject[]) {
+    return this.db.$transaction(async (tx) => {
+      for (const duplicate of duplicates) await this.mergeConversationInto(tx, canonical, duplicate);
+    });
+  }
+
+  private async mergeConversationInto(tx: AnyObject, canonical: AnyObject, duplicate: AnyObject) {
+    if (!duplicate || duplicate.id === canonical.id) return;
+
+    await tx.message.updateMany({ where: { conversationId: duplicate.id }, data: { conversationId: canonical.id } });
+    await tx.conversationEvent.updateMany({ where: { conversationId: duplicate.id }, data: { conversationId: canonical.id } });
+    await tx.conversationFollowUp.updateMany({ where: { conversationId: duplicate.id }, data: { conversationId: canonical.id } });
+    await tx.conversationAiGeneration.updateMany({ where: { conversationId: duplicate.id }, data: { conversationId: canonical.id } });
+    await tx.conversationAiProposal.updateMany({ where: { conversationId: duplicate.id }, data: { conversationId: canonical.id } });
+
+    const duplicatePins = await tx.conversationPin.findMany({
+      where: { conversationId: duplicate.id },
+      select: { userId: true, createdAt: true },
+    });
+    for (const pin of duplicatePins) {
+      await tx.conversationPin.upsert({
+        where: { userId_conversationId: { userId: pin.userId, conversationId: canonical.id } },
+        create: { userId: pin.userId, conversationId: canonical.id, createdAt: pin.createdAt },
+        update: {},
+      });
+    }
+    if (duplicatePins.length) {
+      await tx.conversationPin.deleteMany({ where: { conversationId: duplicate.id } });
+    }
+
+    const duplicateChatbotSession = await tx.chatbotSession.findUnique({
+      where: { conversationId: duplicate.id },
+      select: { id: true },
+    });
+    if (duplicateChatbotSession) {
+      const canonicalChatbotSession = await tx.chatbotSession.findUnique({
+        where: { conversationId: canonical.id },
+        select: { id: true },
+      });
+      if (canonicalChatbotSession) {
+        await tx.chatbotStepExecution.updateMany({ where: { sessionId: duplicateChatbotSession.id }, data: { sessionId: canonicalChatbotSession.id } });
+        await tx.conversationAiGeneration.updateMany({ where: { chatbotSessionId: duplicateChatbotSession.id }, data: { chatbotSessionId: canonicalChatbotSession.id } });
+        await tx.chatbotSession.delete({ where: { id: duplicateChatbotSession.id } });
+      } else {
+        await tx.chatbotSession.update({ where: { id: duplicateChatbotSession.id }, data: { conversationId: canonical.id } });
+      }
+    }
+
+    await tx.conversation.update({
+      where: { id: canonical.id },
+      data: {
+        unreadCount: Number(canonical.unreadCount || 0) + Number(duplicate.unreadCount || 0),
+        ...(duplicate.lastMessageAt && (!canonical.lastMessageAt || duplicate.lastMessageAt > canonical.lastMessageAt)
+          ? { lastMessageAt: duplicate.lastMessageAt }
+          : {}),
+      },
+    });
+    canonical.unreadCount = Number(canonical.unreadCount || 0) + Number(duplicate.unreadCount || 0);
+    if (duplicate.lastMessageAt && (!canonical.lastMessageAt || duplicate.lastMessageAt > canonical.lastMessageAt)) {
+      canonical.lastMessageAt = duplicate.lastMessageAt;
+    }
+    await tx.conversation.delete({ where: { id: duplicate.id } });
   }
 
   private async updateInboundConversation(context: AnyObject, currentConversation: AnyObject) {
-    const { instance, ensuredContact, occurredAt, fromMe } = context;
+    const { instance, ensuredContact, phoneJid, occurredAt, fromMe } = context;
     const incomingRoute = incomingConversationRoute(currentConversation.status, currentConversation.assigneeId);
     const defaultTeamId = currentConversation.teamId || await this.defaultTeamId(instance.organizationId);
     const conversation = await this.db.conversation.update({
@@ -955,6 +1076,7 @@ export class InboundProcessor {
       data: {
         contactId: ensuredContact.id,
         teamId: defaultTeamId,
+        ...(phoneJid && !currentConversation.phoneJid ? { phoneJid } : {}),
         lastMessageAt: !currentConversation.lastMessageAt || occurredAt > currentConversation.lastMessageAt ? occurredAt : currentConversation.lastMessageAt,
         ...(!fromMe ? {
           status: incomingRoute.status,
@@ -982,7 +1104,7 @@ export class InboundProcessor {
         contactId: ensuredContact.id,
         teamId,
         remoteJid,
-        phoneJid: remoteJid.includes('@s.whatsapp.net') ? remoteJid : null,
+        phoneJid: context.phoneJid || null,
         status: incomingConversationStatus(null),
         unreadCount: fromMe ? 0 : 1,
         lastMessageAt: occurredAt,
@@ -1283,9 +1405,7 @@ export class InboundProcessor {
     const state = this.recentSyncState.get(instanceId);
     if (!state || Date.now() - state.fetchedAt > RECENT_MESSAGE_CACHE_MS) return [];
     return state.records.filter((record) => {
-      const key = record.key || record.Info || record.info || {};
-      const remoteJid = String(key.remoteJid || key.Chat || record.remoteJid || record.from || '');
-      return addresses.has(remoteJid);
+      return evolutionMessageJids(record).some((remoteJid) => addresses.has(remoteJid));
     });
   }
 
@@ -1401,9 +1521,8 @@ export class InboundProcessor {
     await this.db.mediaAsset.create({ data: { messageId, key, filename, contentType, sizeBytes: body.length } });
   }
 
-  private async messageUpdate(instanceId: string, payload: AnyObject) {
+  private async messageUpdate(instanceId: string, payload: AnyObject): Promise<ConversationUpdateResult | undefined> {
     const data = Array.isArray(payload.data) ? payload.data[0] : payload.data || payload;
-    const key = data.key || data;
     // MESSAGES_UPDATE in Evolution 2.3.x uses `keyId`; `messageId` is the
     // provider database row and does not match the WhatsApp message key.
     const providerMessageId = evolutionMessageUpdateId(data);
@@ -1419,55 +1538,60 @@ export class InboundProcessor {
     const currentStatus = storedMessageDeliveryStatus(message);
     const status = advanceEvolutionMessageStatus(currentStatus, incomingStatus);
     const now = new Date();
-    const providerJid = String(data.remoteJid || key.remoteJid || '');
+    const providerJids = evolutionMessageJids(data);
+    const providerPhoneJid = evolutionMessagePhoneJid(data);
     const deliveredAt = !message.deliveredAt && (incomingStatus === 'DELIVERED' || incomingStatus === 'READ') ? now : undefined;
     const readAt = !message.readAt && incomingStatus === 'READ' ? now : undefined;
     const needsMessageUpdate = message.status !== status || Boolean(deliveredAt) || Boolean(readAt);
-    if (!needsMessageUpdate && !providerJid.includes('@lid')) {
+    if (!needsMessageUpdate && !providerJids.some((jid) => jid.includes('@lid'))) {
       await projectWhatsappMessageActivity(this.db, message.id);
       return message.conversationId;
     }
+    let conversationId = message.conversationId;
+    const mergedConversationIds: string[] = [];
     await this.db.$transaction(async (tx) => {
       if (needsMessageUpdate) {
         await tx.message.update({ where: { id: message.id }, data: { status, deliveredAt, readAt } });
       }
-      if (!providerJid.includes('@lid')) return;
-
-      const lidJid = providerJid.replace(/:\d+@lid$/, '@lid');
+      if (!providerJids.some((jid) => jid.includes('@lid'))) return;
       const conversation = await tx.conversation.findUnique({
         where: { id: message.conversationId },
         include: { contact: true },
       });
       if (!conversation) return;
-      const phoneJid = conversation.phoneJid || (conversation.remoteJid.includes('@s.whatsapp.net') ? conversation.remoteJid : null);
-      const duplicate = await tx.conversation.findFirst({
-        where: { instanceId, remoteJid: lidJid, id: { not: conversation.id } },
+      const duplicates = await tx.conversation.findMany({
+        where: {
+          instanceId,
+          id: { not: conversation.id },
+          OR: [
+            { remoteJid: { in: providerJids } },
+            { phoneJid: { in: providerJids } },
+          ],
+        },
         include: { contact: true },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'asc' }],
       });
 
-      if (duplicate) {
-        await tx.message.updateMany({ where: { conversationId: duplicate.id }, data: { conversationId: conversation.id } });
-        await tx.conversationEvent.updateMany({ where: { conversationId: duplicate.id }, data: { conversationId: conversation.id } });
-        await tx.conversation.delete({ where: { id: duplicate.id } });
-        if (duplicate.contact.phone === `+${lidJid.split('@')[0]}` && duplicate.contact.id !== conversation.contactId) {
-          await tx.contact.update({ where: { id: duplicate.contact.id }, data: { archivedAt: new Date() } });
-        }
+      const phoneKey = providerPhoneJid ? normalizePhoneKey(providerPhoneJid) : null;
+      const candidates = [conversation, ...duplicates];
+      const canonical = candidates.find((candidate) => providerPhoneJid
+        ? candidate.phoneJid === providerPhoneJid || normalizePhoneKey(candidate.contact.phone) === phoneKey
+        : Boolean(normalizePhoneKey(candidate.contact.phone))) || conversation;
+      const conversationsToMerge = candidates.filter((candidate) => candidate.id !== canonical.id);
+      for (const duplicate of conversationsToMerge) {
+        mergedConversationIds.push(duplicate.id);
+        await this.mergeConversationInto(tx, canonical, duplicate);
       }
-
+      conversationId = canonical.id;
       await tx.conversation.update({
-        where: { id: conversation.id },
+        where: { id: canonical.id },
         data: {
-          remoteJid: lidJid,
-          phoneJid,
-          unreadCount: duplicate ? conversation.unreadCount + duplicate.unreadCount : undefined,
-          lastMessageAt: duplicate?.lastMessageAt && (!conversation.lastMessageAt || duplicate.lastMessageAt > conversation.lastMessageAt)
-            ? duplicate.lastMessageAt
-            : undefined,
+          ...(providerPhoneJid && !canonical.phoneJid ? { phoneJid: providerPhoneJid } : {}),
         },
       });
     });
     await projectWhatsappMessageActivity(this.db, message.id);
-    return message.conversationId;
+    return mergedConversationIds.length ? { conversationId, mergedConversationIds } : conversationId;
   }
 
   private async secretMessageEdited(
