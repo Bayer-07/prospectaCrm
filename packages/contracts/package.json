@@ -20,6 +20,10 @@
     "./whatsapp-document": {
       "types": "./dist/whatsapp-document.d.ts",
       "import": "./dist/whatsapp-document.js"
+    },
+    "./whatsapp-interactive": {
+      "types": "./dist/whatsapp-interactive.d.ts",
+      "import": "./dist/whatsapp-interactive.js"
     }
   },
   "scripts": {

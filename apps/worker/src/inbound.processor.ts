@@ -1,6 +1,6 @@
 import type { Job, Queue } from 'bullmq';
 import { Prisma, PrismaClient, type MessageStatus } from '@prisma/client';
-import { extractSharedWhatsappContacts, isOptOutMessage, normalizeEvolutionInstanceStatus, normalizePhoneKey, type FollowUpAlertEmailJob } from '@prospecta/contracts';
+import { extractSharedWhatsappContacts, extractWhatsappInteractive, isOptOutMessage, normalizeEvolutionInstanceStatus, normalizePhoneKey, type FollowUpAlertEmailJob } from '@prospecta/contracts';
 import { markLatestWhatsappActivityReplied, projectTaskActivity, projectWhatsappMessageActivity } from '@prospecta/database';
 import { createDecipheriv, createHash, hkdfSync } from 'node:crypto';
 import { EvolutionClient } from './evolution-client.js';
@@ -149,6 +149,14 @@ export const evolutionReplyProviderMessageId = (data: AnyObject) => {
     || content.contactMessage?.contextInfo
     || content.locationMessage?.contextInfo
     || content.liveLocationMessage?.contextInfo
+    || content.buttonsMessage?.contextInfo
+    || content.buttonsResponseMessage?.contextInfo
+    || content.templateMessage?.contextInfo
+    || content.templateButtonReplyMessage?.contextInfo
+    || content.listMessage?.contextInfo
+    || content.listResponseMessage?.contextInfo
+    || content.interactiveMessage?.contextInfo
+    || content.interactiveResponseMessage?.contextInfo
     || content.contextInfo;
   const providerMessageId = context?.stanzaId || context?.key?.id || context?.key?.ID;
   return typeof providerMessageId === 'string' && providerMessageId.trim() ? providerMessageId : null;
@@ -172,6 +180,8 @@ export const evolutionMessageText = (input: AnyObject): string | null => {
   const message = unwrapEvolutionMessage(input);
   const sharedContacts = extractSharedWhatsappContacts(message);
   if (sharedContacts.length) return sharedContacts.map((contact) => contact.name).join(', ');
+  const interactiveText = extractWhatsappInteractive(message);
+  if (interactiveText) return interactiveText.selection?.text || interactiveText.body;
   const value = message.conversation
     || message.extendedTextMessage?.text
     || message.imageMessage?.caption
@@ -196,6 +206,7 @@ export const evolutionMessageType = (input: AnyObject) => {
   if (message.documentMessage) return 'document';
   if (message.locationMessage || message.liveLocationMessage) return 'location';
   if (message.reactionMessage) return 'reaction';
+  if (extractWhatsappInteractive(message)) return 'interactive';
   return 'text';
 };
 
@@ -256,7 +267,7 @@ export const isSynchronizableEvolutionMessage = (data: AnyObject, since: Date) =
   const type = evolutionMessageType(content);
   if (type === 'reaction') return Boolean(evolutionReaction(data));
   if (type === 'text') return Boolean(evolutionMessageText(content));
-  return ['sticker', 'image', 'audio', 'video', 'document', 'contact', 'location'].includes(type);
+  return ['sticker', 'image', 'audio', 'video', 'document', 'contact', 'location', 'interactive'].includes(type);
 };
 
 const mediaNode = (record: AnyObject, type: string) => {

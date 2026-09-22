@@ -470,6 +470,33 @@ describe('mensagens editadas no WhatsApp', () => {
 });
 
 describe('tipos de mensagem da Evolution', () => {
+  it('identifica botões e usa o texto da mensagem como conteúdo', () => {
+    const message = {
+      buttonsMessage: {
+        contentText: 'Como podemos ajudar?',
+        buttons: [{ buttonId: 'sales', buttonText: { displayText: 'Comercial' } }],
+      },
+    };
+    expect(evolutionMessageType(message)).toBe('interactive');
+    expect(evolutionMessageText(message)).toBe('Como podemos ajudar?');
+    expect(isSynchronizableEvolutionMessage({
+      key: { id: 'buttons-1', remoteJid: '554588433153@s.whatsapp.net', fromMe: true },
+      messageTimestamp: 1785262532,
+      message,
+    }, new Date('2026-07-28T00:00:00.000Z'))).toBe(true);
+  });
+
+  it('usa o texto selecionado pelo cliente em respostas de botão', () => {
+    const message = {
+      buttonsResponseMessage: {
+        selectedButtonId: 'support',
+        selectedDisplayText: 'Suporte',
+      },
+    };
+    expect(evolutionMessageType(message)).toBe('interactive');
+    expect(evolutionMessageText(message)).toBe('Suporte');
+  });
+
   it('identifica e sincroniza uma localização mesmo sem texto', () => {
     const message = {
       locationMessage: {

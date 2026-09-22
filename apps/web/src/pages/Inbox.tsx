@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
+import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
 import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
@@ -1942,6 +1943,16 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   };
   const grouped = useMemo(() => groupTimeline(conversation.messages, conversation.events || []), [conversation.messages, conversation.events]);
   const retryMessage = useCallback((messageId: string) => retry.mutate(messageId), [retry.mutate]);
+  const selectInteractiveButton = useCallback((button: WhatsappInteractiveButton) => {
+    if (!canReply || editingMessage) return;
+    setAutomationMenuOpen(false);
+    setQuickReplyMenuOpen(false);
+    setEmojiPickerOpen(false);
+    setReplyingTo(null);
+    setText(button.text);
+    setAttachmentError('');
+    window.setTimeout(() => textRef.current?.focus(), 0);
+  }, [canReply, editingMessage]);
   let instanceOptionContent: ReactNode = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Nenhuma conexão ativa disponível</strong><span>Conecte outro número para conseguir continuar esta conversa.</span></div>;
   if (availableInstances.isLoading) instanceOptionContent = <PageLoading />;
   else if (availableInstances.isError) instanceOptionContent = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>;
@@ -2023,7 +2034,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       <ConversationHistoryLoader loading={loadingOlderMessages} hasOlder={hasOlderMessages} hasMessages={conversation.messages.length > 0} onLoad={requestOlderMessages} />
       {grouped.map((group) => <div className="message-day" key={group.date}><span>{group.label}</span>{group.items.map((item) => item.kind === 'event'
         ? <ConversationEventLog key={`event-${item.event.id}`} event={item.event} />
-        : <MessageBubble key={item.message.id} message={item.message} replyTo={messageReplyTarget(item.message, messagesById, messagesByProviderId)} replyFallback={messageQuotedPreview(item.message)} contactName={conversation.contact.name} menuOpen={messageMenu?.message.id === item.message.id} onMenu={openMessageMenu} onReactionMenu={openReactionMenu} onJumpToReply={jumpToMessage} onReply={startReply} onRetry={retryMessage} retrying={retry.isPending && retry.variables === item.message.id} canRetry={canReply} onStartSharedContact={setSharedContactToStart} onMediaReady={keepLatestVisible} audioPlaybackRate={audioPlaybackRate} onCycleAudioPlaybackRate={cycleAudioPlaybackRate} />)}</div>)}
+        : <MessageBubble key={item.message.id} message={item.message} replyTo={messageReplyTarget(item.message, messagesById, messagesByProviderId)} replyFallback={messageQuotedPreview(item.message)} contactName={conversation.contact.name} menuOpen={messageMenu?.message.id === item.message.id} onMenu={openMessageMenu} onReactionMenu={openReactionMenu} onJumpToReply={jumpToMessage} onReply={startReply} onRetry={retryMessage} retrying={retry.isPending && retry.variables === item.message.id} canRetry={canReply} onSelectInteractiveButton={selectInteractiveButton} canSelectInteractiveButton={canReply && !editingMessage} onStartSharedContact={setSharedContactToStart} onMediaReady={keepLatestVisible} audioPlaybackRate={audioPlaybackRate} onCycleAudioPlaybackRate={cycleAudioPlaybackRate} />)}</div>)}
     </div>
     {showScrollToLatest && <button type="button" className="scroll-to-latest" onClick={scrollToLatest} aria-label="Ir para a mensagem mais recente" title="Ir para a mensagem mais recente"><ChevronDown size={21} /></button>}
   </>;
@@ -2715,14 +2726,17 @@ type MessageBubbleProps = Readonly<{
   onRetry(messageId: string): void;
   retrying: boolean;
   canRetry: boolean;
+  onSelectInteractiveButton(button: WhatsappInteractiveButton): void;
+  canSelectInteractiveButton: boolean;
   onStartSharedContact(contact: SharedWhatsappContact): void;
   onMediaReady(): void;
   audioPlaybackRate: number;
   onCycleAudioPlaybackRate(): void;
 }>;
 
-function messageBubbleText(message: Message, sharedContactMessage: boolean, locationMessage: boolean, deleted: boolean, sticker: boolean, originalText?: string) {
+function messageBubbleText(message: Message, sharedContactMessage: boolean, locationMessage: boolean, interactiveCard: boolean, deleted: boolean, sticker: boolean, originalText?: string) {
   if (sharedContactMessage || locationMessage) return '';
+  if (interactiveCard) return '';
   if (message.text) return message.text;
   if (originalText) return originalText;
   if (deleted) return 'Conteúdo original indisponível';
@@ -2765,14 +2779,37 @@ function MessageQuickReaction({ visible, message, onReactionMenu }: Readonly<{
   }}><SmilePlus size={18} /></button>;
 }
 
+function InteractiveMessageCard({ interactive, canSelect, onSelect }: Readonly<{
+  interactive: WhatsappInteractiveMessage;
+  canSelect: boolean;
+  onSelect(button: WhatsappInteractiveButton): void;
+}>) {
+  if (!interactive.buttons.length) return null;
+  return <div className="message-interactive-card" aria-label="Mensagem com opções interativas">
+    {interactive.header && <strong className="message-interactive-header">{interactive.header}</strong>}
+    {interactive.body && <p className="message-interactive-body">{interactive.body}</p>}
+    <div className="message-interactive-options">
+      {interactive.buttons.map((button) => <button
+        type="button"
+        key={`${button.id}:${button.text}`}
+        disabled={!canSelect}
+        title={canSelect ? 'Usar esta opção como resposta' : 'Assuma a conversa para usar uma opção'}
+        onClick={() => onSelect(button)}
+      >{button.text}<ChevronDown size={15} /></button>)}
+    </div>
+    {interactive.footer && <small className="message-interactive-footer">{interactive.footer}</small>}
+  </div>;
+}
+
 type MessageBubbleContentProps = Pick<MessageBubbleProps,
-  'message' | 'replyTo' | 'replyFallback' | 'contactName' | 'onJumpToReply' | 'onRetry' | 'retrying' | 'canRetry' | 'onStartSharedContact' | 'onMediaReady' | 'audioPlaybackRate' | 'onCycleAudioPlaybackRate'
+  'message' | 'replyTo' | 'replyFallback' | 'contactName' | 'onJumpToReply' | 'onRetry' | 'retrying' | 'canRetry' | 'onSelectInteractiveButton' | 'canSelectInteractiveButton' | 'onStartSharedContact' | 'onMediaReady' | 'audioPlaybackRate' | 'onCycleAudioPlaybackRate'
 > & {
   originalType: string;
   sticker: boolean;
   deleted: boolean;
   messageText: string;
   messageLink?: string;
+  interactive: WhatsappInteractiveMessage | null;
   sharedContacts: SharedWhatsappContact[];
   location?: WhatsappLocation;
   failure?: MessageFailure;
@@ -2782,7 +2819,7 @@ type MessageBubbleContentProps = Pick<MessageBubbleProps,
 };
 
 function MessageBubbleContent(props: MessageBubbleContentProps) {
-  const { message, replyTo, replyFallback, contactName, originalType, sticker, deleted, messageText, messageLink, sharedContacts, location, failure, reactions, edited, outbound } = props;
+  const { message, replyTo, replyFallback, contactName, originalType, sticker, deleted, messageText, messageLink, interactive, sharedContacts, location, failure, reactions, edited, outbound } = props;
   return <>
     {deleted && <div className="message-deleted-notice" role="note" title="Esta mensagem foi apagada"><Trash2 size={13} /><strong>Mensagem apagada</strong></div>}
     {replyTo && <button type="button" className="message-reply-quote" onClick={() => props.onJumpToReply(replyTo.id)} aria-label={`Ir para a mensagem: ${messagePreview(replyTo)}`}><strong>{replyTo.direction === 'OUTBOUND' ? 'Você' : contactName}</strong><span>{messagePreview(replyTo)}</span></button>}
@@ -2791,6 +2828,7 @@ function MessageBubbleContent(props: MessageBubbleContentProps) {
     {isAudioMessage(message) && <AudioTranscription message={message} />}
     {sharedContacts.map((contact) => <SharedContactCard key={contact.phone} contact={contact} onStart={() => props.onStartSharedContact(contact)} />)}
     {location && <LocationCard location={location} />}
+    {interactive && <InteractiveMessageCard interactive={interactive} canSelect={props.canSelectInteractiveButton} onSelect={props.onSelectInteractiveButton} />}
     {messageLink && <MessageLinkPreview message={message} url={messageLink} onReady={props.onMediaReady} />}
     {messageText && <ExpandableText text={messageText} whatsapp />}
     <small>{edited && <span className="message-edited-label">Editada</span>}{dateTime(message.createdAt).split(' ')[1]} {outbound && <MessageDelivery status={message.status} failure={failure} onRetry={() => props.onRetry(message.id)} retrying={props.retrying} canRetry={props.canRetry} />}</small>
@@ -2811,10 +2849,12 @@ const MessageBubble = memo(function MessageBubble(props: MessageBubbleProps) {
   const sharedContactMessage = sharedContacts.length > 0;
   const location = useMemo(() => extractWhatsappLocation(message.payload), [message.payload]);
   const locationMessage = Boolean(location);
+  const interactive = useMemo(() => extractWhatsappInteractive(message.payload), [message.payload]);
+  const interactiveCard = Boolean(interactive?.buttons.length);
   const sticker = originalType === 'sticker';
   const visualMedia = Boolean(message.media?.length) && (originalType === 'image' || originalType === 'video');
   const documentMedia = Boolean(message.media?.length) && originalType === 'document';
-  const messageText = messageBubbleText(message, sharedContactMessage, locationMessage, deleted, sticker, originalText);
+  const messageText = messageBubbleText(message, sharedContactMessage, locationMessage, interactiveCard, deleted, sticker, originalText);
   const messageLink = deleted ? undefined : firstWhatsappLink(messageText);
   const quickReactionVisible = canRetry && !deleted;
   const bubbleClassName = messageBubbleClassName({ sticker, visualMedia, documentMedia, sharedContactMessage, locationMessage, hasLink: Boolean(messageLink), deleted, failed: message.status === 'FAILED' });
@@ -2831,7 +2871,7 @@ const MessageBubble = memo(function MessageBubble(props: MessageBubbleProps) {
       }}
     >
       <button type="button" className="message-menu-trigger" aria-label="Abrir opções da mensagem" aria-expanded={menuOpen} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(message, rect.right, rect.bottom + 4); }}><ChevronDown size={17} /></button>
-      <MessageBubbleContent {...props} originalType={originalType} sticker={sticker} deleted={deleted} messageText={messageText} messageLink={messageLink} sharedContacts={sharedContacts} location={location || undefined} failure={failure} reactions={reactions} edited={edited} outbound={outbound} />
+      <MessageBubbleContent {...props} originalType={originalType} sticker={sticker} deleted={deleted} messageText={messageText} messageLink={messageLink} interactive={interactive} sharedContacts={sharedContacts} location={location || undefined} failure={failure} reactions={reactions} edited={edited} outbound={outbound} />
     </article>
     {!outbound && <MessageQuickReaction visible={quickReactionVisible} message={message} onReactionMenu={onReactionMenu} />}
   </div>;
@@ -2949,6 +2989,14 @@ function messageReplyContext(message: Message) {
     || content?.documentMessage?.contextInfo
     || content?.audioMessage?.contextInfo
     || content?.contactMessage?.contextInfo
+    || content?.buttonsMessage?.contextInfo
+    || content?.buttonsResponseMessage?.contextInfo
+    || content?.templateMessage?.contextInfo
+    || content?.templateButtonReplyMessage?.contextInfo
+    || content?.listMessage?.contextInfo
+    || content?.listResponseMessage?.contextInfo
+    || content?.interactiveMessage?.contextInfo
+    || content?.interactiveResponseMessage?.contextInfo
     || content?.contextInfo;
 }
 
@@ -2969,6 +3017,9 @@ function messageQuotedPreview(message: Message) {
     || quoted.documentMessage?.caption
     || quoted.contactMessage?.displayName;
   if (typeof text === 'string' && text.trim()) return text.trim();
+  const interactive = extractWhatsappInteractive(quoted);
+  if (interactive?.selection) return interactive.selection.text;
+  if (interactive?.body) return interactive.body;
   if (quoted.imageMessage) return 'Imagem';
   if (quoted.videoMessage) return 'Vídeo';
   if (quoted.audioMessage) return 'Áudio';
@@ -2997,6 +3048,10 @@ function messagePreview(message: Message) {
     : `${sharedContacts.length} contatos compartilhados`;
   const text = message.text?.trim();
   if (text) return text.length > 120 ? `${text.slice(0, 117)}…` : text;
+  const interactive = extractWhatsappInteractive(message.payload);
+  if (interactive?.selection) return interactive.selection.text;
+  if (interactive?.body) return interactive.body;
+  if (interactive?.buttons.length) return `${interactive.buttons.length} opções interativas`;
   const filename = message.media?.[0]?.filename;
   if (filename) return filename;
   const labels: Record<string, string> = { sticker: '🏷️ Figurinha', image: '🖼️ Imagem', audio: '🎧 Áudio', video: '🎥 Vídeo', document: '📄 Documento', deleted: 'Mensagem apagada' };

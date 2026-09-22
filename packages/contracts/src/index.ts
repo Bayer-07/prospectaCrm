@@ -4,6 +4,9 @@ import { normalizePhoneKey } from './whatsapp-contact.js';
 export { extractSharedWhatsappContacts, normalizePhoneKey } from './whatsapp-contact.js';
 export type { SharedWhatsappContact } from './whatsapp-contact.js';
 
+export { extractWhatsappInteractive, whatsappInteractiveText } from './whatsapp-interactive.js';
+export type { WhatsappInteractiveButton, WhatsappInteractiveMessage, WhatsappInteractiveSelection } from './whatsapp-interactive.js';
+
 export {
   documentContentTypeForFilename,
   isWhatsappDocumentContentType,
