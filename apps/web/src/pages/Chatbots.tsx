@@ -1,5 +1,6 @@
 import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useSearchParams } from 'react-router-dom';
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position, addEdge,
   useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps, type ReactFlowInstance,
@@ -26,6 +27,54 @@ type ChatbotRecord = {
   instance: InstanceOption; versions: Array<{ id: string; version: number; graph: { nodes: Node<FlowData>[]; edges: Edge[] }; publishedAt?: string }>;
   _count?: { sessions: number };
 };
+type ChatbotGraph = { nodes: Node<FlowData>[]; edges: Edge[] };
+
+function graphSnapshot(graph: ChatbotGraph) {
+  return JSON.stringify({
+    nodes: graph.nodes.map((node) => {
+      const snapshot = { ...node };
+      delete snapshot.selected;
+      delete snapshot.dragging;
+      delete snapshot.measured;
+      delete snapshot.resizing;
+      return snapshot;
+    }),
+    edges: graph.edges.map((edge) => {
+      const snapshot = { ...edge };
+      delete snapshot.selected;
+      return snapshot;
+    }),
+  });
+}
+
+function validationNodeIds(error: unknown, graph: ChatbotGraph) {
+  const message = error instanceof Error ? error.message.toLocaleLowerCase() : '';
+  if (!message) return [];
+  const labeledNodes = graph.nodes.filter((node) => {
+    const label = String(node.data?.label || '').trim().toLocaleLowerCase();
+    return label.length > 2 && message.includes(label);
+  });
+  if (labeledNodes.length) return labeledNodes.map((node) => node.id);
+  if (message.includes('toda condição precisa')) {
+    return graph.nodes.filter((node) => node.type === 'condition' && !['true', 'false'].every((handle) => graph.edges.some((edge) => edge.source === node.id && edge.sourceHandle === handle))).map((node) => node.id);
+  }
+  if (message.includes('todos os blocos precisam estar conectados')) {
+    const trigger = graph.nodes.find((node) => node.type === 'trigger');
+    if (!trigger) return [];
+    const reachable = new Set<string>();
+    const visit = (id: string) => {
+      if (reachable.has(id)) return;
+      reachable.add(id);
+      graph.edges.filter((edge) => edge.source === id).forEach((edge) => visit(edge.target));
+    };
+    visit(trigger.id);
+    return graph.nodes.filter((node) => !reachable.has(node.id)).map((node) => node.id);
+  }
+  if (message.includes('fila usada pelo chatbot')) return graph.nodes.filter((node) => node.type === 'assign_queue').map((node) => node.id);
+  if (message.includes('atendimento por ia')) return graph.nodes.filter((node) => node.type === 'ai_conversation').map((node) => node.id);
+  if (message.includes('exatamente uma entrada')) return graph.nodes.filter((node) => node.type === 'trigger').map((node) => node.id);
+  return [];
+}
 
 const nodeDefinitions = [
   { type: 'trigger', label: 'Mensagem recebida', subtitle: 'Entrada do chatbot', icon: Play, tone: 'violet' },
@@ -63,19 +112,20 @@ const nodeTypes = Object.fromEntries(nodeDefinitions.map((item) => [item.type, C
 
 export function ChatbotsPage() {
   const client = useQueryClient();
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [searchParams, setSearchParams] = useSearchParams();
+  const selectedId = searchParams.get('edit');
   const [modal, setModal] = useState(false);
   const [deleting, setDeleting] = useState<ChatbotRecord | null>(null);
   const [filter, setFilter] = useState<'all' | 'PUBLISHED' | 'DRAFT' | 'PAUSED'>('all');
   const query = useQuery({ queryKey: ['chatbots'], queryFn: () => api<Envelope<ChatbotRecord[]>>('/chatbots') });
   const metadata = useQuery({ queryKey: ['chatbot-metadata'], queryFn: () => api<Envelope<Metadata>>('/chatbots/metadata') });
   if (query.isLoading || metadata.isLoading) return <PageLoading />;
-  if (selectedId) return <ChatbotBuilder chatbotId={selectedId} metadata={metadata.data!.data} onBack={() => { setSelectedId(null); void client.invalidateQueries({ queryKey: ['chatbots'] }); }} />;
+  if (selectedId) return <div className="chatbot-editor-shell"><ChatbotBuilder chatbotId={selectedId} metadata={metadata.data!.data} onBack={() => { setSearchParams({}); void client.invalidateQueries({ queryKey: ['chatbots'] }); }} /></div>;
   const all = query.data?.data || [];
   const chatbots = filter === 'all' ? all : all.filter((chatbot) => chatbot.status === filter);
   return <div className="automations-page chatbot-page"><div className="toolbar"><div className="segmented"><button type="button" className={filter === 'all' ? 'active' : ''} onClick={() => setFilter('all')}>Todos</button><button type="button" className={filter === 'PUBLISHED' ? 'active' : ''} onClick={() => setFilter('PUBLISHED')}>Ativos</button><button type="button" className={filter === 'DRAFT' ? 'active' : ''} onClick={() => setFilter('DRAFT')}>Rascunhos</button><button type="button" className={filter === 'PAUSED' ? 'active' : ''} onClick={() => setFilter('PAUSED')}>Pausados</button></div><Button onClick={() => setModal(true)}><Plus size={15} />Novo chatbot</Button></div>
-    {chatbots.length ? <div className="workflow-grid chatbot-grid">{chatbots.map((chatbot) => <div className="workflow-card-shell" key={chatbot.id}><button type="button" className="workflow-card-main" onClick={() => setSelectedId(chatbot.id)}><div className="workflow-icon"><Bot size={20} /></div><div className="workflow-card-header"><Status value={chatbot.status} /><span>v{chatbot.versions[0]?.version || 1}</span></div><h3>{chatbot.name}</h3><p>{chatbot.description || 'Atendimento automático por regras'}</p><footer><span>{chatbot.instance.name} · {chatbot._count?.sessions || 0} atendimentos</span><span>Atualizado {dateTime(chatbot.updatedAt)}</span></footer></button><button type="button" className="workflow-card-delete" title={`Excluir chatbot ${chatbot.name}`} aria-label={`Excluir chatbot ${chatbot.name}`} onClick={() => setDeleting(chatbot)}><Trash2 size={16} /></button></div>)}</div> : <Empty icon={<Bot />} title={all.length ? 'Nenhum chatbot neste filtro' : 'Crie seu primeiro chatbot'} description="Monte o atendimento em um mapa visual e transfira para a equipe quando necessário." action={<Button onClick={() => setModal(true)}>Novo chatbot</Button>} />}
-    {modal && <CreateChatbotModal metadata={metadata.data!.data} onClose={() => setModal(false)} onCreated={(chatbot) => { setModal(false); setSelectedId(chatbot.id); }} />}
+    {chatbots.length ? <div className="workflow-grid chatbot-grid">{chatbots.map((chatbot) => <div className="workflow-card-shell" key={chatbot.id}><button type="button" className="workflow-card-main" onClick={() => setSearchParams({ edit: chatbot.id })}><div className="workflow-icon"><Bot size={20} /></div><div className="workflow-card-header"><Status value={chatbot.status} /><span>v{chatbot.versions[0]?.version || 1}</span></div><h3>{chatbot.name}</h3><p>{chatbot.description || 'Atendimento automático por regras'}</p><footer><span>{chatbot.instance.name} · {chatbot._count?.sessions || 0} atendimentos</span><span>Atualizado {dateTime(chatbot.updatedAt)}</span></footer></button><button type="button" className="workflow-card-delete" title={`Excluir chatbot ${chatbot.name}`} aria-label={`Excluir chatbot ${chatbot.name}`} onClick={() => setDeleting(chatbot)}><Trash2 size={16} /></button></div>)}</div> : <Empty icon={<Bot />} title={all.length ? 'Nenhum chatbot neste filtro' : 'Crie seu primeiro chatbot'} description="Monte o atendimento em um mapa visual e transfira para a equipe quando necessário." action={<Button onClick={() => setModal(true)}>Novo chatbot</Button>} />}
+    {modal && <CreateChatbotModal metadata={metadata.data!.data} onClose={() => setModal(false)} onCreated={(chatbot) => { setModal(false); setSearchParams({ edit: chatbot.id }); }} />}
     {deleting && <DeleteChatbotModal chatbot={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); void client.invalidateQueries({ queryKey: ['chatbots'] }); }} />}</div>;
 }
 
@@ -99,11 +149,62 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
   const query = useQuery({ queryKey: ['chatbot', chatbotId], queryFn: () => api<Envelope<ChatbotRecord>>(`/chatbots/${chatbotId}`) });
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>([]); const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]); const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
   const flowInstanceRef = useRef<ReactFlowInstance<Node<FlowData>, Edge> | null>(null);
+  const initializedGraphIdRef = useRef<string | null>(null);
   const [draggingNodeType, setDraggingNodeType] = useState<string | null>(null);
-  useEffect(() => { if (query.data?.data.versions[0]) { setNodes(query.data.data.versions[0].graph.nodes || []); setEdges(query.data.data.versions[0].graph.edges || []); } }, [query.data, setNodes, setEdges]);
+  const [savedGraphSnapshot, setSavedGraphSnapshot] = useState<string | null>(null);
+  const [initializedGraphId, setInitializedGraphId] = useState<string | null>(null);
+  const [confirmExitOpen, setConfirmExitOpen] = useState(false);
+  const highlightFrameRef = useRef<number | null>(null);
+  const highlightTimerRef = useRef<number | null>(null);
+  useEffect(() => {
+    if (!query.data || initializedGraphIdRef.current === chatbotId) return;
+    const version = query.data.data.versions[0];
+    const nextGraph: ChatbotGraph = { nodes: version?.graph.nodes || [], edges: version?.graph.edges || [] };
+    setNodes(nextGraph.nodes);
+    setEdges(nextGraph.edges);
+    setSavedGraphSnapshot(graphSnapshot(nextGraph));
+    initializedGraphIdRef.current = chatbotId;
+    setInitializedGraphId(chatbotId);
+  }, [chatbotId, query.data, setNodes, setEdges]);
   const graph = useMemo(() => ({ nodes, edges }), [nodes, edges]);
-  const save = useMutation({ mutationFn: () => api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph }) }), onSuccess: () => { toast.success('Chatbot salvo.'); return query.refetch(); } });
-  const publish = useMutation({ mutationFn: async () => { await api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph }) }); return api(`/chatbots/${chatbotId}/publish`, { method: 'POST' }); }, onSuccess: () => { toast.success('Chatbot publicado.'); return query.refetch(); } });
+  const currentGraphSnapshot = useMemo(() => graphSnapshot(graph), [graph]);
+  const hasUnsavedChanges = initializedGraphId === chatbotId && savedGraphSnapshot !== null && savedGraphSnapshot !== currentGraphSnapshot;
+  const highlightInvalidNodes = useCallback((nodeIds: string[]) => {
+    const ids = [...new Set(nodeIds)].filter((id) => nodes.some((node) => node.id === id));
+    if (!ids.length) return;
+    if (highlightFrameRef.current !== null) window.cancelAnimationFrame(highlightFrameRef.current);
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+    const targets = ids.map((id) => [...document.querySelectorAll<HTMLElement>('.react-flow__node')].find((element) => element.dataset.id === id)?.querySelector<HTMLElement>('.chatbot-node')).filter((element): element is HTMLElement => Boolean(element));
+    if (!targets.length) return;
+    void flowInstanceRef.current?.fitView({ nodes: ids.map((id) => ({ id })), duration: 450, padding: 0.25 });
+    targets.forEach((target) => {
+      target.classList.remove('chatbot-node-highlight');
+      target.getBoundingClientRect();
+    });
+    highlightFrameRef.current = window.requestAnimationFrame(() => {
+      targets.forEach((target) => target.classList.add('chatbot-node-highlight'));
+      highlightFrameRef.current = null;
+    });
+    highlightTimerRef.current = window.setTimeout(() => {
+      targets.forEach((target) => target.classList.remove('chatbot-node-highlight'));
+      highlightTimerRef.current = null;
+    }, 1_800);
+  }, [nodes]);
+  useEffect(() => () => {
+    if (highlightFrameRef.current !== null) window.cancelAnimationFrame(highlightFrameRef.current);
+    if (highlightTimerRef.current !== null) window.clearTimeout(highlightTimerRef.current);
+  }, []);
+  useEffect(() => {
+    if (!hasUnsavedChanges) return undefined;
+    const handleBeforeUnload = (event: BeforeUnloadEvent) => {
+      event.preventDefault();
+      event.returnValue = '';
+    };
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
+  }, [hasUnsavedChanges]);
+  const save = useMutation({ mutationFn: (graphToSave: ChatbotGraph) => api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph: graphToSave }) }), onSuccess: (_result, graphToSave) => { setSavedGraphSnapshot(graphSnapshot(graphToSave)); toast.success('Chatbot salvo.'); return query.refetch(); } });
+  const publish = useMutation({ mutationFn: async (graphToPublish: ChatbotGraph) => { await api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph: graphToPublish }) }); return api(`/chatbots/${chatbotId}/publish`, { method: 'POST' }); }, onSuccess: (_result, graphToPublish) => { setSavedGraphSnapshot(graphSnapshot(graphToPublish)); toast.success('Chatbot publicado.'); return query.refetch(); }, onError: (error, graphToPublish) => highlightInvalidNodes(validationNodeIds(error, graphToPublish)) });
   const changeStatus = useMutation({ mutationFn: (status: string) => api(`/chatbots/${chatbotId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), onSuccess: (_result, status) => { toast.success(status === 'PAUSED' ? 'Chatbot pausado.' : 'Chatbot ativado.'); return query.refetch(); } });
   const onConnect = useCallback((connection: Connection) => setEdges((current) => addEdge({ ...connection, animated: true, style: { stroke: '#2da6dc' } }, current)), [setEdges]);
   const addNode = useCallback((type: string, position?: { x: number; y: number }) => {
@@ -181,7 +282,8 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
   };
   if (query.isLoading) return <PageLoading />;
   const chatbot = query.data!.data;
-  return <div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={onBack}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate()} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate()} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span><small className="palette-tip">Arraste um bloco para o mapa</small>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" className={draggingNodeType === item.type ? 'dragging' : undefined} draggable onDragStart={(event) => startNodeDrag(event, item.type)} onDragEnd={stopNodeDrag} key={item.type} aria-label={`Arrastar bloco ${item.label}`}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className={`flow-canvas${draggingNodeType ? ' node-drop-target' : ''}`} onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}><ReactFlow nodes={nodes} edges={edges} onInit={(instance) => { flowInstanceRef.current = instance; }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></div><NodeInspector node={selectedNode} tags={metadata.tags} teams={metadata.teams} onChange={updateSelected} onDelete={deleteSelected} /></div></div>;
+  const requestExit = () => { if (hasUnsavedChanges) setConfirmExitOpen(true); else onBack(); };
+  return <><div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={requestExit}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate(graph)} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate(graph)} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" className={draggingNodeType === item.type ? 'dragging' : undefined} draggable onDragStart={(event) => startNodeDrag(event, item.type)} onDragEnd={stopNodeDrag} key={item.type} aria-label={`Arrastar bloco ${item.label}`}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className={`flow-canvas${draggingNodeType ? ' node-drop-target' : ''}`} onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}><ReactFlow nodes={nodes} edges={edges} onInit={(instance) => { flowInstanceRef.current = instance; }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></div><NodeInspector node={selectedNode} tags={metadata.tags} teams={metadata.teams} onChange={updateSelected} onDelete={deleteSelected} /></div></div>{confirmExitOpen && <Modal title="Sair do editor?" onClose={() => setConfirmExitOpen(false)}><div className="unsaved-exit-confirm"><p>Existem alterações que ainda não foram salvas. Se você sair agora, elas serão perdidas.</p><div className="modal-actions"><Button variant="secondary" onClick={() => setConfirmExitOpen(false)}>Continuar editando</Button><Button variant="danger" onClick={onBack}>Sair sem salvar</Button></div></div></Modal>}</>;
 }
 
 function HttpRequestInspector({ node, onChange, onDelete }: Readonly<{ node: Node<FlowData>; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {

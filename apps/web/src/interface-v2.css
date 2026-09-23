@@ -684,7 +684,7 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 .consent-note span, .variable-list, .variable-list button, .risk-note { font-size: 12px; }
 .workflow-grid h3, .builder-header h2 { font-size: 15px; }
 .workflow-grid p, .node-palette strong, .flow-node strong, .builder-header span, .workflow-card-header > span { font-size: 13px; }
-.workflow-grid footer, .node-palette small, .flow-node small, .chatbot-node .branch-label, .palette-tip { font-size: 12px !important; }
+.workflow-grid footer, .node-palette small, .flow-node small, .chatbot-node .branch-label { font-size: 12px !important; }
 .flow-node { min-width: 190px; padding: 11px; }
 .node-palette > button { min-height: 52px; }
 .report-toolbar button, .delivery-funnel span, .delivery-funnel strong, .recharts-text { font-size: 12px; }
