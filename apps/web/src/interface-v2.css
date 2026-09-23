@@ -754,3 +754,17 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 .audio-transcription-text > .expandable-message-toggle { margin-top: 5px; }
 .audio-transcription-error { max-width: 330px; color: var(--red); font-size: 10px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .outbound .audio-transcription-button { background: color-mix(in srgb, var(--surface) 35%, transparent); }
+
+/* O editor do chatbot usa configuração dentro do próprio nó. */
+.chatbot-builder-body { grid-template-columns: 180px minmax(0, 1fr); }
+.chatbot-node { width: 320px; min-width: 320px; padding: 0; }
+.chatbot-node-title { font-family: inherit; }
+@media (max-width: 1120px) {
+  .chatbot-builder-body { grid-template-columns: 145px minmax(0, 1fr); }
+}
+@media (max-width: 900px) {
+  .chatbot-builder-body { grid-template-columns: 125px minmax(430px, 1fr); }
+}
+@media (max-width: 680px) {
+  .chatbot-builder-body { grid-template-columns: 112px minmax(400px, 1fr); }
+}

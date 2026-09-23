@@ -1,4 +1,4 @@
-import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Fragment, FormEvent, createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import {
@@ -93,15 +93,80 @@ const nodeDefinitions = [
 
 const CHATBOT_NODE_DRAG_TYPE = 'application/x-bzs-chatbot-node';
 
-function ChatbotNode({ data, type, selected }: NodeProps<Node<FlowData>>) {
+type ChatbotNodeContextValue = {
+  tags: TagOption[];
+  teams: TeamOption[];
+  onChange(nodeId: string, changes: Partial<FlowData>): void;
+  onDelete(nodeId: string): void;
+};
+
+const ChatbotNodeContext = createContext<ChatbotNodeContextValue | null>(null);
+
+function stopNodeInteraction(event: React.PointerEvent<HTMLElement>) {
+  event.stopPropagation();
+}
+
+function InlineField({ label, hint, className, children }: Readonly<{ label: string; hint?: string; className?: string; children: React.ReactNode }>) {
+  return <label className={`chatbot-node-field nodrag${className ? ` ${className}` : ''}`} onPointerDown={stopNodeInteraction}><span>{label}</span>{children}{hint && <small>{hint}</small>}</label>;
+}
+
+function HttpRoutesInline({ routes, onChange }: Readonly<{ routes: HttpResponseRoute[]; onChange(changes: Partial<FlowData>): void }>) {
+  const updateRoute = (index: number, changes: Partial<HttpResponseRoute>) => onChange({ responseRoutes: routes.map((route, routeIndex) => routeIndex === index ? { ...route, ...changes } : route) });
+  const removeRoute = (index: number) => onChange({ responseRoutes: routes.filter((_, routeIndex) => routeIndex !== index) });
+  const moveRoute = (index: number, offset: number) => {
+    const destination = index + offset;
+    if (destination < 0 || destination >= routes.length) return;
+    const reordered = [...routes];
+    [reordered[index], reordered[destination]] = [reordered[destination]!, reordered[index]!];
+    onChange({ responseRoutes: reordered });
+  };
+  const addRoute = () => onChange({
+    responseRoutes: [...routes, {
+      id: `route-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 7)}`,
+      label: `Resposta ${routes.length + 1}`,
+      path: 'body.status',
+      operator: 'equals',
+      value: '',
+    }],
+  });
+  return <div className="chatbot-node-routes nodrag" onPointerDown={stopNodeInteraction}>
+    <div className="chatbot-node-section-heading"><div><strong>Rotas da resposta</strong><small>A primeira regra correspondente define a saída.</small></div><button type="button" className="chatbot-node-add-route nodrag" disabled={routes.length >= 8} onClick={addRoute}><Plus size={13} />Adicionar</button></div>
+    {routes.map((route, index) => <div className="chatbot-node-route" key={route.id}>
+      <div className="chatbot-node-route-heading"><strong>{index + 1}</strong><input className="nodrag" aria-label={`Nome da rota ${index + 1}`} value={route.label} maxLength={50} onChange={(event) => updateRoute(index, { label: event.target.value })} /><span><button type="button" className="icon-button nodrag" disabled={index === 0} aria-label={`Subir rota ${route.label}`} onClick={() => moveRoute(index, -1)}><ChevronLeft size={13} /></button><button type="button" className="icon-button nodrag" disabled={index === routes.length - 1} aria-label={`Descer rota ${route.label}`} onClick={() => moveRoute(index, 1)}><ChevronLeft size={13} style={{ transform: 'rotate(180deg)' }} /></button><button type="button" className="icon-button nodrag" aria-label={`Excluir rota ${route.label}`} onClick={() => removeRoute(index)}><Trash2 size={13} /></button></span></div>
+      <div className="chatbot-node-route-fields"><InlineField label="Campo"><input value={route.path} onChange={(event) => updateRoute(index, { path: event.target.value })} placeholder="status ou body.campo" /></InlineField><InlineField label="Comparação"><select value={route.operator} onChange={(event) => updateRoute(index, { operator: event.target.value })}><option value="equals">É igual a</option><option value="not_equals">É diferente de</option><option value="contains">Contém</option><option value="exists">Existe</option><option value="not_exists">Não existe</option><option value="greater_than">É maior que</option><option value="less_than">É menor que</option><option value="between">Está entre</option></select></InlineField>{!['exists', 'not_exists'].includes(route.operator) && <InlineField label="Valor esperado"><input value={route.value || ''} onChange={(event) => updateRoute(index, { value: event.target.value })} placeholder={route.operator === 'between' ? '200,299' : 'Ex.: aprovado'} /></InlineField>}</div>
+    </div>)}
+  </div>;
+}
+
+function ChatbotNode({ id, data, type, selected }: NodeProps<Node<FlowData>>) {
   const definition = nodeDefinitions.find((item) => item.type === type) || nodeDefinitions[1];
+  const editor = useContext(ChatbotNodeContext);
   const terminal = ['handoff', 'close', 'end'].includes(type || '');
   const httpRoutes = type === 'http_request' && Array.isArray(data.responseRoutes) ? data.responseRoutes : [];
   const httpHandleCount = httpRoutes.length + 1;
-  return <div className={`flow-node chatbot-node ${definition.tone} ${selected ? 'selected' : ''}`} style={type === 'http_request' ? { minHeight: Math.max(72, httpHandleCount * 30) } : undefined}>
+  const nodeTitle = data.label === undefined ? definition.label : String(data.label);
+  const update = (changes: Partial<FlowData>) => editor?.onChange(id, changes);
+  return <div className={`flow-node chatbot-node ${definition.tone} ${selected ? 'selected' : ''}`} style={type === 'http_request' ? { minHeight: Math.max(150, httpHandleCount * 34) } : undefined}>
     {type !== 'trigger' && <Handle type="target" position={Position.Left} />}
-    <span><definition.icon size={17} /></span>
-    <div><strong>{String(data.label || definition.label)}</strong><small>{String(data.subtitle || definition.subtitle)}</small></div>
+    <div className="chatbot-node-header">
+      <span className="chatbot-node-icon"><definition.icon size={17} /></span>
+      <div className="chatbot-node-heading"><input className="chatbot-node-title nodrag" aria-label="Nome do bloco" value={nodeTitle} onChange={(event) => update({ label: event.target.value })} onPointerDown={stopNodeInteraction} /><small>{String(data.subtitle || definition.subtitle)}</small></div>
+      {editor && type !== 'trigger' && <button type="button" className="chatbot-node-delete nodrag" aria-label={`Excluir bloco ${nodeTitle || definition.label}`} onPointerDown={stopNodeInteraction} onClick={() => editor.onDelete(id)}><Trash2 size={14} /></button>}
+    </div>
+    <div className="chatbot-node-body">
+      {type === 'trigger' && <><InlineField label="Quando a mensagem" hint="Separe alternativas por vírgula."><select value={String(data.operator || 'contains')} onChange={(event) => update({ operator: event.target.value })}><option value="contains">Contém</option><option value="equals">É igual a</option><option value="starts_with">Começa com</option><option value="ends_with">Termina com</option></select></InlineField><InlineField label="Palavras de entrada"><textarea rows={2} value={String(data.value || '')} onChange={(event) => update({ value: event.target.value })} placeholder="Vazio para qualquer mensagem" /></InlineField></>}
+      {(type === 'message' || type === 'question') && <InlineField label={type === 'question' ? 'Pergunta' : 'Mensagem'} hint="Use variáveis como {{nome}} ou as respostas coletadas."><textarea rows={5} value={String(data.text || '')} onChange={(event) => update({ text: event.target.value })} /></InlineField>}
+      {type === 'question' && <InlineField label="Salvar resposta na variável" hint="Use letras, números e _."><input value={String(data.responseVariable || '')} onChange={(event) => update({ responseVariable: event.target.value })} placeholder="Ex.: cnpj" maxLength={50} /></InlineField>}
+      {type === 'wait' && <InlineField label="Tempo de espera (segundos)" hint="O chatbot continua automaticamente depois deste período."><input type="number" min={1} step={1} value={Number(data.seconds || 1)} onChange={(event) => update({ seconds: Math.max(1, Number(event.target.value)) })} /></InlineField>}
+      {type === 'condition' && <><InlineField label="A resposta"><select value={String(data.operator || 'contains')} onChange={(event) => update({ operator: event.target.value })}><option value="contains">Contém</option><option value="equals">É igual a</option><option value="starts_with">Começa com</option><option value="ends_with">Termina com</option></select></InlineField><InlineField label="Valor esperado" hint="A saída Sim é usada quando a regra corresponde."><textarea rows={2} value={String(data.value || '')} onChange={(event) => update({ value: event.target.value })} placeholder="Ex.: vendas, comercial" /></InlineField></>}
+      {type === 'add_tag' && <InlineField label="Tag"><select value={String(data.tagId || '')} onChange={(event) => update({ tagId: event.target.value })}><option value="">Selecione uma tag</option>{editor?.tags.map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></InlineField>}
+      {type === 'assign_queue' && <InlineField label="Fila de destino" hint="A fila é atribuída e o chatbot continua para o próximo bloco."><select value={String(data.teamId || '')} onChange={(event) => update({ teamId: event.target.value })}><option value="">Selecione uma fila</option>{editor?.teams.map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></InlineField>}
+      {type === 'http_request' && <><div className="chatbot-node-inline-grid"><InlineField label="Método"><select value={String(data.method || 'GET')} onChange={(event) => update({ method: event.target.value })}><option>GET</option><option>POST</option><option>PUT</option><option>PATCH</option><option>DELETE</option></select></InlineField><InlineField label="Tempo limite (s)"><input type="number" min={1} max={60} value={Number(data.timeoutSeconds || 15)} onChange={(event) => update({ timeoutSeconds: Math.min(60, Math.max(1, Number(event.target.value))) })} /></InlineField></div><InlineField label="URL pública"><input type="url" maxLength={2_048} value={String(data.url || '')} onChange={(event) => update({ url: event.target.value })} placeholder="https://api.exemplo.com/recurso" /></InlineField><InlineField label="Cabeçalhos em JSON"><textarea rows={3} maxLength={32_000} value={String(data.headers || '')} onChange={(event) => update({ headers: event.target.value })} spellCheck={false} placeholder={'{\n  "Authorization": "Bearer token"\n}'} /></InlineField>{String(data.method || 'GET') !== 'GET' && <InlineField label="Body"><textarea rows={4} maxLength={256 * 1024} value={String(data.body || '')} onChange={(event) => update({ body: event.target.value })} spellCheck={false} placeholder={'{\n  "telefone": "{{telefone}}"\n}'} /></InlineField>}<InlineField label="Variável temporária"><input value={String(data.variableName || 'resposta')} onChange={(event) => update({ variableName: event.target.value })} placeholder="resposta" /></InlineField><HttpRoutesInline routes={httpRoutes} onChange={update} /></>}
+      {type === 'ai_conversation' && <><InlineField label="Objetivo do atendimento"><textarea rows={3} maxLength={2_000} value={String(data.objective || '')} onChange={(event) => update({ objective: event.target.value })} placeholder="O que a IA deve descobrir ou resolver?" /></InlineField><InlineField label="Instruções específicas"><textarea rows={3} maxLength={5_000} value={String(data.instructions || '')} onChange={(event) => update({ instructions: event.target.value })} placeholder="Tom, limites e informações deste fluxo." /></InlineField><InlineField label="Critérios de transferência"><textarea rows={3} maxLength={3_000} value={String(data.transferCriteria || '')} onChange={(event) => update({ transferCriteria: event.target.value })} placeholder="Quando chamar um atendente?" /></InlineField><div className="chatbot-node-inline-grid"><InlineField label="Máx. interações"><input type="number" min={1} max={20} value={Number(data.maxInteractions || 6)} onChange={(event) => update({ maxInteractions: Math.min(20, Math.max(1, Number(event.target.value))) })} /></InlineField><InlineField label="Confiança mínima (%)"><input type="number" min={0} max={100} value={Number(data.minimumConfidence ?? 65)} onChange={(event) => update({ minimumConfidence: Math.min(100, Math.max(0, Number(event.target.value))) })} /></InlineField></div><InlineField label="Mensagem de indisponibilidade"><textarea rows={2} maxLength={1_000} value={String(data.fallbackMessage || '')} onChange={(event) => update({ fallbackMessage: event.target.value })} placeholder="Vazio para usar a configuração global." /></InlineField></>}
+      {type === 'handoff' && <p className="chatbot-node-note">O bot para de responder e o ticket fica aguardando atendimento.</p>}
+      {type === 'close' && <p className="chatbot-node-note">O fluxo termina e o ticket vai para Encerradas.</p>}
+      {type === 'end' && <p className="chatbot-node-note">O bot termina, mas o ticket continua aguardando atendimento.</p>}
+    </div>
     {!terminal && type !== 'condition' && type !== 'http_request' && <Handle type="source" position={Position.Right} />}
     {type === 'condition' && <><Handle id="true" type="source" position={Position.Right} style={{ top: '34%' }} title="Sim" /><Handle id="false" type="source" position={Position.Right} style={{ top: '72%' }} title="Não" /><i className="branch-label branch-yes">Sim</i><i className="branch-label branch-no">Não</i></>}
     {type === 'http_request' && <>{httpRoutes.map((route, index) => { const top = `${((index + 1) / (httpHandleCount + 1)) * 100}%`; return <Fragment key={route.id}><Handle id={route.id} type="source" position={Position.Right} style={{ top }} title={route.label} /><i className="branch-label http-route-label" style={{ top }}>{route.label}</i></Fragment>; })}<Handle id="default" type="source" position={Position.Right} style={{ top: `${(httpHandleCount / (httpHandleCount + 1)) * 100}%` }} title="Outros / erro" /><i className="branch-label http-default-label" style={{ top: `${(httpHandleCount / (httpHandleCount + 1)) * 100}%` }}>Outros / erro</i></>}
@@ -266,24 +331,24 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
     addNode(type, position);
   };
   const stopNodeDrag = () => setDraggingNodeType(null);
-  const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
-  const updateSelected = (changes: Partial<FlowData>) => {
-    if (selectedNodeId && changes.responseRoutes) {
+  const updateNodeData = useCallback((nodeId: string, changes: Partial<FlowData>) => {
+    if (changes.responseRoutes) {
       const validHandles = new Set([...changes.responseRoutes.map((route) => route.id), 'default']);
-      setEdges((current) => current.filter((edge) => edge.source !== selectedNodeId || validHandles.has(edge.sourceHandle || '')));
+      setEdges((current) => current.filter((edge) => edge.source !== nodeId || validHandles.has(edge.sourceHandle || '')));
     }
-    setNodes((current) => current.map((node) => node.id === selectedNodeId ? { ...node, data: { ...node.data, ...changes } } : node));
-  };
-  const deleteSelected = () => {
-    if (!selectedNode || selectedNode.type === 'trigger') return;
-    setNodes((current) => current.filter((node) => node.id !== selectedNode.id));
-    setEdges((current) => current.filter((edge) => edge.source !== selectedNode.id && edge.target !== selectedNode.id));
+    setNodes((current) => current.map((node) => node.id === nodeId ? { ...node, data: { ...node.data, ...changes } } : node));
+  }, [setEdges, setNodes]);
+  const deleteNode = useCallback((nodeId: string) => {
+    if (nodes.find((node) => node.id === nodeId)?.type === 'trigger') return;
+    setNodes((current) => current.filter((node) => node.id !== nodeId));
+    setEdges((current) => current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
     setSelectedNodeId(null);
-  };
+  }, [nodes, setEdges, setNodes]);
+  const nodeEditorContext = useMemo<ChatbotNodeContextValue>(() => ({ tags: metadata.tags, teams: metadata.teams, onChange: updateNodeData, onDelete: deleteNode }), [deleteNode, metadata.tags, metadata.teams, updateNodeData]);
   if (query.isLoading) return <PageLoading />;
   const chatbot = query.data!.data;
   const requestExit = () => { if (hasUnsavedChanges) setConfirmExitOpen(true); else onBack(); };
-  return <><div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={requestExit}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate(graph)} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate(graph)} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" className={draggingNodeType === item.type ? 'dragging' : undefined} draggable onDragStart={(event) => startNodeDrag(event, item.type)} onDragEnd={stopNodeDrag} key={item.type} aria-label={`Arrastar bloco ${item.label}`}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className={`flow-canvas${draggingNodeType ? ' node-drop-target' : ''}`} onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}><ReactFlow nodes={nodes} edges={edges} onInit={(instance) => { flowInstanceRef.current = instance; }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></div><NodeInspector node={selectedNode} tags={metadata.tags} teams={metadata.teams} onChange={updateSelected} onDelete={deleteSelected} /></div></div>{confirmExitOpen && <Modal title="Sair do editor?" onClose={() => setConfirmExitOpen(false)}><div className="unsaved-exit-confirm"><p>Existem alterações que ainda não foram salvas. Se você sair agora, elas serão perdidas.</p><div className="modal-actions"><Button variant="secondary" onClick={() => setConfirmExitOpen(false)}>Continuar editando</Button><Button variant="danger" onClick={onBack}>Sair sem salvar</Button></div></div></Modal>}</>;
+  return <><div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={requestExit}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate(graph)} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate(graph)} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" className={draggingNodeType === item.type ? 'dragging' : undefined} draggable onDragStart={(event) => startNodeDrag(event, item.type)} onDragEnd={stopNodeDrag} key={item.type} aria-label={`Arrastar bloco ${item.label}`}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className={`flow-canvas${draggingNodeType ? ' node-drop-target' : ''}`} onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}><ChatbotNodeContext.Provider value={nodeEditorContext}><ReactFlow nodes={nodes} edges={edges} onInit={(instance) => { flowInstanceRef.current = instance; }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></ChatbotNodeContext.Provider></div></div></div>{confirmExitOpen && <Modal title="Sair do editor?" onClose={() => setConfirmExitOpen(false)}><div className="unsaved-exit-confirm"><p>Existem alterações que ainda não foram salvas. Se você sair agora, elas serão perdidas.</p><div className="modal-actions"><Button variant="secondary" onClick={() => setConfirmExitOpen(false)}>Continuar editando</Button><Button variant="danger" onClick={onBack}>Sair sem salvar</Button></div></div></Modal>}</>;
 }
 
 function HttpRequestInspector({ node, onChange, onDelete }: Readonly<{ node: Node<FlowData>; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
