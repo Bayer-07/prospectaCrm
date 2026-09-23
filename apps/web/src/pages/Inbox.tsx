@@ -2478,6 +2478,7 @@ function AiProposalSection(props: Readonly<{
 
 function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversation: Conversation; onClose(): void; onUpdated(): void }>) {
   const { user } = useAuth();
+  const navigate = useNavigate();
   const client = useQueryClient();
   const [editing, setEditing] = useState(false);
   const [inlineField, setInlineField] = useState<ContactInlineField | null>(null);
@@ -2619,7 +2620,7 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
         <InboxContactTags contact={contact} conversationId={conversation.id} canEdit={canEdit} />
         <section>
           <h3><BriefcaseBusiness size={15} />Oportunidades</h3>
-          {contact.opportunities?.length ? <div className="contact-opportunity-list">{contact.opportunities.map(({ opportunity }) => <div key={opportunity.id}><div><strong>{opportunity.title}</strong><small>{opportunityStatusLabel(opportunity.status)}</small></div><span><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></div>)}</div> : <p className="drawer-empty-copy">Nenhuma oportunidade vinculada.</p>}
+          {contact.opportunities?.length ? <div className="contact-opportunity-list">{contact.opportunities.map(({ opportunity }) => <button type="button" className="contact-opportunity-link" key={opportunity.id} onClick={() => navigate(`/pipeline?opportunity=${encodeURIComponent(opportunity.id)}`)}><div><strong>{opportunity.title}</strong><small>{opportunityStatusLabel(opportunity.status)}</small></div><span><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></button>)}</div> : <p className="drawer-empty-copy">Nenhuma oportunidade vinculada.</p>}
         </section>
       </div>
     </aside>
