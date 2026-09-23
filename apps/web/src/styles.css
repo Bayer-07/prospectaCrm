@@ -677,8 +677,6 @@ tbody tr:last-child td { border-bottom: 0; } tbody tr:hover { background: #fcfbf
 .chatbot-node.rose .chatbot-node-icon { background: var(--red-soft); color: var(--red); }
 .chatbot-node.slate .chatbot-node-icon { background: color-mix(in srgb, var(--muted) 12%, transparent); color: var(--muted); }
 .chatbot-node-heading { min-width: 0; display: flex !important; flex-direction: column !important; gap: 3px; }
-.chatbot-node-title { width: 100%; min-width: 0; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font-family: inherit; font-size: 13px; font-weight: 700; line-height: 1.25; }
-.chatbot-node-title:focus { box-shadow: 0 2px 0 var(--violet); }
 .chatbot-node-heading small { overflow: hidden; color: var(--muted); font-size: 11px !important; text-overflow: ellipsis; white-space: nowrap; }
 .chatbot-node-delete { width: 24px; height: 24px; margin-top: 1px; padding: 0; border: 0; border-radius: 6px; background: transparent; color: var(--muted); display: grid; place-items: center; cursor: pointer; }
 .chatbot-node-delete:hover { background: var(--red-soft); color: var(--red); }

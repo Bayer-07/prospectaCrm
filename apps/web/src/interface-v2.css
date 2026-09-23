@@ -758,7 +758,6 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 /* O editor do chatbot usa configuração dentro do próprio nó. */
 .chatbot-builder-body { grid-template-columns: 180px minmax(0, 1fr); }
 .chatbot-node { width: 320px; min-width: 320px; padding: 0; }
-.chatbot-node-title { font-family: inherit; }
 @media (max-width: 1120px) {
   .chatbot-builder-body { grid-template-columns: 145px minmax(0, 1fr); }
 }

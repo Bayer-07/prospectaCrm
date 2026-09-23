@@ -266,14 +266,13 @@ function ChatbotNode({ id, data, type, selected }: NodeProps<Node<FlowData>>) {
   const editor = useContext(ChatbotNodeContext);
   const terminal = ['handoff', 'close', 'end'].includes(type || '');
   const httpRoutes = type === 'http_request' && Array.isArray(data.responseRoutes) ? data.responseRoutes : [];
-  const nodeTitle = data.label === undefined ? definition.label : String(data.label);
   const update = (changes: Partial<FlowData>) => editor?.onChange(id, changes);
   return <div className={`flow-node chatbot-node ${definition.tone} ${selected ? 'selected' : ''}`}>
     {type !== 'trigger' && <Handle type="target" position={Position.Left} />}
     <div className="chatbot-node-header">
       <span className="chatbot-node-icon"><definition.icon size={17} /></span>
-      <div className="chatbot-node-heading"><input className="chatbot-node-title nodrag" aria-label="Nome do bloco" value={nodeTitle} onChange={(event) => update({ label: event.target.value })} onPointerDown={stopNodeInteraction} /><small>{String(data.subtitle || definition.subtitle)}</small></div>
-      {editor && type !== 'trigger' && <button type="button" className="chatbot-node-delete nodrag" aria-label={`Excluir bloco ${nodeTitle || definition.label}`} onPointerDown={stopNodeInteraction} onClick={() => editor.onDelete(id)}><Trash2 size={14} /></button>}
+      <div className="chatbot-node-heading"><strong>{definition.label}</strong><small>{String(data.subtitle || definition.subtitle)}</small></div>
+      {editor && type !== 'trigger' && <button type="button" className="chatbot-node-delete nodrag" aria-label={`Excluir bloco ${definition.label}`} onPointerDown={stopNodeInteraction} onClick={() => editor.onDelete(id)}><Trash2 size={14} /></button>}
     </div>
     <div className="chatbot-node-body">
       {type === 'trigger' && <><InlineField label="Quando a mensagem" hint="Separe alternativas por vírgula."><select value={String(data.operator || 'contains')} onChange={(event) => update({ operator: event.target.value })}><option value="contains">Contém</option><option value="equals">É igual a</option><option value="starts_with">Começa com</option><option value="ends_with">Termina com</option></select></InlineField><InlineField label="Palavras de entrada"><AutoResizeTextarea rows={2} value={String(data.value || '')} onChange={(event) => update({ value: event.target.value })} placeholder="Vazio para qualquer mensagem" /></InlineField></>}
