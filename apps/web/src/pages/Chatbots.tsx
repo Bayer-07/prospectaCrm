@@ -1,8 +1,8 @@
-import { Fragment, FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ReactFlow, Background, Controls, MiniMap, Handle, Position, addEdge,
-  useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps,
+  useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps, type ReactFlowInstance,
 } from '@xyflow/react';
 import {
   Archive, Bot, BrainCircuit, ChevronDown, ChevronLeft, ChevronUp, CircleStop, Clock3, GitBranch, Globe2, HelpCircle, MessageSquareText,
@@ -41,6 +41,8 @@ const nodeDefinitions = [
   { type: 'close', label: 'Encerrar ticket', subtitle: 'Fecha a conversa', icon: Archive, tone: 'rose' },
   { type: 'end', label: 'Finalizar bot', subtitle: 'Encerra o fluxo', icon: CircleStop, tone: 'rose' },
 ] as const;
+
+const CHATBOT_NODE_DRAG_TYPE = 'application/x-bzs-chatbot-node';
 
 function ChatbotNode({ data, type, selected }: NodeProps<Node<FlowData>>) {
   const definition = nodeDefinitions.find((item) => item.type === type) || nodeDefinitions[1];
@@ -96,15 +98,17 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
   const { theme } = useTheme();
   const query = useQuery({ queryKey: ['chatbot', chatbotId], queryFn: () => api<Envelope<ChatbotRecord>>(`/chatbots/${chatbotId}`) });
   const [nodes, setNodes, onNodesChange] = useNodesState<Node<FlowData>>([]); const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]); const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const flowInstanceRef = useRef<ReactFlowInstance<Node<FlowData>, Edge> | null>(null);
+  const [draggingNodeType, setDraggingNodeType] = useState<string | null>(null);
   useEffect(() => { if (query.data?.data.versions[0]) { setNodes(query.data.data.versions[0].graph.nodes || []); setEdges(query.data.data.versions[0].graph.edges || []); } }, [query.data, setNodes, setEdges]);
   const graph = useMemo(() => ({ nodes, edges }), [nodes, edges]);
   const save = useMutation({ mutationFn: () => api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph }) }), onSuccess: () => { toast.success('Chatbot salvo.'); return query.refetch(); } });
   const publish = useMutation({ mutationFn: async () => { await api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph }) }); return api(`/chatbots/${chatbotId}/publish`, { method: 'POST' }); }, onSuccess: () => { toast.success('Chatbot publicado.'); return query.refetch(); } });
   const changeStatus = useMutation({ mutationFn: (status: string) => api(`/chatbots/${chatbotId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), onSuccess: (_result, status) => { toast.success(status === 'PAUSED' ? 'Chatbot pausado.' : 'Chatbot ativado.'); return query.refetch(); } });
   const onConnect = useCallback((connection: Connection) => setEdges((current) => addEdge({ ...connection, animated: true, style: { stroke: '#2da6dc' } }, current)), [setEdges]);
-  const addNode = (type: string) => {
+  const addNode = useCallback((type: string, position?: { x: number; y: number }) => {
     const definition = nodeDefinitions.find((item) => item.type === type)!;
-    const id = `${type}-${Date.now()}`;
+    const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
     const data: FlowData = { label: definition.label, subtitle: definition.subtitle };
     if (type === 'message') {
       data.text = 'Olá, {{nome}}! Como posso ajudar?';
@@ -138,9 +142,29 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
       data.value = 'vendas';
     }
     if (type === 'assign_queue') data.teamId = metadata.teams[0]?.id || '';
-    setNodes((current) => [...current, { id, type, position: { x: 300 + current.length * 45, y: 90 + (current.length % 5) * 110 }, data }]);
+    setNodes((current) => [...current, { id, type, position: position || { x: 300 + current.length * 45, y: 90 + (current.length % 5) * 110 }, data }]);
     setSelectedNodeId(id);
+  }, [metadata.teams, setNodes]);
+  const startNodeDrag = (event: React.DragEvent<HTMLButtonElement>, type: string) => {
+    event.dataTransfer.setData(CHATBOT_NODE_DRAG_TYPE, type);
+    event.dataTransfer.effectAllowed = 'move';
+    setDraggingNodeType(type);
   };
+  const handleCanvasDragOver = (event: React.DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types).includes(CHATBOT_NODE_DRAG_TYPE)) return;
+    event.preventDefault();
+    event.dataTransfer.dropEffect = 'move';
+    setDraggingNodeType((current) => current || 'node');
+  };
+  const handleCanvasDrop = (event: React.DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    const type = event.dataTransfer.getData(CHATBOT_NODE_DRAG_TYPE);
+    setDraggingNodeType(null);
+    if (!type || !nodeDefinitions.some((item) => item.type === type && item.type !== 'trigger')) return;
+    const position = flowInstanceRef.current?.screenToFlowPosition({ x: event.clientX, y: event.clientY });
+    addNode(type, position);
+  };
+  const stopNodeDrag = () => setDraggingNodeType(null);
   const selectedNode = nodes.find((node) => node.id === selectedNodeId) || null;
   const updateSelected = (changes: Partial<FlowData>) => {
     if (selectedNodeId && changes.responseRoutes) {
@@ -157,7 +181,7 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
   };
   if (query.isLoading) return <PageLoading />;
   const chatbot = query.data!.data;
-  return <div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={onBack}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate()} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate()} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" key={item.type} onClick={() => addNode(item.type)}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className="flow-canvas"><ReactFlow nodes={nodes} edges={edges} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></div><NodeInspector node={selectedNode} tags={metadata.tags} teams={metadata.teams} onChange={updateSelected} onDelete={deleteSelected} /></div></div>;
+  return <div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={onBack}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate()} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate()} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span><small className="palette-tip">Arraste um bloco para o mapa</small>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" className={draggingNodeType === item.type ? 'dragging' : undefined} draggable onDragStart={(event) => startNodeDrag(event, item.type)} onDragEnd={stopNodeDrag} key={item.type} aria-label={`Arrastar bloco ${item.label}`}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className={`flow-canvas${draggingNodeType ? ' node-drop-target' : ''}`} onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}><ReactFlow nodes={nodes} edges={edges} onInit={(instance) => { flowInstanceRef.current = instance; }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></div><NodeInspector node={selectedNode} tags={metadata.tags} teams={metadata.teams} onChange={updateSelected} onDelete={deleteSelected} /></div></div>;
 }
 
 function HttpRequestInspector({ node, onChange, onDelete }: Readonly<{ node: Node<FlowData>; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
@@ -199,7 +223,7 @@ function HttpRequestInspector({ node, onChange, onDelete }: Readonly<{ node: Nod
 }
 
 function NodeInspector({ node, tags, teams, onChange, onDelete }: Readonly<{ node: Node<FlowData> | null; tags: TagOption[]; teams: TeamOption[]; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
-  if (!node) return <aside className="node-inspector empty"><Bot size={24} /><strong>Configure o mapa</strong><p>Clique em um bloco para editar suas regras e mensagens.</p></aside>;
+  if (!node) return <aside className="node-inspector empty"><Bot size={24} /><strong>Configure o mapa</strong><p>Arraste um bloco da paleta para o mapa e clique nele para editar suas regras e mensagens.</p></aside>;
   const definition = nodeDefinitions.find((item) => item.type === node.type)!;
   if (node.type === 'http_request') return <HttpRequestInspector node={node} onChange={onChange} onDelete={onDelete} />;
   if (node.type === 'ai_conversation') return <aside className="node-inspector"><div className="inspector-title"><span className={definition.tone}><definition.icon size={16} /></span><div><strong>{definition.label}</strong><small>{definition.subtitle}</small></div></div><label className="field"><span>Nome do bloco</span><input value={String(node.data.label || '')} onChange={(event) => onChange({ label: event.target.value })} /></label><label className="field"><span>Objetivo do atendimento</span><textarea rows={4} maxLength={2_000} value={String(node.data.objective || '')} onChange={(event) => onChange({ objective: event.target.value })} placeholder="O que a IA deve descobrir ou resolver?" /></label><label className="field"><span>Instruções específicas</span><textarea rows={5} maxLength={5_000} value={String(node.data.instructions || '')} onChange={(event) => onChange({ instructions: event.target.value })} placeholder="Tom, limites e informações deste fluxo." /></label><label className="field"><span>Critérios de transferência</span><textarea rows={4} maxLength={3_000} value={String(node.data.transferCriteria || '')} onChange={(event) => onChange({ transferCriteria: event.target.value })} placeholder="Quando chamar um atendente?" /></label><div className="form-grid"><label className="field"><span>Limite de interações</span><input type="number" min={1} max={20} value={Number(node.data.maxInteractions || 6)} onChange={(event) => onChange({ maxInteractions: Math.min(20, Math.max(1, Number(event.target.value))) })} /></label><label className="field"><span>Confiança mínima (%)</span><input type="number" min={0} max={100} value={Number(node.data.minimumConfidence ?? 65)} onChange={(event) => onChange({ minimumConfidence: Math.min(100, Math.max(0, Number(event.target.value))) })} /></label></div><label className="field"><span>Mensagem de indisponibilidade</span><textarea rows={3} maxLength={1_000} value={String(node.data.fallbackMessage || '')} onChange={(event) => onChange({ fallbackMessage: event.target.value })} placeholder="Vazio para usar a configuração global." /></label><div className="inspector-note">Quando decidir transferir, o fluxo segue para o próximo bloco. Conecte a saída a <strong>Transferir</strong>.</div><Button variant="ghost" className="delete-node" onClick={onDelete}><Trash2 size={15} />Excluir bloco</Button></aside>;
