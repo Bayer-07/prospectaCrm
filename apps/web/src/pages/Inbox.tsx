@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
 import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { aiMessageImprovementDisposition, aiSuggestionDisposition } from '../lib/ai-suggestion';
@@ -2751,6 +2751,7 @@ function messageBubbleClassName(state: {
   documentMedia: boolean;
   sharedContactMessage: boolean;
   locationMessage: boolean;
+  interactive: boolean;
   hasLink: boolean;
   deleted: boolean;
   failed: boolean;
@@ -2761,6 +2762,7 @@ function messageBubbleClassName(state: {
   if (state.documentMedia) classes.push('document-media');
   if (state.sharedContactMessage) classes.push('contact-message');
   if (state.locationMessage) classes.push('location-message');
+  if (state.interactive) classes.push('interactive-message');
   if (state.hasLink) classes.push('link-preview-message');
   if (state.deleted) classes.push('deleted-message');
   if (state.failed) classes.push('failed');
@@ -2788,6 +2790,7 @@ function InteractiveMessageCard({ interactive, canSelect, onSelect }: Readonly<{
   return <div className="message-interactive-card" aria-label="Mensagem com opções interativas">
     {interactive.header && <strong className="message-interactive-header">{interactive.header}</strong>}
     {interactive.body && <p className="message-interactive-body">{interactive.body}</p>}
+    {interactive.footer && <small className="message-interactive-footer">{interactive.footer}</small>}
     <div className="message-interactive-options">
       {interactive.buttons.map((button) => <button
         type="button"
@@ -2795,9 +2798,8 @@ function InteractiveMessageCard({ interactive, canSelect, onSelect }: Readonly<{
         disabled={!canSelect}
         title={canSelect ? 'Usar esta opção como resposta' : 'Assuma a conversa para usar uma opção'}
         onClick={() => onSelect(button)}
-      >{button.text}<ChevronDown size={15} /></button>)}
+      >{button.text}<ChevronRight size={15} /></button>)}
     </div>
-    {interactive.footer && <small className="message-interactive-footer">{interactive.footer}</small>}
   </div>;
 }
 
@@ -2857,7 +2859,7 @@ const MessageBubble = memo(function MessageBubble(props: MessageBubbleProps) {
   const messageText = messageBubbleText(message, sharedContactMessage, locationMessage, interactiveCard, deleted, sticker, originalText);
   const messageLink = deleted ? undefined : firstWhatsappLink(messageText);
   const quickReactionVisible = canRetry && !deleted;
-  const bubbleClassName = messageBubbleClassName({ sticker, visualMedia, documentMedia, sharedContactMessage, locationMessage, hasLink: Boolean(messageLink), deleted, failed: message.status === 'FAILED' });
+  const bubbleClassName = messageBubbleClassName({ sticker, visualMedia, documentMedia, sharedContactMessage, locationMessage, interactive: interactiveCard, hasLink: Boolean(messageLink), deleted, failed: message.status === 'FAILED' });
   return <div className={`message-row ${outbound ? 'outbound' : 'inbound'}${menuOpen ? ' menu-open' : ''}`} data-message-id={message.id} data-message-kind={isAudioMessage(message) ? 'audio' : originalType}>
     {outbound && <MessageQuickReaction visible={quickReactionVisible} message={message} onReactionMenu={onReactionMenu} />}
     <article
