@@ -66,10 +66,14 @@ function layoutChatbotNodes(nodes: Node<FlowData>[], edges: Edge[]) {
   if (!nodes.length) return nodes;
   const nodeIds = new Set(nodes.map((node) => node.id));
   const outgoing = new Map<string, string[]>();
-  nodes.forEach((node) => outgoing.set(node.id, []));
-  edges.forEach((edge) => {
+  const incoming = new Map<string, string[]>();
+  const edgeOrder = new Map<string, number>();
+  nodes.forEach((node) => { outgoing.set(node.id, []); incoming.set(node.id, []); });
+  edges.forEach((edge, index) => {
     if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
     outgoing.get(edge.source)!.push(edge.target);
+    incoming.get(edge.target)!.push(edge.source);
+    if (!edgeOrder.has(edge.target)) edgeOrder.set(edge.target, index);
   });
   const ranks = new Map<string, number>();
   const trigger = nodes.find((node) => node.type === 'trigger');
@@ -95,6 +99,42 @@ function layoutChatbotNodes(nodes: Node<FlowData>[], edges: Edge[]) {
     layer.push(node);
     layers.set(rank, layer);
   });
+  const originalOrder = new Map(nodes.map((node, index) => [node.id, index]));
+  layers.forEach((layer) => layer.sort((left, right) => (left.position.y - right.position.y) || (originalOrder.get(left.id)! - originalOrder.get(right.id)!)));
+  const medianNeighborRank = (nodeId: string, neighbors: Map<string, string[]>, neighborOrder: Map<string, number>) => {
+    const positions = (neighbors.get(nodeId) || []).map((neighborId) => neighborOrder.get(neighborId)).filter((position): position is number => position !== undefined).sort((left, right) => left - right);
+    if (!positions.length) return null;
+    return positions[Math.floor((positions.length - 1) / 2)]!;
+  };
+  const currentLayerOrder = (rank: number) => new Map((layers.get(rank) || []).map((node, index) => [node.id, index]));
+  for (let iteration = 0; iteration < 6; iteration += 1) {
+    for (let rank = 1; rank <= maxRank; rank += 1) {
+      const layer = layers.get(rank);
+      if (!layer) continue;
+      const previousOrder = currentLayerOrder(rank - 1);
+      layer.sort((left, right) => {
+        const leftMedian = medianNeighborRank(left.id, incoming, previousOrder);
+        const rightMedian = medianNeighborRank(right.id, incoming, previousOrder);
+        if (leftMedian !== null && rightMedian !== null && leftMedian !== rightMedian) return leftMedian - rightMedian;
+        if (leftMedian !== null) return -1;
+        if (rightMedian !== null) return 1;
+        return (edgeOrder.get(left.id) ?? originalOrder.get(left.id)!) - (edgeOrder.get(right.id) ?? originalOrder.get(right.id)!);
+      });
+    }
+    for (let rank = maxRank - 1; rank >= 1; rank -= 1) {
+      const layer = layers.get(rank);
+      if (!layer) continue;
+      const nextOrder = currentLayerOrder(rank + 1);
+      layer.sort((left, right) => {
+        const leftMedian = medianNeighborRank(left.id, outgoing, nextOrder);
+        const rightMedian = medianNeighborRank(right.id, outgoing, nextOrder);
+        if (leftMedian !== null && rightMedian !== null && leftMedian !== rightMedian) return leftMedian - rightMedian;
+        if (leftMedian !== null) return -1;
+        if (rightMedian !== null) return 1;
+        return (edgeOrder.get(left.id) ?? originalOrder.get(left.id)!) - (edgeOrder.get(right.id) ?? originalOrder.get(right.id)!);
+      });
+    }
+  }
   const gapX = 150;
   const gapY = 46;
   const columnWidth = 320 + gapX;
@@ -352,7 +392,7 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
   const save = useMutation({ mutationFn: (graphToSave: ChatbotGraph) => api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph: graphToSave }) }), onSuccess: (_result, graphToSave) => { setSavedGraphSnapshot(graphSnapshot(graphToSave)); toast.success('Chatbot salvo.'); return query.refetch(); } });
   const publish = useMutation({ mutationFn: async (graphToPublish: ChatbotGraph) => { await api(`/chatbots/${chatbotId}/draft`, { method: 'PATCH', body: JSON.stringify({ graph: graphToPublish }) }); return api(`/chatbots/${chatbotId}/publish`, { method: 'POST' }); }, onSuccess: (_result, graphToPublish) => { setSavedGraphSnapshot(graphSnapshot(graphToPublish)); toast.success('Chatbot publicado.'); return query.refetch(); }, onError: (error, graphToPublish) => highlightInvalidNodes(validationNodeIds(error, graphToPublish)) });
   const changeStatus = useMutation({ mutationFn: (status: string) => api(`/chatbots/${chatbotId}/status`, { method: 'PATCH', body: JSON.stringify({ status }) }), onSuccess: (_result, status) => { toast.success(status === 'PAUSED' ? 'Chatbot pausado.' : 'Chatbot ativado.'); return query.refetch(); } });
-  const onConnect = useCallback((connection: Connection) => setEdges((current) => addEdge({ ...connection, animated: true, style: { stroke: '#2da6dc' } }, current)), [setEdges]);
+  const onConnect = useCallback((connection: Connection) => setEdges((current) => addEdge({ ...connection, type: 'smoothstep', animated: true, style: { stroke: '#2da6dc' } }, current)), [setEdges]);
   const addNode = useCallback((type: string, position?: { x: number; y: number }) => {
     const definition = nodeDefinitions.find((item) => item.type === type)!;
     const id = `${type}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
@@ -428,12 +468,13 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
   const organizeFlow = useCallback(() => {
     if (!nodes.length) return;
     setNodes(layoutChatbotNodes(nodes, edges));
+    setEdges((current) => current.map((edge) => ({ ...edge, type: 'smoothstep' })));
     setSelectedNodeId(null);
     window.requestAnimationFrame(() => {
       void flowInstanceRef.current?.fitView({ duration: 500, padding: 0.25 });
     });
     toast.success('Fluxo organizado.');
-  }, [edges, nodes, setNodes]);
+  }, [edges, nodes, setEdges, setNodes]);
   const nodeEditorContext = useMemo<ChatbotNodeContextValue>(() => ({ tags: metadata.tags, teams: metadata.teams, onChange: updateNodeData, onDelete: deleteNode }), [deleteNode, metadata.tags, metadata.teams, updateNodeData]);
   if (query.isLoading) return <PageLoading />;
   const chatbot = query.data!.data;
