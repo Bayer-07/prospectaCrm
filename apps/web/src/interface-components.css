@@ -229,6 +229,7 @@ td { font-size: var(--font-body); }
 .connection-picker-empty, .connection-picker-status { min-height: 42px; padding: 11px 9px; color: var(--muted); font-size: 12px; line-height: 1.35; }
 .connection-picker-status { position: absolute; top: calc(100% + 5px); left: 0; width: 100%; z-index: 130; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); box-shadow: 0 14px 34px rgba(24, 39, 50, .18); }
 .connection-picker-status.error { color: var(--red); }
+.company-picker-menu.floating-menu, .company-picker-status.floating-menu, .connection-picker-menu.floating-menu, .connection-picker-status.floating-menu { position: fixed; top: auto; right: auto; bottom: auto; left: auto; width: auto; }
 .conversation-filter-field .connection-picker-control { min-height: 36px; padding-left: 8px; border-color: var(--line); background: var(--surface-soft); }
 .conversation-filter-field .connection-picker-control > input { min-height: 34px; font-size: 11px; }
 .conversation-filter-field .connection-picker-toggle { height: 25px; }

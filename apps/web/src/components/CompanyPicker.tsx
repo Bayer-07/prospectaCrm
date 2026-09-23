@@ -1,6 +1,7 @@
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Building2, Check, ChevronDown, Search } from 'lucide-react';
 import type { Company } from '../lib/types';
+import { FloatingMenu } from './FloatingMenu';
 
 type CompanyPickerProps = {
   companies: readonly Company[];
@@ -30,6 +31,7 @@ export function CompanyPicker({
   className = '',
 }: Readonly<CompanyPickerProps>) {
   const pickerId = useId();
+  const controlRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
@@ -92,7 +94,7 @@ export function CompanyPicker({
   };
 
   return <div className={`company-picker ${className}`.trim()}>
-    <div className={`company-picker-control${open ? ' open' : ''}`}>
+    <div ref={controlRef} className={`company-picker-control${open ? ' open' : ''}`}>
       <Search size={16} aria-hidden="true" />
       <input
         ref={inputRef}
@@ -127,28 +129,28 @@ export function CompanyPicker({
         <ChevronDown size={16} aria-hidden="true" />
       </button>
     </div>
-    {open && !isDisabled && <div className="company-picker-menu" id={listboxId} role="listbox" aria-label={`Opções de ${ariaLabel.toLowerCase()}`}>
-      {options.map((option, index) => {
-        const selected = option.id === value;
-        return <button
-          type="button"
-          role="option"
-          id={`${listboxId}-${option.id || 'empty'}`}
-          key={option.id || 'empty'}
-          aria-selected={selected}
-          className={`company-picker-option${selected ? ' selected' : ''}${index === activeIndex ? ' active' : ''}`}
-          onMouseDown={(event) => event.preventDefault()}
-          onMouseEnter={() => setActiveIndex(index)}
-          onClick={() => selectCompany(option.id)}
-        >
-          <span className="company-picker-option-icon"><Building2 size={15} aria-hidden="true" /></span>
-          <span className="company-picker-option-copy">{option.name}</span>
-          {selected && <Check size={16} aria-hidden="true" />}
-        </button>;
-      })}
-      {normalizedSearch && filteredCompanies.length === 0 && <p className="company-picker-empty">Nenhuma empresa encontrada para “{search}”.</p>}
-    </div>}
-    {open && loading && <div className="company-picker-menu company-picker-status" role="status">Carregando empresas…</div>}
-    {open && error && <div className="company-picker-menu company-picker-status error" role="alert">Não foi possível carregar as empresas.</div>}
+    <FloatingMenu anchorRef={controlRef} open={open} className={`company-picker-menu${loading ? ' company-picker-status' : ''}${error ? ' company-picker-status error' : ''}`} maxHeight={300} onOutsideClick={closePicker} role={error ? 'alert' : loading ? 'status' : 'listbox'} ariaLabel={loading || error ? undefined : `Opções de ${ariaLabel.toLowerCase()}`}>
+      {loading ? 'Carregando empresas…' : error ? 'Não foi possível carregar as empresas.' : <>
+        {options.map((option, index) => {
+          const selected = option.id === value;
+          return <button
+            type="button"
+            role="option"
+            id={`${listboxId}-${option.id || 'empty'}`}
+            key={option.id || 'empty'}
+            aria-selected={selected}
+            className={`company-picker-option${selected ? ' selected' : ''}${index === activeIndex ? ' active' : ''}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => setActiveIndex(index)}
+            onClick={() => selectCompany(option.id)}
+          >
+            <span className="company-picker-option-icon"><Building2 size={15} aria-hidden="true" /></span>
+            <span className="company-picker-option-copy">{option.name}</span>
+            {selected && <Check size={16} aria-hidden="true" />}
+          </button>;
+        })}
+        {normalizedSearch && filteredCompanies.length === 0 && <p className="company-picker-empty">Nenhuma empresa encontrada para “{search}”.</p>}
+      </>}
+    </FloatingMenu>
   </div>;
 }

@@ -15,6 +15,7 @@ import { CompanyPicker } from '../components/CompanyPicker';
 import { ConnectionPicker } from '../components/ConnectionPicker';
 import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
+import { FloatingMenu } from '../components/FloatingMenu';
 import { TagModal, type TagRecord } from '../components/TagModal';
 import { TagMultiSelect } from '../components/TagMultiSelect';
 import { FollowUpModal } from '../components/FollowUpModal';
@@ -2660,14 +2661,6 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
     },
   });
   useEffect(() => setContactTags(contact.tags || []), [contact.tags]);
-  useEffect(() => {
-    if (!pickerOpen) return undefined;
-    const closePicker = (event: MouseEvent) => {
-      if (event.target instanceof Node && !pickerRef.current?.contains(event.target)) setPickerOpen(false);
-    };
-    document.addEventListener('mousedown', closePicker);
-    return () => document.removeEventListener('mousedown', closePicker);
-  }, [pickerOpen]);
   const selectedIds = new Set(contactTags.map(({ tag }) => tag.id));
   const normalizedSearch = tagSearch.trim().toLocaleLowerCase('pt-BR');
   const matchingTags = (availableTags.data?.data || []).filter((tag) => !selectedIds.has(tag.id)
@@ -2700,7 +2693,9 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
     {contactTags.length ? <div className="inbox-contact-tag-chips">{contactTags.map(({ tag }) => <span className="inbox-contact-tag-chip" key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}{canEdit && <button type="button" onClick={() => removeTag(tag.id)} disabled={updateTags.isPending} aria-label={`Remover tag ${tag.name}`} title={`Remover ${tag.name}`}><X size={12} /></button>}</span>)}</div> : !canEdit && <p className="drawer-empty-copy">Nenhuma tag adicionada.</p>}
     {canEdit && <div className="inbox-contact-tags-picker" ref={pickerRef}>
       <div className={`inbox-contact-tags-input ${pickerOpen ? 'active' : ''}`}><Tags size={14} /><input value={tagSearch} onFocus={() => setPickerOpen(true)} onChange={(event) => { setTagSearch(event.target.value); setPickerOpen(true); }} onKeyDown={(event) => { if (event.key === 'Escape') setPickerOpen(false); }} placeholder="Adicionar tag…" aria-label="Buscar tags para o contato" aria-expanded={pickerOpen} aria-controls="inbox-contact-tag-options" role="combobox" autoComplete="off" disabled={updateTags.isPending} /></div>
-      {pickerOpen && <div className="inbox-contact-tag-options" id="inbox-contact-tag-options" role="listbox">{availableTags.isLoading ? <p>Carregando tags…</p> : availableTags.isError ? <p>Não foi possível carregar as tags.</p> : matchingTags.length ? matchingTags.map((tag) => <button type="button" role="option" aria-selected="false" key={tag.id} onClick={() => selectTag(tag)}><i style={{ background: tag.color }} /><span>{tag.name}</span><Plus size={14} /></button>) : tagSearch.trim() ? <button type="button" className="inbox-contact-tag-create" onClick={openTagCreation}><Plus size={15} /><span>Adicionar tag “{tagSearch.trim()}”</span></button> : availableTags.data?.data.length ? <p>Digite para buscar uma tag.</p> : <p><span>Você ainda não criou tags.</span> <Link to="/tags">Criar tag</Link></p>}</div>}
+      <FloatingMenu anchorRef={pickerRef} open={pickerOpen} className="inbox-contact-tag-options" maxHeight={210} onOutsideClick={() => setPickerOpen(false)} id="inbox-contact-tag-options" role="listbox">
+        {availableTags.isLoading ? <p>Carregando tags…</p> : availableTags.isError ? <p>Não foi possível carregar as tags.</p> : matchingTags.length ? matchingTags.map((tag) => <button type="button" role="option" aria-selected="false" key={tag.id} onClick={() => selectTag(tag)}><i style={{ background: tag.color }} /><span>{tag.name}</span><Plus size={14} /></button>) : tagSearch.trim() ? <button type="button" className="inbox-contact-tag-create" onClick={openTagCreation}><Plus size={15} /><span>Adicionar tag “{tagSearch.trim()}”</span></button> : availableTags.data?.data.length ? <p>Digite para buscar uma tag.</p> : <p><span>Você ainda não criou tags.</span> <Link to="/tags">Criar tag</Link></p>}
+      </FloatingMenu>
     </div>}
     </section>
     {creatingTagName !== null && <TagModal tag={null} initialName={creatingTagName} onClose={() => setCreatingTagName(null)} onSaved={handleTagCreated} />}

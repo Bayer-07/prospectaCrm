@@ -1,6 +1,7 @@
-import { useId, useMemo, useState, type KeyboardEvent } from 'react';
+import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
 import { Cable, Check, ChevronDown, Search } from 'lucide-react';
 import { formatPhone } from '../lib/api';
+import { FloatingMenu } from './FloatingMenu';
 
 export type ConnectionOption = {
   id: string;
@@ -46,6 +47,7 @@ export function ConnectionPicker({
   className = '',
 }: Readonly<ConnectionPickerProps>) {
   const pickerId = useId();
+  const controlRef = useRef<HTMLDivElement | null>(null);
   const [open, setOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [activeIndex, setActiveIndex] = useState(0);
@@ -105,7 +107,7 @@ export function ConnectionPicker({
   };
 
   return <div className={`connection-picker ${className}`.trim()}>
-    <div className={`connection-picker-control${open ? ' open' : ''}`}>
+    <div ref={controlRef} className={`connection-picker-control${open ? ' open' : ''}`}>
       <Search size={16} aria-hidden="true" />
       <input
         value={open ? search : selectedName}
@@ -139,29 +141,29 @@ export function ConnectionPicker({
         <ChevronDown size={16} aria-hidden="true" />
       </button>
     </div>
-    {open && !isDisabled && <div className="connection-picker-menu" id={listboxId} role="listbox" aria-label={`Opções de ${ariaLabel.toLowerCase()}`}>
-      {options.map((option, index) => {
-        const selected = option.id === value;
-        const details = connectionDetails(option);
-        return <button
-          type="button"
-          role="option"
-          id={`${listboxId}-${option.id || 'empty'}`}
-          key={option.id || 'empty'}
-          aria-selected={selected}
-          className={`connection-picker-option${selected ? ' selected' : ''}${index === activeIndex ? ' active' : ''}`}
-          onMouseDown={(event) => event.preventDefault()}
-          onMouseEnter={() => setActiveIndex(index)}
-          onClick={() => selectConnection(option.id)}
-        >
-          <span className="connection-picker-option-icon"><Cable size={15} aria-hidden="true" /></span>
-          <span className="connection-picker-option-copy"><strong>{option.name}</strong>{details && <small>{details}</small>}</span>
-          {selected && <Check size={16} aria-hidden="true" />}
-        </button>;
-      })}
-      {normalizedSearch && options.length === (allowEmpty ? 1 : 0) && <p className="connection-picker-empty">Nenhuma conexão encontrada para “{search}”.</p>}
-    </div>}
-    {open && loading && <div className="connection-picker-menu connection-picker-status" role="status">Carregando conexões…</div>}
-    {open && error && <div className="connection-picker-menu connection-picker-status error" role="alert">Não foi possível carregar as conexões.</div>}
+    <FloatingMenu anchorRef={controlRef} open={open} className={`connection-picker-menu${loading ? ' connection-picker-status' : ''}${error ? ' connection-picker-status error' : ''}`} maxHeight={300} onOutsideClick={closePicker} role={error ? 'alert' : loading ? 'status' : 'listbox'} ariaLabel={loading || error ? undefined : `Opções de ${ariaLabel.toLowerCase()}`}>
+      {loading ? 'Carregando conexões…' : error ? 'Não foi possível carregar as conexões.' : <>
+        {options.map((option, index) => {
+          const selected = option.id === value;
+          const details = connectionDetails(option);
+          return <button
+            type="button"
+            role="option"
+            id={`${listboxId}-${option.id || 'empty'}`}
+            key={option.id || 'empty'}
+            aria-selected={selected}
+            className={`connection-picker-option${selected ? ' selected' : ''}${index === activeIndex ? ' active' : ''}`}
+            onMouseDown={(event) => event.preventDefault()}
+            onMouseEnter={() => setActiveIndex(index)}
+            onClick={() => selectConnection(option.id)}
+          >
+            <span className="connection-picker-option-icon"><Cable size={15} aria-hidden="true" /></span>
+            <span className="connection-picker-option-copy"><strong>{option.name}</strong>{details && <small>{details}</small>}</span>
+            {selected && <Check size={16} aria-hidden="true" />}
+          </button>;
+        })}
+        {normalizedSearch && options.length === (allowEmpty ? 1 : 0) && <p className="connection-picker-empty">Nenhuma conexão encontrada para “{search}”.</p>}
+      </>}
+    </FloatingMenu>
   </div>;
 }
