@@ -16,6 +16,7 @@ import { ConnectionPicker } from '../components/ConnectionPicker';
 import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
 import { FloatingMenu } from '../components/FloatingMenu';
+import { FloatingSelect } from '../components/FloatingSelect';
 import { TagModal, type TagRecord } from '../components/TagModal';
 import { TagMultiSelect } from '../components/TagMultiSelect';
 import { FollowUpModal } from '../components/FollowUpModal';
@@ -269,8 +270,8 @@ function InboxFilterPanel(props: InboxFilterPanelProps) {
       {invalidDateRange && <p>A data final deve ser igual ou posterior à inicial.</p>}
     </div>
     <label className="conversation-filter-field"><span>Conexão Evolution</span><ConnectionPicker options={options?.instances || []} value={draft.instanceId} onChange={(value) => props.onChange('instanceId', value)} loading={optionsLoading} error={optionsError} allowEmpty emptyLabel="Todas as conexões" ariaLabel="Conexão Evolution" /></label>
-    <label className="conversation-filter-field"><span>Equipe / fila</span><select value={draft.teamId} onChange={(event) => props.onChange('teamId', event.target.value)}><option value="">Todas as filas</option>{(options?.teams || []).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
-    <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draft.assigneeId} onChange={(event) => props.onChange('assigneeId', event.target.value)}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{optionsLoading && <option disabled>Carregando usuários…</option>}{(options?.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
+    <label className="conversation-filter-field"><span>Equipe / fila</span><FloatingSelect ariaLabel="Equipe / fila" value={draft.teamId} onChange={(value) => props.onChange('teamId', value)} options={[{ value: '', label: 'Todas as filas' }, ...(options?.teams || []).map((team) => ({ value: team.id, label: team.name }))]} /></label>
+    <label className="conversation-filter-field"><span>Usuário responsável</span><FloatingSelect ariaLabel="Usuário responsável" value={draft.assigneeId} onChange={(value) => props.onChange('assigneeId', value)} options={[{ value: '', label: 'Todos os usuários' }, { value: 'unassigned', label: 'Sem atendente' }, ...(optionsLoading ? [{ value: '__loading__', label: 'Carregando usuários…', disabled: true }] : []), ...(options?.users || []).map((option) => ({ value: option.id, label: option.name }))]} /></label>
     <TagMultiSelect label="Tags do contato" className="conversation-filter-field" options={options?.tags || []} value={draft.tagIds} onChange={(tagIds) => props.onChange('tagIds', tagIds)} />
     {optionsError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
     <footer><button type="button" className="conversation-filter-clear" onClick={props.onClear} disabled={!activeCount && !hasDraftFilters}>Limpar</button><Button type="button" onClick={props.onApply} disabled={invalidDateRange}>Aplicar filtros</Button></footer>
