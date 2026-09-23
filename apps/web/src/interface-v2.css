@@ -65,6 +65,8 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .opportunity-card:focus-visible { outline: 3px solid var(--focus-ring); border-color: var(--violet); }
 .opportunity-card:active { cursor: grabbing; }
 .opportunity-card.dragging { opacity: .28; box-shadow: none; cursor: grabbing; }
+.opportunity-card-delete { position: absolute; z-index: 2; top: 9px; right: 9px; width: 28px; height: 28px; padding: 0; border: 1px solid var(--line); border-radius: 8px; background: var(--surface); color: var(--muted); display: grid; place-items: center; cursor: pointer; }
+.opportunity-card-delete:hover, .opportunity-card-delete:focus-visible { border-color: var(--red); background: var(--red-soft); color: var(--red); outline: 0; }
 .drag-overlay-card { width: 286px; cursor: grabbing; transform: rotate(1deg) !important; box-shadow: 0 20px 45px rgba(26, 45, 60, .22); }
 .company-mini { font-size: 12px; }.opportunity-card h3 { min-height: 40px; margin: 11px 0 7px; font-size: 14px; }.opportunity-card > strong { font-size: 15px; }
 .opportunity-meta > span:first-child { font-size: 12px; }.avatar.xs { width: 25px; height: 25px; font-size: 9px; }

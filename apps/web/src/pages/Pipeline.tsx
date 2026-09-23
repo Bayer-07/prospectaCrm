@@ -89,7 +89,7 @@ function removeOpportunityFromPipeline(current: Envelope<Pipeline> | undefined, 
   };
 }
 
-const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, overlay = false }: Readonly<{ opportunity: Opportunity; onOpen?: () => void; overlay?: boolean }>) {
+const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, onDelete, overlay = false }: Readonly<{ opportunity: Opportunity; onOpen?: () => void; onDelete?: () => void; overlay?: boolean }>) {
   const drag = useDraggable({ id: opportunity.id, data: { stageId: opportunity.stageId }, disabled: overlay });
   const pointerStart = useRef<{ x: number; y: number } | null>(null);
   const pointerMoved = useRef(false);
@@ -122,6 +122,7 @@ const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, ove
       onClick={openFromClick}
       style={{ position: 'absolute', inset: 0, zIndex: 1, border: 0, background: 'transparent', cursor: 'grab' }}
     />}
+    {!overlay && onDelete && <button type="button" className="opportunity-card-delete" onPointerDown={(event) => event.stopPropagation()} onClick={(event) => { event.stopPropagation(); onDelete(); }} aria-label={`Excluir oportunidade ${opportunity.title}`} title="Excluir oportunidade"><Trash2 size={14} /></button>}
     <div className="opportunity-top"><span className="company-mini"><Building2 size={15} />{opportunity.company?.name || 'Sem empresa'}</span></div>
     <h3>{opportunity.title}</h3>
     <strong>{money(opportunity.valueCents)}</strong>
@@ -129,14 +130,15 @@ const OpportunityCard = memo(function OpportunityCard({ opportunity, onOpen, ove
   </article>;
 });
 
-const StageColumn = memo(function StageColumn({ stage, onOpen }: Readonly<{ stage: Stage; onOpen(id: string): void }>) {
+const StageColumn = memo(function StageColumn({ stage, onOpen, onDelete, canDelete }: Readonly<{ stage: Stage; onOpen(id: string): void; onDelete(id: string): void; canDelete: boolean }>) {
   const drop = useDroppable({ id: stage.id });
   const value = stage.opportunities.reduce((sum, item) => sum + item.valueCents, 0);
-  return <section ref={drop.setNodeRef} className={`kanban-column ${drop.isOver ? 'drop-over' : ''}`}><header><div><i style={{ background: stage.color }} /><strong>{stage.name}</strong><span>{stage.opportunities.length}</span></div><b>{money(value)}</b></header><div className="kanban-cards">{stage.opportunities.map((item) => <OpportunityCard opportunity={item} key={item.id} onOpen={() => onOpen(item.id)} />)}{!stage.opportunities.length && <div className="kanban-empty">Arraste oportunidades para cá</div>}</div></section>;
+  return <section ref={drop.setNodeRef} className={`kanban-column ${drop.isOver ? 'drop-over' : ''}`}><header><div><i style={{ background: stage.color }} /><strong>{stage.name}</strong><span>{stage.opportunities.length}</span></div><b>{money(value)}</b></header><div className="kanban-cards">{stage.opportunities.map((item) => <OpportunityCard opportunity={item} key={item.id} onOpen={() => onOpen(item.id)} onDelete={canDelete ? () => onDelete(item.id) : undefined} />)}{!stage.opportunities.length && <div className="kanban-empty">Arraste oportunidades para cá</div>}</div></section>;
 });
 
 export function PipelinePage() {
   const client = useQueryClient();
+  const { user } = useAuth();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedPipelineId = searchParams.get('pipeline') || '';
   const requestedOpportunityId = searchParams.get('opportunity');
@@ -148,6 +150,8 @@ export function PipelinePage() {
   const deferredSearch = useDeferredValue(search);
   const [activeId, setActiveId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(requestedOpportunityId);
+  const [deletingOpportunity, setDeletingOpportunity] = useState<Opportunity | null>(null);
+  const canDeleteOpportunity = Boolean(user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
   useEffect(() => {
     if (requestedPipelineId) setPipelineId(requestedPipelineId);
     setSearch(requestedSearch);
@@ -203,7 +207,7 @@ export function PipelinePage() {
     setSearchParams(next, { replace: true });
   };
   if (pipelines.isLoading || kanban.isLoading) return <PageLoading />;
-  return <div className="pipeline-page"><div className="toolbar"><div className="toolbar-left"><label className="compact-select"><LayoutGrid size={16} /><select value={selectedPipelineId} onChange={(event) => setPipelineId(event.target.value)}>{pipelines.data?.data.map((pipeline) => <option value={pipeline.id} key={pipeline.id}>{pipeline.name}</option>)}</select><ChevronDown size={15} /></label><button type="button" className="filter-button"><Filter size={16} />Filtros</button><div className="inline-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no funil…" /></div></div><Button onClick={() => setModal(true)}><Plus size={16} />Nova oportunidade</Button></div><DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}><div className="kanban-board">{stages.map((stage) => <StageColumn stage={stage} key={stage.id} onOpen={setSelectedId} />)}</div>{createPortal(<DragOverlay dropAnimation={{ duration: 240, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }}>{activeOpportunity ? <OpportunityCard opportunity={activeOpportunity} overlay /> : null}</DragOverlay>, document.body)}</DndContext>{modal && <OpportunityModal pipeline={kanban.data!.data} onClose={closeCreating} onCreated={() => { closeCreating(); void client.invalidateQueries({ queryKey: kanbanKey }); }} />}{selectedId && <OpportunityDrawer id={selectedId} onClose={closeOpportunity} />}</div>;
+  return <div className="pipeline-page"><div className="toolbar"><div className="toolbar-left"><label className="compact-select"><LayoutGrid size={16} /><select value={selectedPipelineId} onChange={(event) => setPipelineId(event.target.value)}>{pipelines.data?.data.map((pipeline) => <option value={pipeline.id} key={pipeline.id}>{pipeline.name}</option>)}</select><ChevronDown size={15} /></label><button type="button" className="filter-button"><Filter size={16} />Filtros</button><div className="inline-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar no funil…" /></div></div><Button onClick={() => setModal(true)}><Plus size={16} />Nova oportunidade</Button></div><DndContext sensors={sensors} onDragStart={onDragStart} onDragEnd={onDragEnd} onDragCancel={() => setActiveId(null)}><div className="kanban-board">{stages.map((stage) => <StageColumn stage={stage} key={stage.id} onOpen={setSelectedId} onDelete={(id) => setDeletingOpportunity(allOpportunities.find((opportunity) => opportunity.id === id) || null)} canDelete={canDeleteOpportunity} />)}</div>{createPortal(<DragOverlay dropAnimation={{ duration: 240, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }}>{activeOpportunity ? <OpportunityCard opportunity={activeOpportunity} overlay /> : null}</DragOverlay>, document.body)}</DndContext>{modal && <OpportunityModal pipeline={kanban.data!.data} onClose={closeCreating} onCreated={() => { closeCreating(); void client.invalidateQueries({ queryKey: kanbanKey }); }} />}{selectedId && <OpportunityDrawer id={selectedId} onClose={closeOpportunity} />}{deletingOpportunity && <DeleteOpportunityModal opportunity={deletingOpportunity} onClose={() => setDeletingOpportunity(null)} onDeleted={() => setDeletingOpportunity(null)} />}</div>;
 }
 
 function OpportunityDrawerContent({ opportunity }: Readonly<{ opportunity: OpportunityDetails }>) {
@@ -249,7 +253,7 @@ function OpportunityDrawer({ id, onClose }: Readonly<{ id: string; onClose(): vo
   return <><button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes" /><aside className="opportunity-drawer" aria-label="Detalhes da oportunidade"><header><div className="opportunity-drawer-title"><span className="eyebrow">Oportunidade</span><h2>{opportunity?.title || 'Carregando…'}</h2></div><div className="opportunity-drawer-header-actions">{canDelete && opportunity && <button type="button" className="opportunity-delete-trigger" onClick={() => setDeleting(true)}><Trash2 size={15} />Excluir</button>}<button type="button" className="icon-button" onClick={onClose} aria-label="Fechar"><X size={20} /></button></div></header>{content}</aside>{deleting && opportunity && <DeleteOpportunityModal opportunity={opportunity} onClose={() => setDeleting(false)} onDeleted={onClose} />}</>;
 }
 
-function DeleteOpportunityModal({ opportunity, onClose, onDeleted }: Readonly<{ opportunity: OpportunityDetails; onClose(): void; onDeleted(): void }>) {
+function DeleteOpportunityModal({ opportunity, onClose, onDeleted }: Readonly<{ opportunity: Pick<OpportunityDetails, 'id' | 'title'>; onClose(): void; onDeleted(): void }>) {
   const client = useQueryClient();
   const remove = useMutation({
     mutationFn: () => api(`/opportunities/${opportunity.id}`, { method: 'DELETE' }),
