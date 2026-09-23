@@ -178,6 +178,13 @@ export class CrmController {
   async updateContact(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: unknown) { return { data: await this.crm.updateContact(auth, id, body) }; }
 
   @RequirePermission('contacts', 'write')
+  @ApiExcludeEndpoint()
+  @Patch('contacts/:id/tags')
+  async updateContactTags(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: unknown) {
+    return { data: await this.crm.updateContactTags(auth, id, body) };
+  }
+
+  @RequirePermission('contacts', 'write')
   @ApiArchiveContactDocumentation()
   @Delete('contacts/:id')
   async archiveContact(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.crm.archiveContact(auth, id) }; }

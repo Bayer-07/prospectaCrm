@@ -5,7 +5,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import {
   Bell, Blocks, BookOpen, Bot, BrainCircuit, Building2, Cable, Camera, CheckCheck, CheckSquare, ChevronDown, ContactRound, Eye, Gauge,
   Inbox, KanbanSquare, KeyRound, ListChecks, LogOut, Mail, Menu, MessageSquareReply, MessageSquareText, Moon, Network, Plug, Plus,
-  Settings, Sun, Trash2, UserRound, Users, Webhook, X,
+  Settings, Sun, Tag, Trash2, UserRound, Users, Webhook, X,
 } from 'lucide-react';
 import { api, apiUrl, dateTime, type Envelope } from '../lib/api';
 import { Button, Field, Modal } from './ui';
@@ -50,7 +50,7 @@ type NavItem = {
 const nav: Array<{ section: string; items: NavItem[] }> = [
   { section: 'Trabalho', items: [
     { to: '/', label: 'Visão geral', icon: Gauge }, { to: '/pipeline', label: 'Pipeline', icon: KanbanSquare, resource: 'opportunities' },
-    { to: '/empresas', label: 'Empresas', icon: Building2, resource: 'companies' }, { to: '/contatos', label: 'Contatos', icon: ContactRound, resource: 'contacts' },
+    { to: '/empresas', label: 'Empresas', icon: Building2, resource: 'companies' }, { to: '/contatos', label: 'Contatos', icon: ContactRound, resource: 'contacts' }, { to: '/tags', label: 'Tags', icon: Tag, resource: 'contacts' },
     { to: '/tarefas', label: 'Tarefas', icon: CheckSquare, resource: 'tasks' },
     { to: '/atividades', label: 'Atividades', icon: ListChecks, resource: 'activities' },
   ] },
@@ -92,6 +92,7 @@ const pageInfo: Record<string, { title: string; description: string }> = {
   '/pipeline': { title: 'Pipeline', description: 'Oportunidades organizadas por etapa.' },
   '/empresas': { title: 'Empresas', description: 'Contas e organizações do seu CRM.' },
   '/contatos': { title: 'Contatos', description: 'Pessoas, consentimentos e carteiras.' },
+  '/tags': { title: 'Tags', description: 'Etiquetas para organizar e segmentar seus contatos.' },
   '/tarefas': { title: 'Tarefas', description: 'Próximas ações da equipe.' },
   '/atividades': { title: 'Atividades', description: 'Linha do tempo comercial de toda a operação.' },
   '/inbox': { title: 'Inbox', description: 'Conversas compartilhadas do WhatsApp.' },

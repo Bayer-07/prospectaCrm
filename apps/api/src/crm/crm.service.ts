@@ -474,6 +474,34 @@ export class CrmService {
     return contact;
   }
 
+  async updateContactTags(auth: AuthContext, id: string, raw: unknown) {
+    const tagIdsValue = raw && typeof raw === 'object' && 'tagIds' in raw
+      ? (raw as { tagIds?: unknown }).tagIds
+      : undefined;
+    if (!Array.isArray(tagIdsValue) || tagIdsValue.some((tagId) => typeof tagId !== 'string')) {
+      throw new BadRequestException('Informe uma lista válida de tags');
+    }
+    const tagIds = [...new Set(tagIdsValue.map((tagId) => tagId.trim()).filter(Boolean))]
+      .map((tagId) => this.contactFilterId(tagId, 'tag', false)!);
+    const before = await this.db.contact.findFirst({
+      where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts', 'write') },
+      select: { id: true, tags: { select: { tagId: true } } },
+    });
+    if (!before) throw new NotFoundException('Contato não encontrado');
+    const ownedTags = await this.db.tag.findMany({
+      where: { organizationId: auth.organizationId, id: { in: tagIds } },
+      select: { id: true },
+    });
+    if (ownedTags.length !== tagIds.length) throw new BadRequestException('Uma ou mais tags não foram encontradas');
+
+    await this.db.$transaction(async (tx) => {
+      await tx.contactTag.deleteMany({ where: { contactId: id } });
+      if (tagIds.length) await tx.contactTag.createMany({ data: tagIds.map((tagId) => ({ contactId: id, tagId })) });
+    });
+    await this.audit(auth, 'contact.tags_updated', 'Contact', id, { tagIds: before.tags.map((tag) => tag.tagId) }, { tagIds });
+    return this.getContact(auth, id);
+  }
+
   async archiveContact(auth: AuthContext, id: string) {
     const before = await this.db.contact.findFirst({ where: { id, organizationId: auth.organizationId, archivedAt: null, ...scopedWhere(auth, 'contacts', 'write') } });
     if (!before) throw new NotFoundException('Contato não encontrado');
@@ -739,7 +767,13 @@ export class CrmService {
     return { users, teams, tags, segments, customFields };
   }
 
-  tags(auth: AuthContext) { return this.db.tag.findMany({ where: { organizationId: auth.organizationId }, orderBy: { name: 'asc' } }); }
+  tags(auth: AuthContext) {
+    return this.db.tag.findMany({
+      where: { organizationId: auth.organizationId },
+      include: { _count: { select: { contacts: true } } },
+      orderBy: { name: 'asc' },
+    });
+  }
 
   createTag(auth: AuthContext, input: { name: string; color?: string }) {
     if (!input.name?.trim()) throw new BadRequestException('Nome da tag é obrigatório');

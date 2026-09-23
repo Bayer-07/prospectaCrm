@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Plus, Search, Trash2, Upload, UserRound, X } from 'lucide-react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
-import { api, apiUrl, formatPhone, type Envelope } from '../lib/api';
+import { Building2, Check, ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Plus, Search, Tags, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
+import { api, apiErrorMessage, apiUrl, formatPhone, type Envelope } from '../lib/api';
+import { useAuth } from '../App';
 import type { Contact } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { ContactAvatar } from '../components/ContactAvatar';
@@ -26,6 +27,7 @@ type ContactFilterMetadata = {
   teams: Array<{ id: string; name: string }>;
   tags: Array<{ id: string; name: string; color: string }>;
 };
+type ContactTagOption = { id: string; name: string; color: string };
 
 export function ContactsPage() {
   const client = useQueryClient();
@@ -234,9 +236,14 @@ function WhatsappStatusBadge({ hasWhatsapp, loading }: Readonly<{ hasWhatsapp: b
 }
 
 function ContactDrawer({ contact, onClose }: Readonly<{ contact: Contact; onClose(): void }>) {
+  const { user } = useAuth();
+  const client = useQueryClient();
   const [tab, setTab] = useState<'overview' | 'activities' | 'opportunities'>('overview');
+  const [tagEditorOpen, setTagEditorOpen] = useState(false);
   const details = useQuery({ queryKey: ['contact', contact.id], queryFn: () => api<Envelope<Contact>>(`/contacts/${contact.id}`) });
+  const availableTags = useQuery({ queryKey: ['tags'], queryFn: () => api<Envelope<ContactTagOption[]>>('/tags') });
   const data = details.data?.data;
+  const canWriteTags = Boolean(user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === 'contacts') && (permission.action === '*' || permission.action === 'write')));
   const primaryCompany = data?.companies?.find((item) => item.isPrimary)?.company || data?.companies?.[0]?.company;
   const association = { contactId: contact.id, contactName: data?.name || contact.name, companyId: primaryCompany?.id, companyName: primaryCompany?.name, phone: data?.phone || contact.phone };
   return <><button type="button" className="drawer-scrim" onClick={onClose} aria-label="Fechar detalhes do contato" /><aside className="opportunity-drawer contact-detail-drawer" aria-label="Detalhes do contato">
@@ -245,10 +252,36 @@ function ContactDrawer({ contact, onClose }: Readonly<{ contact: Contact; onClos
       <ActivityQuickActions association={association} compact />
       <div className="drawer-tabs" role="tablist"><button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Visão geral</button><button type="button" className={tab === 'activities' ? 'active' : ''} onClick={() => setTab('activities')}>Atividades</button><button type="button" className={tab === 'opportunities' ? 'active' : ''} onClick={() => setTab('opportunities')}>Oportunidades</button></div>
       {tab === 'activities' && <ActivityTimeline association={association} showActions={false} />}
-      {tab === 'overview' && <section className="drawer-grid"><div><h3><Mail size={17} />E-mail</h3><p>{data.email || 'Não informado'}</p></div><div><h3><Phone size={17} />Telefone</h3>{data.phone ? <a href={`tel:${data.phone}`}>{formatPhone(data.phone)}</a> : <p>Não informado</p>}</div><div><h3><UserRound size={17} />Responsável</h3><p>{data.owner?.name || 'Não atribuído'}</p></div><div><h3><Building2 size={17} />Empresa</h3><p>{primaryCompany?.name || 'Não vinculada'}</p></div></section>}
+      {tab === 'overview' && <><section className="drawer-grid"><div><h3><Mail size={17} />E-mail</h3><p>{data.email || 'Não informado'}</p></div><div><h3><Phone size={17} />Telefone</h3>{data.phone ? <a href={`tel:${data.phone}`}>{formatPhone(data.phone)}</a> : <p>Não informado</p>}</div><div><h3><UserRound size={17} />Responsável</h3><p>{data.owner?.name || 'Não atribuído'}</p></div><div><h3><Building2 size={17} />Empresa</h3><p>{primaryCompany?.name || 'Não vinculada'}</p></div></section><section className="contact-tags-section"><header><div><h3><Tags size={17} />Tags</h3><small>Use etiquetas para segmentar este contato.</small></div>{canWriteTags && <Button variant="ghost" onClick={() => setTagEditorOpen(true)}><Pencil size={14} />Gerenciar</Button>}</header>{data.tags?.length ? <div className="drawer-tags">{data.tags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div> : <p className="drawer-empty-copy">Nenhuma tag adicionada.</p>}</section></>}
       {tab === 'opportunities' && (data.opportunities?.length ? <div className="company-opportunity-list">{data.opportunities.map(({ opportunity }) => <div key={opportunity.id}><div><strong>{opportunity.title}</strong><small>{opportunity.owner?.name || 'Sem responsável'}</small></div><span>{opportunity.stage.name}</span></div>)}</div> : <p className="drawer-muted">Nenhuma oportunidade vinculada.</p>)}
     </div>}
+    {tagEditorOpen && data && <ContactTagsModal contact={data} tags={availableTags.data?.data || []} loading={availableTags.isLoading} onClose={() => setTagEditorOpen(false)} onSaved={() => { setTagEditorOpen(false); void client.invalidateQueries({ queryKey: ['contact', contact.id] }); void client.invalidateQueries({ queryKey: ['contacts'] }); void client.invalidateQueries({ queryKey: ['tags'] }); }} />}
   </aside></>;
+}
+
+function ContactTagsModal({ contact, tags, loading, onClose, onSaved }: Readonly<{ contact: Contact; tags: ContactTagOption[]; loading: boolean; onClose(): void; onSaved(): void }>) {
+  const [search, setSearch] = useState('');
+  const [selected, setSelected] = useState<Set<string>>(() => new Set(contact.tags?.map(({ tag }) => tag.id)));
+  const mutation = useMutation({
+    mutationFn: () => api<Envelope<Contact>>(`/contacts/${contact.id}/tags`, { method: 'PATCH', body: JSON.stringify({ tagIds: [...selected] }) }),
+    onSuccess: () => { toast.success('Tags do contato atualizadas.'); onSaved(); },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível atualizar as tags do contato')),
+  });
+  const normalizedSearch = search.trim().toLocaleLowerCase('pt-BR');
+  const visibleTags = tags.filter((tag) => !normalizedSearch || tag.name.toLocaleLowerCase('pt-BR').includes(normalizedSearch));
+  const toggle = (tagId: string) => setSelected((current) => {
+    const next = new Set(current);
+    if (next.has(tagId)) next.delete(tagId);
+    else next.add(tagId);
+    return next;
+  });
+  return <Modal title={`Tags de ${contact.name}`} onClose={() => !mutation.isPending && onClose()} width={500}>
+    <div className="contact-tags-form">
+      <p className="drawer-muted">Selecione as etiquetas que devem ficar vinculadas a este contato.</p>
+      {loading ? <PageLoading /> : tags.length ? <><label className="inline-search"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar tag…" /></label><div className="contact-tags-options">{visibleTags.length ? visibleTags.map((tag) => <label className={`contact-tag-option ${selected.has(tag.id) ? 'selected' : ''}`} key={tag.id}><input type="checkbox" checked={selected.has(tag.id)} onChange={() => toggle(tag.id)} /><span className="contact-tag-option-dot" style={{ background: tag.color }} /><strong>{tag.name}</strong>{selected.has(tag.id) && <Check size={15} />}</label>) : <p className="drawer-empty-copy">Nenhuma tag encontrada.</p>}</div></> : <div className="contact-tags-empty"><Tags size={22} /><p>Você ainda não criou nenhuma tag.</p><Link to="/tags" onClick={onClose}>Criar primeira tag</Link></div>}
+      <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose} disabled={mutation.isPending}>Cancelar</Button><Button onClick={() => mutation.mutate()} loading={mutation.isPending} disabled={loading || !tags.length}>Salvar tags</Button></div>
+    </div>
+  </Modal>;
 }
 
 function DeleteContactModal({ contact, onClose, onDeleted }: Readonly<{ contact: Contact; onClose(): void; onDeleted(): void }>) {
