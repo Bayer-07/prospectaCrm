@@ -53,6 +53,7 @@ export class IntegrationsController {
     instanceId?: string;
     assigneeId?: string;
     teamId?: string;
+    tagId?: string;
     lastInteractionFrom?: string;
     lastInteractionTo?: string;
   }) { return { data: await this.evolution.conversations(auth, query) }; }

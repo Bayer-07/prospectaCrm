@@ -371,6 +371,7 @@ describe('busca global de atendimentos', () => {
       status: 'open',
       instanceId: 'instance-1',
       assigneeId: 'user-2',
+      tagId: '2de40104-a827-4b60-ad28-3f85f6a0464c',
       lastInteractionFrom: '2026-07-01T03:00:00.000Z',
       lastInteractionTo: '2026-08-01T03:00:00.000Z',
     });
@@ -379,6 +380,7 @@ describe('busca global de atendimentos', () => {
     expect(request.where.AND).toEqual(expect.arrayContaining([
       { instanceId: 'instance-1' },
       { assigneeId: 'user-2' },
+      { contact: { tags: { some: { tagId: '2de40104-a827-4b60-ad28-3f85f6a0464c' } } } },
       {
         lastMessageAt: {
           gte: new Date('2026-07-01T03:00:00.000Z'),
@@ -408,15 +410,17 @@ describe('opções dos filtros de atendimento', () => {
     const rawUsers = [{ id: 'user-1', name: 'Gabriel', email: 'gabriel@bzs.com.br', teamMemberships: [] }];
     const users = [{ id: 'user-1', name: 'Gabriel', email: 'gabriel@bzs.com.br', teams: [] }];
     const teams = [{ id: 'team-1', name: 'Geral', color: '#64748b', isDefault: true }];
+    const tags = [{ id: 'tag-1', name: 'Prioridade', color: '#ef4444' }];
     const instanceFindMany = vi.fn().mockResolvedValue(instances);
     const userFindMany = vi.fn().mockResolvedValue(rawUsers);
     const service = new EvolutionService({
       whatsappInstance: { findMany: instanceFindMany },
       user: { findMany: userFindMany },
       team: { findMany: vi.fn().mockResolvedValue(teams) },
+      tag: { findMany: vi.fn().mockResolvedValue(tags) },
     } as never, {} as never, {} as never, {} as never);
 
-    await expect(service.conversationFilterOptions(auth, 'all')).resolves.toEqual({ instances, users, teams });
+    await expect(service.conversationFilterOptions(auth, 'all')).resolves.toEqual({ instances, users, teams, tags });
 
     expect(instanceFindMany).toHaveBeenCalledWith(expect.objectContaining({
       where: { organizationId: 'organization-1', archivedAt: null },
@@ -433,6 +437,7 @@ describe('opções dos filtros de atendimento', () => {
       whatsappInstance: { findMany: instanceFindMany },
       user: { findMany: userFindMany },
       team: { findMany: vi.fn().mockResolvedValue([]) },
+      tag: { findMany: vi.fn().mockResolvedValue([]) },
     } as never, {} as never, {} as never, {} as never);
     const scopedAuth = { ...auth, roleKey: 'sdr', teamId: 'team-1' };
 

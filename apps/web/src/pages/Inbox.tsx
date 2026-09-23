@@ -46,11 +46,12 @@ type ContactInlineField = 'phone' | 'email' | 'companyId';
 type ContactWhatsappStatus = { contactId: string; hasWhatsapp: boolean | null };
 type InboxTagOption = { id: string; name: string; color: string };
 type TicketContextMenuState = { conversation: Conversation; top: number; left: number };
-type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string; teamId: string };
+type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string; teamId: string; tagId: string };
 type ConversationFilterOptions = {
   instances: WhatsappInstance[];
   users: Array<{ id: string; name: string; email: string; teams: TeamOption[] }>;
   teams: TeamOption[];
+  tags: InboxTagOption[];
 };
 type MessageLinkPreviewData = {
   url: string;
@@ -104,6 +105,7 @@ const EMPTY_CONVERSATION_FILTERS: ConversationListFilters = {
   instanceId: '',
   assigneeId: '',
   teamId: '',
+  tagId: '',
 };
 
 function conversationFiltersQuery(filters: ConversationListFilters) {
@@ -111,6 +113,7 @@ function conversationFiltersQuery(filters: ConversationListFilters) {
   if (filters.instanceId) params.set('instanceId', filters.instanceId);
   if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
   if (filters.teamId) params.set('teamId', filters.teamId);
+  if (filters.tagId) params.set('tagId', filters.tagId);
   if (filters.lastInteractionFrom) {
     params.set('lastInteractionFrom', new Date(`${filters.lastInteractionFrom}T00:00:00`).toISOString());
   }
@@ -258,6 +261,7 @@ function InboxFilterPanel(props: InboxFilterPanelProps) {
     <label className="conversation-filter-field"><span>Conexão Evolution</span><ConnectionPicker options={options?.instances || []} value={draft.instanceId} onChange={(value) => props.onChange('instanceId', value)} loading={optionsLoading} error={optionsError} allowEmpty emptyLabel="Todas as conexões" ariaLabel="Conexão Evolution" /></label>
     <label className="conversation-filter-field"><span>Equipe / fila</span><select value={draft.teamId} onChange={(event) => props.onChange('teamId', event.target.value)}><option value="">Todas as filas</option>{(options?.teams || []).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
     <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draft.assigneeId} onChange={(event) => props.onChange('assigneeId', event.target.value)}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{optionsLoading && <option disabled>Carregando usuários…</option>}{(options?.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
+    <label className="conversation-filter-field"><span>Tag do contato</span><select value={draft.tagId} onChange={(event) => props.onChange('tagId', event.target.value)}><option value="">Todas as tags</option>{(options?.tags || []).map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label>
     {optionsError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
     <footer><button type="button" className="conversation-filter-clear" onClick={props.onClear} disabled={!activeCount && !hasDraftFilters}>Limpar</button><Button type="button" onClick={props.onApply} disabled={invalidDateRange}>Aplicar filtros</Button></footer>
   </div>;

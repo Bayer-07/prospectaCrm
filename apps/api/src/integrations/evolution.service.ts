@@ -405,6 +405,7 @@ export class EvolutionService {
     instanceId?: string;
     assigneeId?: string;
     teamId?: string;
+    tagId?: string;
     lastInteractionFrom?: string;
     lastInteractionTo?: string;
   }) {
@@ -442,6 +443,9 @@ export class EvolutionService {
     const teamWhere: Prisma.ConversationWhereInput = query.teamId
       ? { teamId: query.teamId === 'none' ? null : query.teamId }
       : {};
+    const tagWhere: Prisma.ConversationWhereInput = query.tagId
+      ? { contact: { tags: { some: { tagId: query.tagId } } } }
+      : {};
     const where: Prisma.ConversationWhereInput = {
       organizationId: auth.organizationId,
       AND: [
@@ -452,6 +456,7 @@ export class EvolutionService {
         instanceWhere,
         assigneeWhere,
         teamWhere,
+        tagWhere,
       ],
     };
     const select = {
@@ -556,7 +561,7 @@ export class EvolutionService {
       authTeamIds(auth),
     );
     const teamIds = authTeamIds(auth);
-    const [instances, users, teams] = await Promise.all([
+    const [instances, users, teams, tags] = await Promise.all([
       this.db.whatsappInstance.findMany({
         where: {
           organizationId: auth.organizationId,
@@ -588,11 +593,17 @@ export class EvolutionService {
         select: { id: true, name: true, color: true, isDefault: true },
         orderBy: [{ isDefault: 'desc' }, { name: 'asc' }],
       }),
+      this.db.tag.findMany({
+        where: { organizationId: auth.organizationId },
+        select: { id: true, name: true, color: true },
+        orderBy: [{ name: 'asc' }, { id: 'asc' }],
+      }),
     ]);
     return {
       instances,
       users: users.map(({ teamMemberships, ...user }) => ({ ...user, teams: teamMemberships.map((membership) => membership.team) })),
       teams,
+      tags,
     };
   }
 
