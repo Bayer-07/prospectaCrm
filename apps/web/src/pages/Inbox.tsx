@@ -1,7 +1,7 @@
 import { lazy, memo, Suspense, type FormEvent, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
 import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
 import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
@@ -43,6 +43,7 @@ type QuickReplyShortcut = {
 };
 type ContactInlineField = 'phone' | 'email' | 'companyId';
 type ContactWhatsappStatus = { contactId: string; hasWhatsapp: boolean | null };
+type InboxTagOption = { id: string; name: string; color: string };
 type TicketContextMenuState = { conversation: Conversation; top: number; left: number };
 type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string; teamId: string };
 type ConversationFilterOptions = {
@@ -2599,10 +2600,7 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
           onCompany={(companyId) => setProposalCompanies((current) => ({ ...current, [proposal.id]: companyId }))}
           onAction={(action) => updateProposal.mutate({ proposalId: proposal.id, action })}
         />)}
-        <section>
-          <h3><Tags size={15} />Tags</h3>
-          {contact.tags?.length ? <div className="drawer-tags">{contact.tags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div> : <p className="drawer-empty-copy">Nenhuma tag adicionada.</p>}
-        </section>
+        <InboxContactTags contact={contact} conversationId={conversation.id} canEdit={canEdit} />
         <section>
           <h3><BriefcaseBusiness size={15} />Oportunidades</h3>
           {contact.opportunities?.length ? <div className="contact-opportunity-list">{contact.opportunities.map(({ opportunity }) => <div key={opportunity.id}><div><strong>{opportunity.title}</strong><small>{opportunityStatusLabel(opportunity.status)}</small></div><span><i style={{ background: opportunity.stage.color }} />{opportunity.stage.name}</span></div>)}</div> : <p className="drawer-empty-copy">Nenhuma oportunidade vinculada.</p>}
@@ -2611,6 +2609,76 @@ function ContactDrawer({ conversation, onClose, onUpdated }: Readonly<{ conversa
     </aside>
     {editing && <ContactModal contact={contact} onClose={() => setEditing(false)} onSaved={refresh} />}
   </>;
+}
+
+function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ contact: Contact; conversationId: string; canEdit: boolean }>) {
+  const client = useQueryClient();
+  const pickerRef = useRef<HTMLDivElement>(null);
+  const [contactTags, setContactTags] = useState(contact.tags || []);
+  const [tagSearch, setTagSearch] = useState('');
+  const [pickerOpen, setPickerOpen] = useState(false);
+  const availableTags = useQuery({
+    queryKey: ['tags'],
+    queryFn: () => api<Envelope<InboxTagOption[]>>('/tags'),
+    enabled: canEdit,
+    staleTime: 5 * 60_000,
+  });
+  const updateTags = useMutation({
+    mutationFn: (tagIds: string[]) => api<Envelope<Contact>>(`/contacts/${contact.id}/tags`, { method: 'PATCH', body: JSON.stringify({ tagIds }) }),
+    onMutate: (tagIds) => {
+      const previous = contactTags;
+      const optionsById = new Map((availableTags.data?.data || []).map((tag) => [tag.id, tag]));
+      setContactTags(tagIds.flatMap((tagId) => {
+        const tag = optionsById.get(tagId);
+        return tag ? [{ tag }] : [];
+      }));
+      return { previous };
+    },
+    onSuccess: (response) => {
+      setContactTags(response.data.tags || []);
+      client.setQueryData<Envelope<Conversation>>(['conversation', conversationId], (current) => current
+        ? { ...current, data: { ...current.data, contact: response.data } }
+        : current);
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+      void client.invalidateQueries({ queryKey: ['contacts'] });
+      void client.invalidateQueries({ queryKey: ['tags'] });
+    },
+    onError: (error, _tagIds, context) => {
+      setContactTags(context?.previous || []);
+      toast.error(apiErrorMessage(error, 'Não foi possível atualizar as tags do contato'));
+    },
+  });
+  useEffect(() => setContactTags(contact.tags || []), [contact.tags]);
+  useEffect(() => {
+    if (!pickerOpen) return undefined;
+    const closePicker = (event: MouseEvent) => {
+      if (event.target instanceof Node && !pickerRef.current?.contains(event.target)) setPickerOpen(false);
+    };
+    document.addEventListener('mousedown', closePicker);
+    return () => document.removeEventListener('mousedown', closePicker);
+  }, [pickerOpen]);
+  const selectedIds = new Set(contactTags.map(({ tag }) => tag.id));
+  const normalizedSearch = tagSearch.trim().toLocaleLowerCase('pt-BR');
+  const matchingTags = (availableTags.data?.data || []).filter((tag) => !selectedIds.has(tag.id)
+    && (!normalizedSearch || tag.name.toLocaleLowerCase('pt-BR').includes(normalizedSearch)));
+  const saveTags = (nextTags: typeof contactTags) => {
+    if (updateTags.isPending) return;
+    updateTags.mutate(nextTags.map(({ tag }) => tag.id));
+  };
+  const selectTag = (tag: InboxTagOption) => {
+    saveTags([...contactTags, { tag }]);
+    setTagSearch('');
+    setPickerOpen(true);
+  };
+  const removeTag = (tagId: string) => saveTags(contactTags.filter(({ tag }) => tag.id !== tagId));
+  return <section className="inbox-contact-tags-section">
+    <header><h3><Tags size={15} />Tags</h3>{updateTags.isPending && <span className="inbox-contact-tags-saving">Salvando…</span>}</header>
+    {contactTags.length ? <div className="inbox-contact-tag-chips">{contactTags.map(({ tag }) => <span className="inbox-contact-tag-chip" key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}{canEdit && <button type="button" onClick={() => removeTag(tag.id)} disabled={updateTags.isPending} aria-label={`Remover tag ${tag.name}`} title={`Remover ${tag.name}`}><X size={12} /></button>}</span>)}</div> : !canEdit && <p className="drawer-empty-copy">Nenhuma tag adicionada.</p>}
+    {canEdit && <div className="inbox-contact-tags-picker" ref={pickerRef}>
+      <div className={`inbox-contact-tags-input ${pickerOpen ? 'active' : ''}`}><Tags size={14} /><input value={tagSearch} onFocus={() => setPickerOpen(true)} onChange={(event) => { setTagSearch(event.target.value); setPickerOpen(true); }} onKeyDown={(event) => { if (event.key === 'Escape') setPickerOpen(false); }} placeholder="Adicionar tag…" aria-label="Buscar tags para o contato" aria-expanded={pickerOpen} aria-controls="inbox-contact-tag-options" role="combobox" autoComplete="off" disabled={updateTags.isPending} /></div>
+      {pickerOpen && <div className="inbox-contact-tag-options" id="inbox-contact-tag-options" role="listbox">{matchingTags.length ? matchingTags.map((tag) => <button type="button" role="option" aria-selected="false" key={tag.id} onClick={() => selectTag(tag)}><i style={{ background: tag.color }} /><span>{tag.name}</span><Plus size={14} /></button>) : <p>{availableTags.isLoading ? 'Carregando tags…' : availableTags.isError ? 'Não foi possível carregar as tags.' : availableTags.data?.data.length ? 'Nenhuma tag corresponde à busca.' : <><span>Você ainda não criou tags.</span> <Link to="/tags">Criar tag</Link></>}</p>}</div>}
+    </div>}
+  </section>;
 }
 
 const WhatsappAvatar = memo(function WhatsappAvatar({ conversationId, name, large = false }: Readonly<{ conversationId: string; name: string; large?: boolean }>) {

@@ -774,6 +774,30 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 [data-theme="dark"] .chatbot-node-field select, [data-theme="dark"] .chatbot-node-route-fields select { color-scheme: dark; background: var(--surface-soft); color: var(--ink); }
 [data-theme="dark"] .chatbot-node-field select option, [data-theme="dark"] .chatbot-node-route-fields select option { background: #282e35; color: #f2f5f7; }
 
+/* Seletor de tags no detalhe do contato do Inbox */
+.inbox-contact-tags-section > header { margin-bottom: 11px; display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.inbox-contact-tags-section > header h3 { margin: 0; }
+.inbox-contact-tags-saving { color: var(--muted); font-size: 10px; }
+.inbox-contact-tag-chips { margin-bottom: 10px; display: flex; flex-wrap: wrap; gap: 6px; }
+.inbox-contact-tag-chip { min-height: 26px; padding: 4px 6px 4px 9px; border-radius: 7px; color: var(--tag-color); background: color-mix(in srgb, var(--tag-color) 13%, var(--surface)); display: inline-flex; align-items: center; gap: 5px; font-size: 11px; font-weight: 650; }
+.inbox-contact-tag-chip button { width: 17px; height: 17px; padding: 0; border: 0; border-radius: 5px; background: color-mix(in srgb, var(--tag-color) 14%, transparent); color: currentColor; display: grid; place-items: center; cursor: pointer; }
+.inbox-contact-tag-chip button:hover:not(:disabled) { background: color-mix(in srgb, var(--tag-color) 28%, transparent); }
+.inbox-contact-tag-chip button:disabled { opacity: .45; cursor: wait; }
+.inbox-contact-tags-picker { position: relative; }
+.inbox-contact-tags-input { min-height: 35px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-soft); color: var(--muted); display: flex; align-items: center; gap: 7px; transition: border-color .15s, box-shadow .15s; }
+.inbox-contact-tags-input.active { border-color: var(--violet); box-shadow: 0 0 0 3px color-mix(in srgb, var(--violet) 16%, transparent); }
+.inbox-contact-tags-input input { min-width: 0; width: 100%; height: 33px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 12px; }
+.inbox-contact-tags-input input::placeholder { color: var(--muted); }
+.inbox-contact-tag-options { position: absolute; z-index: 5; top: calc(100% + 6px); right: 0; left: 0; max-height: 210px; padding: 5px; overflow-y: auto; border: 1px solid var(--line-strong); border-radius: 9px; background: var(--surface); box-shadow: 0 16px 35px rgba(0, 0, 0, .22); }
+.inbox-contact-tag-options button { width: 100%; min-height: 35px; padding: 0 8px; border: 0; border-radius: 6px; background: transparent; color: var(--ink); display: flex; align-items: center; gap: 8px; text-align: left; font: inherit; font-size: 12px; cursor: pointer; }
+.inbox-contact-tag-options button:hover, .inbox-contact-tag-options button:focus-visible { outline: 0; background: var(--surface-soft); }
+.inbox-contact-tag-options button i { width: 8px; height: 8px; flex: none; border-radius: 50%; }
+.inbox-contact-tag-options button span { flex: 1; }
+.inbox-contact-tag-options button svg { color: var(--muted); }
+.inbox-contact-tag-options > p { padding: 10px 8px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.inbox-contact-tag-options > p span { display: inline; }
+.inbox-contact-tag-options > p a { color: var(--violet); font-weight: 650; }
+
 /* Gestão de tags */
 .tags-page { min-width: 0; }
 .tags-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(250px, 1fr)); gap: 14px; }
