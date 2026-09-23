@@ -768,3 +768,9 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 @media (max-width: 680px) {
   .chatbot-builder-body { grid-template-columns: 112px minmax(400px, 1fr); }
 }
+
+/* Os menus nativos dos selects também precisam acompanhar o tema do editor. */
+.chatbot-node-field select, .chatbot-node-route-fields select { color-scheme: light; }
+.chatbot-node-field select option, .chatbot-node-route-fields select option { background: var(--surface-soft); color: var(--ink); }
+[data-theme="dark"] .chatbot-node-field select, [data-theme="dark"] .chatbot-node-route-fields select { color-scheme: dark; background: var(--surface-soft); color: var(--ink); }
+[data-theme="dark"] .chatbot-node-field select option, [data-theme="dark"] .chatbot-node-route-fields select option { background: #282e35; color: #f2f5f7; }
