@@ -6,7 +6,7 @@ import {
   useEdgesState, useNodesState, type Connection, type Edge, type Node, type NodeProps, type ReactFlowInstance,
 } from '@xyflow/react';
 import {
-  Archive, Bot, BrainCircuit, ChevronDown, ChevronLeft, ChevronUp, CircleStop, Clock3, GitBranch, Globe2, HelpCircle, MessageSquareText,
+  Archive, Bot, BrainCircuit, ChevronDown, ChevronLeft, ChevronUp, CircleStop, Clock3, GitBranch, Globe2, HelpCircle, LayoutDashboard, MessageSquareText,
   Pause, Play, Plus, Save, Send, Tag, Trash2, UserRoundCheck,
 } from 'lucide-react';
 import { api, dateTime, type Envelope } from '../lib/api';
@@ -45,6 +45,76 @@ function graphSnapshot(graph: ChatbotGraph) {
       return snapshot;
     }),
   });
+}
+
+function estimatedChatbotNodeHeight(node: Node<FlowData>) {
+  if (node.measured?.height) return node.measured.height;
+  const textLength = String(node.data.text || '').length;
+  const textLines = Math.max(1, Math.ceil(textLength / 46));
+  if (node.type === 'http_request') {
+    const routes = Array.isArray(node.data.responseRoutes) ? node.data.responseRoutes.length : 1;
+    return 260 + routes * 125;
+  }
+  if (node.type === 'ai_conversation') return 430;
+  if (node.type === 'message') return 155 + Math.max(0, textLines - 4) * 18;
+  if (node.type === 'question') return 205 + Math.max(0, textLines - 4) * 18;
+  if (node.type === 'trigger' || node.type === 'condition') return 190;
+  return 145;
+}
+
+function layoutChatbotNodes(nodes: Node<FlowData>[], edges: Edge[]) {
+  if (!nodes.length) return nodes;
+  const nodeIds = new Set(nodes.map((node) => node.id));
+  const outgoing = new Map<string, string[]>();
+  nodes.forEach((node) => outgoing.set(node.id, []));
+  edges.forEach((edge) => {
+    if (!nodeIds.has(edge.source) || !nodeIds.has(edge.target)) return;
+    outgoing.get(edge.source)!.push(edge.target);
+  });
+  const ranks = new Map<string, number>();
+  const trigger = nodes.find((node) => node.type === 'trigger');
+  const queue = [trigger?.id || nodes[0]!.id];
+  ranks.set(queue[0]!, 0);
+  while (queue.length) {
+    const current = queue.shift()!;
+    const nextRank = ranks.get(current)! + 1;
+    outgoing.get(current)?.forEach((target) => {
+      if (ranks.has(target)) return;
+      ranks.set(target, nextRank);
+      queue.push(target);
+    });
+  }
+  const maxRank = Math.max(...ranks.values(), 0);
+  nodes.forEach((node, index) => {
+    if (!ranks.has(node.id)) ranks.set(node.id, maxRank + 1 + Math.floor(index / 6));
+  });
+  const layers = new Map<number, Node<FlowData>[]>();
+  nodes.forEach((node) => {
+    const rank = ranks.get(node.id)!;
+    const layer = layers.get(rank) || [];
+    layer.push(node);
+    layers.set(rank, layer);
+  });
+  const gapX = 150;
+  const gapY = 46;
+  const columnWidth = 320 + gapX;
+  const layerHeights = new Map<number, number>();
+  let canvasHeight = 0;
+  layers.forEach((layer, rank) => {
+    const height = layer.reduce((total, node) => total + estimatedChatbotNodeHeight(node), 0) + Math.max(0, layer.length - 1) * gapY;
+    layerHeights.set(rank, height);
+    canvasHeight = Math.max(canvasHeight, height);
+  });
+  const positions = new Map<string, { x: number; y: number }>();
+  layers.forEach((layer, rank) => {
+    const layerHeight = layerHeights.get(rank)!;
+    let y = 40 + (canvasHeight - layerHeight) / 2;
+    layer.forEach((node) => {
+      positions.set(node.id, { x: 40 + rank * columnWidth, y });
+      y += estimatedChatbotNodeHeight(node) + gapY;
+    });
+  });
+  return nodes.map((node) => ({ ...node, position: positions.get(node.id) || node.position }));
 }
 
 function validationNodeIds(error: unknown, graph: ChatbotGraph) {
@@ -355,11 +425,20 @@ function ChatbotBuilder({ chatbotId, metadata, onBack }: Readonly<{ chatbotId: s
     setEdges((current) => current.filter((edge) => edge.source !== nodeId && edge.target !== nodeId));
     setSelectedNodeId(null);
   }, [nodes, setEdges, setNodes]);
+  const organizeFlow = useCallback(() => {
+    if (!nodes.length) return;
+    setNodes(layoutChatbotNodes(nodes, edges));
+    setSelectedNodeId(null);
+    window.requestAnimationFrame(() => {
+      void flowInstanceRef.current?.fitView({ duration: 500, padding: 0.25 });
+    });
+    toast.success('Fluxo organizado.');
+  }, [edges, nodes, setNodes]);
   const nodeEditorContext = useMemo<ChatbotNodeContextValue>(() => ({ tags: metadata.tags, teams: metadata.teams, onChange: updateNodeData, onDelete: deleteNode }), [deleteNode, metadata.tags, metadata.teams, updateNodeData]);
   if (query.isLoading) return <PageLoading />;
   const chatbot = query.data!.data;
   const requestExit = () => { if (hasUnsavedChanges) setConfirmExitOpen(true); else onBack(); };
-  return <><div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={requestExit}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={() => save.mutate(graph)} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate(graph)} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" className={draggingNodeType === item.type ? 'dragging' : undefined} draggable onDragStart={(event) => startNodeDrag(event, item.type)} onDragEnd={stopNodeDrag} key={item.type} aria-label={`Arrastar bloco ${item.label}`}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className={`flow-canvas${draggingNodeType ? ' node-drop-target' : ''}`} onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}><ChatbotNodeContext.Provider value={nodeEditorContext}><ReactFlow nodes={nodes} edges={edges} onInit={(instance) => { flowInstanceRef.current = instance; }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></ChatbotNodeContext.Provider></div></div></div>{confirmExitOpen && <Modal title="Sair do editor?" onClose={() => setConfirmExitOpen(false)}><div className="unsaved-exit-confirm"><p>Existem alterações que ainda não foram salvas. Se você sair agora, elas serão perdidas.</p><div className="modal-actions"><Button variant="secondary" onClick={() => setConfirmExitOpen(false)}>Continuar editando</Button><Button variant="danger" onClick={onBack}>Sair sem salvar</Button></div></div></Modal>}</>;
+  return <><div className="workflow-builder chatbot-builder"><header className="builder-header"><div><button type="button" className="icon-button" onClick={requestExit}><ChevronLeft size={18} /></button><div><h2>{chatbot.name}</h2><span><Status value={chatbot.status} /> · {chatbot.instance.name} · {chatbot.responseProvider === 'OPENAI' ? 'OpenAI' : 'Regras'} · Versão {chatbot.versions[0]?.version}</span></div></div><div>{chatbot.status === 'PUBLISHED' && <Button variant="secondary" onClick={() => changeStatus.mutate('PAUSED')} loading={changeStatus.isPending}><Pause size={15} />Pausar</Button>}{chatbot.status === 'PAUSED' && chatbot.publishedVersion && <Button variant="secondary" onClick={() => changeStatus.mutate('PUBLISHED')} loading={changeStatus.isPending}><Play size={15} />Ativar</Button>}<Button variant="secondary" onClick={organizeFlow} disabled={!nodes.length}><LayoutDashboard size={15} /><span>Organizar fluxo</span></Button><Button variant="secondary" onClick={() => save.mutate(graph)} loading={save.isPending}><Save size={15} />Salvar</Button><Button onClick={() => publish.mutate(graph)} loading={publish.isPending}><Send size={15} />Publicar</Button></div></header><div className="builder-body chatbot-builder-body"><aside className="node-palette"><span className="nav-section">Blocos</span>{nodeDefinitions.filter((item) => item.type !== 'trigger' && (item.type !== 'ai_conversation' || chatbot.responseProvider === 'OPENAI')).map((item) => <button type="button" className={draggingNodeType === item.type ? 'dragging' : undefined} draggable onDragStart={(event) => startNodeDrag(event, item.type)} onDragEnd={stopNodeDrag} key={item.type} aria-label={`Arrastar bloco ${item.label}`}><span className={item.tone}><item.icon size={15} /></span><div><strong>{item.label}</strong><small>{item.subtitle}</small></div></button>)}</aside><div className={`flow-canvas${draggingNodeType ? ' node-drop-target' : ''}`} onDragOver={handleCanvasDragOver} onDrop={handleCanvasDrop}><ChatbotNodeContext.Provider value={nodeEditorContext}><ReactFlow nodes={nodes} edges={edges} onInit={(instance) => { flowInstanceRef.current = instance; }} onNodesChange={onNodesChange} onEdgesChange={onEdgesChange} onConnect={onConnect} onNodeClick={(_, node) => setSelectedNodeId(node.id)} onPaneClick={() => setSelectedNodeId(null)} nodeTypes={nodeTypes} fitView colorMode={theme}><Background gap={22} size={1} color={theme === 'dark' ? '#38414a' : '#dfe5ea'} /><Controls /><MiniMap pannable zoomable nodeColor="#2da6dc" maskColor={theme === 'dark' ? 'rgba(25,29,34,.72)' : 'rgba(245,247,249,.75)'} /></ReactFlow></ChatbotNodeContext.Provider></div></div></div>{confirmExitOpen && <Modal title="Sair do editor?" onClose={() => setConfirmExitOpen(false)}><div className="unsaved-exit-confirm"><p>Existem alterações que ainda não foram salvas. Se você sair agora, elas serão perdidas.</p><div className="modal-actions"><Button variant="secondary" onClick={() => setConfirmExitOpen(false)}>Continuar editando</Button><Button variant="danger" onClick={onBack}>Sair sem salvar</Button></div></div></Modal>}</>;
 }
 
 function HttpRequestInspector({ node, onChange, onDelete }: Readonly<{ node: Node<FlowData>; onChange(changes: Partial<FlowData>): void; onDelete(): void }>) {
