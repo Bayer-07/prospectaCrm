@@ -10,6 +10,7 @@ import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
 import { StartConversationModal } from '../components/StartConversationModal';
 import { ContactImportModal } from '../components/ContactImportModal';
+import { TagMultiSelect } from '../components/TagMultiSelect';
 import { ActivityQuickActions, ActivityTimeline } from '../components/ActivityTimeline';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import { toast } from '../lib/toast';
@@ -157,10 +158,7 @@ export function ContactsPage() {
                   <option value="none">Sem equipe</option>
                   {(filterOptions.data?.data.teams || []).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}
                 </SelectField>
-                <SelectField label="Tag" value={draftFilters.tagId} onChange={(event) => setDraftFilters((current) => ({ ...current, tagId: event.target.value }))}>
-                  <option value="">Todas as tags</option>
-                  {(filterOptions.data?.data.tags || []).map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}
-                </SelectField>
+                <TagMultiSelect label="Tags" options={filterOptions.data?.data.tags || []} value={draftFilters.tagIds} onChange={(tagIds) => setDraftFilters((current) => ({ ...current, tagIds }))} />
                 <Field label="Empresa contém" value={draftFilters.company} onChange={(event) => setDraftFilters((current) => ({ ...current, company: event.target.value }))} placeholder="Ex.: BZS" maxLength={160} />
                 <SelectField label="Telefone" value={draftFilters.hasPhone} onChange={(event) => setDraftFilters((current) => ({ ...current, hasPhone: event.target.value as ContactListFilters['hasPhone'] }))}>
                   <option value="">Com ou sem telefone</option>

@@ -951,14 +951,14 @@ export class CrmService {
   private contactFilters(auth: AuthContext, query: ContactListQuery) {
     const ownerId = this.contactFilterId(query.ownerId, 'responsável');
     const teamId = this.contactFilterId(query.teamId, 'equipe');
-    const tagId = this.contactFilterId(query.tagId, 'tag', false);
+    const tagIds = this.contactFilterIds(query.tagId, 'tag');
     const company = primitiveText(query.company).trim().slice(0, 160);
     const hasPhone = this.booleanFilter(query.hasPhone, 'telefone');
     const hasEmail = this.booleanFilter(query.hasEmail, 'e-mail');
     const filters: Prisma.ContactWhereInput[] = [scopedWhere(auth, 'contacts') as Prisma.ContactWhereInput];
     if (ownerId) filters.push({ ownerId: ownerId === 'none' ? null : ownerId });
     if (teamId) filters.push({ teamId: teamId === 'none' ? null : teamId });
-    if (tagId) filters.push({ tags: { some: { tagId } } });
+    if (tagIds.length) filters.push({ tags: { some: { tagId: { in: tagIds } } } });
     if (company) filters.push({ companies: { some: { isPrimary: true, company: { name: { contains: company, mode: 'insensitive' } } } } });
     if (hasPhone !== undefined) filters.push(hasPhone ? { phone: { not: null } } : { phone: null });
     if (hasEmail !== undefined) filters.push(hasEmail ? { email: { not: null } } : { email: null });
@@ -997,6 +997,12 @@ export class CrmService {
       throw new BadRequestException(`Filtro de ${label} inválido`);
     }
     return normalized;
+  }
+
+  private contactFilterIds(value: string | undefined, label: string) {
+    return [...new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean))]
+      .map((item) => this.contactFilterId(item, label, false))
+      .filter((item): item is string => Boolean(item));
   }
 
   private booleanFilter(value: string | undefined, label: string) {

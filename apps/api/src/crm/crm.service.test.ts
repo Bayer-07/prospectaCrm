@@ -121,11 +121,12 @@ describe('filtros da listagem de contatos', () => {
     const service = new CrmService({ contact: { findMany } } as never, {} as never);
     const teamId = '5e782196-23bc-4321-a044-e299da34dd89';
     const tagId = '2de40104-a827-4b60-ad28-3f85f6a0464c';
+    const secondTagId = '5e782196-23bc-4321-a044-e299da34dd89';
 
     await service.listContacts(auth, {
       ownerId: 'none',
       teamId,
-      tagId,
+      tagId: `${tagId},${secondTagId}`,
       company: ' BZS ',
       hasPhone: 'true',
       hasEmail: 'false',
@@ -138,7 +139,7 @@ describe('filtros da listagem de contatos', () => {
         AND: expect.arrayContaining([
           { ownerId: null },
           { teamId },
-          { tags: { some: { tagId } } },
+          { tags: { some: { tagId: { in: [tagId, secondTagId] } } } },
           { companies: { some: { isPrimary: true, company: { name: { contains: 'BZS', mode: 'insensitive' } } } } },
           { phone: { not: null } },
           { email: null },

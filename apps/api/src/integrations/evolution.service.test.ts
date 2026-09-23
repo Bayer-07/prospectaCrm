@@ -371,7 +371,7 @@ describe('busca global de atendimentos', () => {
       status: 'open',
       instanceId: 'instance-1',
       assigneeId: 'user-2',
-      tagId: '2de40104-a827-4b60-ad28-3f85f6a0464c',
+      tagId: '2de40104-a827-4b60-ad28-3f85f6a0464c,5e782196-23bc-4321-a044-e299da34dd89',
       lastInteractionFrom: '2026-07-01T03:00:00.000Z',
       lastInteractionTo: '2026-08-01T03:00:00.000Z',
     });
@@ -380,7 +380,7 @@ describe('busca global de atendimentos', () => {
     expect(request.where.AND).toEqual(expect.arrayContaining([
       { instanceId: 'instance-1' },
       { assigneeId: 'user-2' },
-      { contact: { tags: { some: { tagId: '2de40104-a827-4b60-ad28-3f85f6a0464c' } } } },
+      { contact: { tags: { some: { tagId: { in: ['2de40104-a827-4b60-ad28-3f85f6a0464c', '5e782196-23bc-4321-a044-e299da34dd89'] } } } } },
       {
         lastMessageAt: {
           gte: new Date('2026-07-01T03:00:00.000Z'),

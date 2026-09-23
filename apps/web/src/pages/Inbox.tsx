@@ -16,6 +16,7 @@ import { ConnectionPicker } from '../components/ConnectionPicker';
 import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
 import { TagModal, type TagRecord } from '../components/TagModal';
+import { TagMultiSelect } from '../components/TagMultiSelect';
 import { FollowUpModal } from '../components/FollowUpModal';
 import { firstWhatsappLink, WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../components/WhatsappText';
 import { useAuth } from '../App';
@@ -46,7 +47,7 @@ type ContactInlineField = 'phone' | 'email' | 'companyId';
 type ContactWhatsappStatus = { contactId: string; hasWhatsapp: boolean | null };
 type InboxTagOption = { id: string; name: string; color: string };
 type TicketContextMenuState = { conversation: Conversation; top: number; left: number };
-type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string; teamId: string; tagId: string };
+type ConversationListFilters = { lastInteractionFrom: string; lastInteractionTo: string; instanceId: string; assigneeId: string; teamId: string; tagIds: string[] };
 type ConversationFilterOptions = {
   instances: WhatsappInstance[];
   users: Array<{ id: string; name: string; email: string; teams: TeamOption[] }>;
@@ -105,15 +106,23 @@ const EMPTY_CONVERSATION_FILTERS: ConversationListFilters = {
   instanceId: '',
   assigneeId: '',
   teamId: '',
-  tagId: '',
+  tagIds: [],
 };
+
+function hasConversationFilterValue(value: string | string[]) {
+  return Array.isArray(value) ? value.length > 0 : Boolean(value);
+}
+
+function conversationFilterCount(filters: ConversationListFilters) {
+  return Object.values(filters).filter(hasConversationFilterValue).length;
+}
 
 function conversationFiltersQuery(filters: ConversationListFilters) {
   const params = new URLSearchParams();
   if (filters.instanceId) params.set('instanceId', filters.instanceId);
   if (filters.assigneeId) params.set('assigneeId', filters.assigneeId);
   if (filters.teamId) params.set('teamId', filters.teamId);
-  if (filters.tagId) params.set('tagId', filters.tagId);
+  if (filters.tagIds.length) params.set('tagId', filters.tagIds.join(','));
   if (filters.lastInteractionFrom) {
     params.set('lastInteractionFrom', new Date(`${filters.lastInteractionFrom}T00:00:00`).toISOString());
   }
@@ -239,7 +248,7 @@ type InboxFilterPanelProps = Readonly<{
   options?: ConversationFilterOptions;
   optionsLoading: boolean;
   optionsError: boolean;
-  onChange(field: keyof ConversationListFilters, value: string): void;
+  onChange(field: keyof ConversationListFilters, value: string | string[]): void;
   onClose(): void;
   onClear(): void;
   onApply(): void;
@@ -247,7 +256,7 @@ type InboxFilterPanelProps = Readonly<{
 
 function InboxFilterPanel(props: InboxFilterPanelProps) {
   const { draft, activeCount, invalidDateRange, options, optionsLoading, optionsError } = props;
-  const hasDraftFilters = Object.values(draft).some(Boolean);
+  const hasDraftFilters = Object.values(draft).some(hasConversationFilterValue);
   return <div className="conversation-filter-panel">
     <header><div><strong>Filtrar conversas</strong><span>Refine os tickets desta aba</span></div><button type="button" onClick={props.onClose} aria-label="Fechar filtros"><X size={16} /></button></header>
     <div className="conversation-filter-section">
@@ -261,7 +270,7 @@ function InboxFilterPanel(props: InboxFilterPanelProps) {
     <label className="conversation-filter-field"><span>Conexão Evolution</span><ConnectionPicker options={options?.instances || []} value={draft.instanceId} onChange={(value) => props.onChange('instanceId', value)} loading={optionsLoading} error={optionsError} allowEmpty emptyLabel="Todas as conexões" ariaLabel="Conexão Evolution" /></label>
     <label className="conversation-filter-field"><span>Equipe / fila</span><select value={draft.teamId} onChange={(event) => props.onChange('teamId', event.target.value)}><option value="">Todas as filas</option>{(options?.teams || []).map((team) => <option key={team.id} value={team.id}>{team.name}</option>)}</select></label>
     <label className="conversation-filter-field"><span>Usuário responsável</span><select value={draft.assigneeId} onChange={(event) => props.onChange('assigneeId', event.target.value)}><option value="">Todos os usuários</option><option value="unassigned">Sem atendente</option>{optionsLoading && <option disabled>Carregando usuários…</option>}{(options?.users || []).map((option) => <option key={option.id} value={option.id}>{option.name}</option>)}</select></label>
-    <label className="conversation-filter-field"><span>Tag do contato</span><select value={draft.tagId} onChange={(event) => props.onChange('tagId', event.target.value)}><option value="">Todas as tags</option>{(options?.tags || []).map((tag) => <option key={tag.id} value={tag.id}>{tag.name}</option>)}</select></label>
+    <TagMultiSelect label="Tags do contato" className="conversation-filter-field" options={options?.tags || []} value={draft.tagIds} onChange={(tagIds) => props.onChange('tagIds', tagIds)} />
     {optionsError && <div className="conversation-filter-error">Não foi possível carregar as opções de filtro.</div>}
     <footer><button type="button" className="conversation-filter-clear" onClick={props.onClear} disabled={!activeCount && !hasDraftFilters}>Limpar</button><Button type="button" onClick={props.onApply} disabled={invalidDateRange}>Aplicar filtros</Button></footer>
   </div>;
@@ -337,7 +346,7 @@ type InboxSidebarProps = Readonly<{
   onSearch(value: string): void;
   onToggleFilterPanel(): void;
   onCloseFilterPanel(): void;
-  onDraftFilterChange(field: keyof ConversationListFilters, value: string): void;
+  onDraftFilterChange(field: keyof ConversationListFilters, value: string | string[]): void;
   onClearFilters(): void;
   onApplyFilters(): void;
   onSelectConversation(id: string): void;
@@ -382,7 +391,7 @@ export function InboxPage() {
   const closingWithoutFilterChangeRef = useRef<string | null>(null);
   const view = isAdmin && showAll ? 'all' : 'mine';
   const listFilterQuery = useMemo(() => conversationFiltersQuery(appliedListFilters), [appliedListFilters]);
-  const activeListFilterCount = useMemo(() => Object.values(appliedListFilters).filter(Boolean).length, [appliedListFilters]);
+  const activeListFilterCount = useMemo(() => conversationFilterCount(appliedListFilters), [appliedListFilters]);
   const conversations = useQuery({
     queryKey: ['conversations', filter, view, listFilterQuery],
     queryFn: () => api<Envelope<Conversation[]>>(conversationListUrl(filter, view, listFilterQuery)),

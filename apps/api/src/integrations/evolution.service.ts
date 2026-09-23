@@ -95,6 +95,16 @@ function interactionDate(value: string | undefined, label: string) {
   return parsed;
 }
 
+function conversationTagIds(value?: string) {
+  const tagIds = [...new Set(String(value || '').split(',').map((item) => item.trim()).filter(Boolean))];
+  for (const tagId of tagIds) {
+    if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(tagId)) {
+      throw new BadRequestException('Filtro de tag inválido');
+    }
+  }
+  return tagIds;
+}
+
 function assigneeFilter(auth: AuthContext, assigneeId?: string, assignee?: string): Prisma.ConversationWhereInput {
   if (assigneeId === 'unassigned') return { assigneeId: null };
   if (assigneeId) return { assigneeId };
@@ -443,8 +453,9 @@ export class EvolutionService {
     const teamWhere: Prisma.ConversationWhereInput = query.teamId
       ? { teamId: query.teamId === 'none' ? null : query.teamId }
       : {};
-    const tagWhere: Prisma.ConversationWhereInput = query.tagId
-      ? { contact: { tags: { some: { tagId: query.tagId } } } }
+    const tagIds = conversationTagIds(query.tagId);
+    const tagWhere: Prisma.ConversationWhereInput = tagIds.length
+      ? { contact: { tags: { some: { tagId: { in: tagIds } } } } }
       : {};
     const where: Prisma.ConversationWhereInput = {
       organizationId: auth.organizationId,
