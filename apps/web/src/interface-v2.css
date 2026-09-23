@@ -794,6 +794,9 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 .inbox-contact-tag-options button i { width: 8px; height: 8px; flex: none; border-radius: 50%; }
 .inbox-contact-tag-options button span { flex: 1; }
 .inbox-contact-tag-options button svg { color: var(--muted); }
+.inbox-contact-tag-options button.inbox-contact-tag-create { color: var(--violet); font-weight: 650; }
+.inbox-contact-tag-options button.inbox-contact-tag-create:hover, .inbox-contact-tag-options button.inbox-contact-tag-create:focus-visible { background: var(--violet-soft); }
+.inbox-contact-tag-options button.inbox-contact-tag-create svg { color: currentColor; }
 .inbox-contact-tag-options > p { padding: 10px 8px; color: var(--muted); font-size: 11px; line-height: 1.4; }
 .inbox-contact-tag-options > p span { display: inline; }
 .inbox-contact-tag-options > p a { color: var(--violet); font-weight: 650; }

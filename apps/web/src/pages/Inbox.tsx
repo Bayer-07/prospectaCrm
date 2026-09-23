@@ -15,6 +15,7 @@ import { CompanyPicker } from '../components/CompanyPicker';
 import { ConnectionPicker } from '../components/ConnectionPicker';
 import { ContactAvatar } from '../components/ContactAvatar';
 import { ContactModal } from '../components/ContactModal';
+import { TagModal, type TagRecord } from '../components/TagModal';
 import { FollowUpModal } from '../components/FollowUpModal';
 import { firstWhatsappLink, WhatsappComposer, WhatsappText, type WhatsappComposerHandle } from '../components/WhatsappText';
 import { useAuth } from '../App';
@@ -2617,6 +2618,7 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
   const [contactTags, setContactTags] = useState(contact.tags || []);
   const [tagSearch, setTagSearch] = useState('');
   const [pickerOpen, setPickerOpen] = useState(false);
+  const [creatingTagName, setCreatingTagName] = useState<string | null>(null);
   const availableTags = useQuery({
     queryKey: ['tags'],
     queryFn: () => api<Envelope<InboxTagOption[]>>('/tags'),
@@ -2624,14 +2626,10 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
     staleTime: 5 * 60_000,
   });
   const updateTags = useMutation({
-    mutationFn: (tagIds: string[]) => api<Envelope<Contact>>(`/contacts/${contact.id}/tags`, { method: 'PATCH', body: JSON.stringify({ tagIds }) }),
-    onMutate: (tagIds) => {
+    mutationFn: (nextTags: typeof contactTags) => api<Envelope<Contact>>(`/contacts/${contact.id}/tags`, { method: 'PATCH', body: JSON.stringify({ tagIds: nextTags.map(({ tag }) => tag.id) }) }),
+    onMutate: (nextTags) => {
       const previous = contactTags;
-      const optionsById = new Map((availableTags.data?.data || []).map((tag) => [tag.id, tag]));
-      setContactTags(tagIds.flatMap((tagId) => {
-        const tag = optionsById.get(tagId);
-        return tag ? [{ tag }] : [];
-      }));
+      setContactTags(nextTags);
       return { previous };
     },
     onSuccess: (response) => {
@@ -2663,7 +2661,7 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
     && (!normalizedSearch || tag.name.toLocaleLowerCase('pt-BR').includes(normalizedSearch)));
   const saveTags = (nextTags: typeof contactTags) => {
     if (updateTags.isPending) return;
-    updateTags.mutate(nextTags.map(({ tag }) => tag.id));
+    updateTags.mutate(nextTags);
   };
   const selectTag = (tag: InboxTagOption) => {
     saveTags([...contactTags, { tag }]);
@@ -2671,14 +2669,29 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
     setPickerOpen(true);
   };
   const removeTag = (tagId: string) => saveTags(contactTags.filter(({ tag }) => tag.id !== tagId));
-  return <section className="inbox-contact-tags-section">
+  const openTagCreation = () => {
+    const name = tagSearch.trim();
+    if (!name || updateTags.isPending) return;
+    setCreatingTagName(name);
+    setPickerOpen(false);
+  };
+  const handleTagCreated = (tag: TagRecord) => {
+    setCreatingTagName(null);
+    setTagSearch('');
+    saveTags([...contactTags, { tag }]);
+    void client.invalidateQueries({ queryKey: ['tags'] });
+  };
+  return <>
+    <section className="inbox-contact-tags-section">
     <header><h3><Tags size={15} />Tags</h3>{updateTags.isPending && <span className="inbox-contact-tags-saving">Salvando…</span>}</header>
     {contactTags.length ? <div className="inbox-contact-tag-chips">{contactTags.map(({ tag }) => <span className="inbox-contact-tag-chip" key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}{canEdit && <button type="button" onClick={() => removeTag(tag.id)} disabled={updateTags.isPending} aria-label={`Remover tag ${tag.name}`} title={`Remover ${tag.name}`}><X size={12} /></button>}</span>)}</div> : !canEdit && <p className="drawer-empty-copy">Nenhuma tag adicionada.</p>}
     {canEdit && <div className="inbox-contact-tags-picker" ref={pickerRef}>
       <div className={`inbox-contact-tags-input ${pickerOpen ? 'active' : ''}`}><Tags size={14} /><input value={tagSearch} onFocus={() => setPickerOpen(true)} onChange={(event) => { setTagSearch(event.target.value); setPickerOpen(true); }} onKeyDown={(event) => { if (event.key === 'Escape') setPickerOpen(false); }} placeholder="Adicionar tag…" aria-label="Buscar tags para o contato" aria-expanded={pickerOpen} aria-controls="inbox-contact-tag-options" role="combobox" autoComplete="off" disabled={updateTags.isPending} /></div>
-      {pickerOpen && <div className="inbox-contact-tag-options" id="inbox-contact-tag-options" role="listbox">{matchingTags.length ? matchingTags.map((tag) => <button type="button" role="option" aria-selected="false" key={tag.id} onClick={() => selectTag(tag)}><i style={{ background: tag.color }} /><span>{tag.name}</span><Plus size={14} /></button>) : <p>{availableTags.isLoading ? 'Carregando tags…' : availableTags.isError ? 'Não foi possível carregar as tags.' : availableTags.data?.data.length ? 'Nenhuma tag corresponde à busca.' : <><span>Você ainda não criou tags.</span> <Link to="/tags">Criar tag</Link></>}</p>}</div>}
+      {pickerOpen && <div className="inbox-contact-tag-options" id="inbox-contact-tag-options" role="listbox">{availableTags.isLoading ? <p>Carregando tags…</p> : availableTags.isError ? <p>Não foi possível carregar as tags.</p> : matchingTags.length ? matchingTags.map((tag) => <button type="button" role="option" aria-selected="false" key={tag.id} onClick={() => selectTag(tag)}><i style={{ background: tag.color }} /><span>{tag.name}</span><Plus size={14} /></button>) : tagSearch.trim() ? <button type="button" className="inbox-contact-tag-create" onClick={openTagCreation}><Plus size={15} /><span>Adicionar tag “{tagSearch.trim()}”</span></button> : availableTags.data?.data.length ? <p>Digite para buscar uma tag.</p> : <p><span>Você ainda não criou tags.</span> <Link to="/tags">Criar tag</Link></p>}</div>}
     </div>}
-  </section>;
+    </section>
+    {creatingTagName !== null && <TagModal tag={null} initialName={creatingTagName} onClose={() => setCreatingTagName(null)} onSaved={handleTagCreated} />}
+  </>;
 }
 
 const WhatsappAvatar = memo(function WhatsappAvatar({ conversationId, name, large = false }: Readonly<{ conversationId: string; name: string; large?: boolean }>) {
