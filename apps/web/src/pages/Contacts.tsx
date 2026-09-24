@@ -136,7 +136,6 @@ export function ContactsPage() {
     navigate(`/email?new=campaign&contactId=${encodeURIComponent(contact.id)}`);
   };
 
-  if (query.isLoading) return <PageLoading />;
   return <div className="list-page">
     <div className="toolbar">
       <div className="toolbar-left">
@@ -183,7 +182,7 @@ export function ContactsPage() {
         <Button onClick={() => setCreating(true)}><Plus size={15} />Novo contato</Button>
       </div>
     </div>
-    {contacts.length ? <><div className="table-card"><table>
+    {query.isLoading ? <PageLoading /> : contacts.length ? <><div className="table-card"><table>
       <thead><tr><th>Contato</th><th>Empresa</th><th>Telefone</th><th>Responsável</th><th>Tags</th><th /></tr></thead>
       <tbody>{contacts.map((contact) => <tr key={contact.id}>
         <td><div className="entity-cell"><ContactWhatsappAvatar contact={contact} hasWhatsapp={whatsappStatuses.get(contact.id)?.hasWhatsapp === true} /><div><button type="button" className="entity-name-button" onClick={() => setViewing(contact)}>{contact.name}</button>{contact.email
