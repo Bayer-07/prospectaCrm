@@ -219,6 +219,29 @@ describe('pré-validação de campanhas', () => {
     });
   });
 
+  it('aplica o filtro de tags ao selecionar todos os contatos', async () => {
+    const findMany = vi.fn().mockResolvedValue([{ id: 'contact-1' }]);
+    const service = new CampaignsService({
+      contact: { findMany },
+    } as never, {} as never, {} as never);
+
+    await (service as unknown as {
+      prepareAudience(authContext: AuthContext, input: unknown): Promise<unknown>;
+    }).prepareAudience(auth, {
+      channel: 'whatsapp',
+      audience: { source: 'contacts', contactSearches: [''], tagIds: ['tag-1', 'tag-2'] },
+    });
+
+    expect(findMany).toHaveBeenCalledWith({
+      where: {
+        organizationId: auth.organizationId,
+        archivedAt: null,
+        OR: [{ tags: { some: { tagId: { in: ['tag-1', 'tag-2'] } } } }],
+      },
+      select: { id: true },
+    });
+  });
+
   it('consulta o WhatsApp e pula o destinatário cujo número não existe', async () => {
     const updateMany = vi.fn().mockResolvedValue({ count: 1 });
     const campaignUpdate = vi.fn().mockResolvedValue({});

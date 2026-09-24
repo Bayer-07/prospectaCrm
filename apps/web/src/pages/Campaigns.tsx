@@ -7,6 +7,7 @@ import { toast } from '../lib/toast';
 import { Button, Empty, Field, Modal, PageLoading, Status } from '../components/ui';
 import { ConnectionPicker } from '../components/ConnectionPicker';
 import { ContactAvatar } from '../components/ContactAvatar';
+import { TagMultiSelect, type TagMultiSelectOption } from '../components/TagMultiSelect';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import {
   contactIsSelected,
@@ -155,7 +156,10 @@ type CampaignContactPickerProps = Readonly<{
   selectedIds: Set<string>;
   excludedIds: Set<string>;
   excludedCount: number;
+  tagOptions: TagMultiSelectOption[];
+  tagIds: string[];
   onSearchChange(value: string): void;
+  onTagIdsChange(value: string[]): void;
   onToggleAll(): void;
   onRemoveSearch(search: string): void;
   onToggleContact(contact: CampaignContact): void;
@@ -173,7 +177,10 @@ function CampaignContactPicker({
   selectedIds,
   excludedIds,
   excludedCount,
+  tagOptions,
+  tagIds,
   onSearchChange,
+  onTagIdsChange,
   onToggleAll,
   onRemoveSearch,
   onToggleContact,
@@ -193,6 +200,7 @@ function CampaignContactPicker({
   }
 
   return <div className="campaign-contact-picker">
+    <TagMultiSelect label="Filtrar por tags" options={tagOptions} value={tagIds} onChange={onTagIdsChange} />
     <label className="campaign-contact-search"><Search size={16} /><input value={search} onChange={(event) => onSearchChange(event.target.value)} placeholder="Buscar contato por nome, telefone ou e-mail…" /></label>
     <div className="campaign-contact-bulk-actions">
       <button
@@ -429,6 +437,7 @@ function DeleteCampaignModal({ campaign, loading, onClose, onConfirm }: Readonly
 function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: Instance[]; onClose(): void; onCreated(): void }>) {
   const [source, setSource] = useState<'contacts' | 'csv'>('contacts');
   const [contactSearch, setContactSearch] = useState('');
+  const [contactTagIds, setContactTagIds] = useState<string[]>([]);
   const [selectedContacts, setSelectedContacts] = useState<CampaignContact[]>([]);
   const [selectedSearches, setSelectedSearches] = useState<string[]>([]);
   const [excludedContacts, setExcludedContacts] = useState<CampaignContact[]>([]);
@@ -441,6 +450,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
   const dragDepth = useRef(0);
   const chooseFileRef = useRef<(file?: File) => void>(() => undefined);
   const debouncedSearch = useDebouncedValue(contactSearch);
+  const contactTagFilter = contactTagIds.join(',');
   const [form, setForm] = useState({
     name: '',
     instanceId: instances[0]?.id || '',
@@ -454,8 +464,17 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
     skipRemainingMessagesOnReply: true,
   });
   const contacts = useQuery({
-    queryKey: ['campaign-contacts', debouncedSearch],
-    queryFn: () => api<Envelope<CampaignContact[]>>(`/contacts?limit=100&search=${encodeURIComponent(debouncedSearch)}`),
+    queryKey: ['campaign-contacts', debouncedSearch, contactTagFilter],
+    queryFn: () => {
+      const query = new URLSearchParams({ limit: '100', search: debouncedSearch });
+      if (contactTagFilter) query.set('tagId', contactTagFilter);
+      return api<Envelope<CampaignContact[]>>(`/contacts?${query}`);
+    },
+    enabled: source === 'contacts',
+  });
+  const tags = useQuery({
+    queryKey: ['tags'],
+    queryFn: () => api<Envelope<TagMultiSelectOption[]>>('/tags'),
     enabled: source === 'contacts',
   });
   const selectedIds = useMemo(() => new Set(selectedContacts.map((contact) => contact.id)), [selectedContacts]);
@@ -503,6 +522,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
             source,
             contactIds: selectedContacts.map((contact) => contact.id),
             contactSearches: selectedSearches,
+            tagIds: selectedSearches.length ? contactTagIds : [],
             excludedContactIds: excludedContacts.map((contact) => contact.id),
           },
           bubbles: messages
@@ -682,7 +702,10 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
           selectedIds={selectedIds}
           excludedIds={excludedIds}
           excludedCount={excludedContacts.length}
+          tagOptions={tags.data?.data || []}
+          tagIds={contactTagIds}
           onSearchChange={setContactSearch}
+          onTagIdsChange={setContactTagIds}
           onToggleAll={toggleAllSearchResults}
           onRemoveSearch={removeSelectedSearch}
           onToggleContact={toggleContact}

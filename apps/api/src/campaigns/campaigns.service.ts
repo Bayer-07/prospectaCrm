@@ -148,6 +148,7 @@ export type CreateCampaignInput = {
     source: 'contacts' | 'csv';
     contactIds?: string[];
     contactSearches?: string[];
+    tagIds?: string[];
     excludedContactIds?: string[];
     csv?: string;
   };
@@ -692,6 +693,13 @@ export class CampaignsService {
         .map((search) => search.trim())
         .slice(0, 20),
     )];
+    const tagIds = [...new Set(
+      (audience.tagIds || [])
+        .filter((tagId): tagId is string => typeof tagId === 'string')
+        .map((tagId) => tagId.trim())
+        .filter(Boolean)
+        .slice(0, 50),
+    )];
     const excludedContactIds = [...new Set(audience.excludedContactIds || [])];
     const explicitlySelected = contactIds.length
       ? await this.db.contact.findMany({
@@ -702,16 +710,22 @@ export class CampaignsService {
     if (explicitlySelected.length !== contactIds.length) {
       throw new BadRequestException('Um ou mais contatos selecionados não estão disponíveis');
     }
+    const tagCondition: Prisma.ContactWhereInput | undefined = tagIds.length
+      ? { tags: { some: { tagId: { in: tagIds } } } }
+      : undefined;
     const selectsAllContacts = contactSearches.includes('');
     const selectionConditions: Prisma.ContactWhereInput[] = [
       ...(contactIds.length ? [{ id: { in: contactIds } }] : []),
-      ...contactSearches.filter(Boolean).map((search): Prisma.ContactWhereInput => ({
-        OR: [
+      ...contactSearches.filter(Boolean).map((search): Prisma.ContactWhereInput => {
+        const searchCondition: Prisma.ContactWhereInput = { OR: [
           { name: { contains: search, mode: 'insensitive' } },
           { email: { contains: search, mode: 'insensitive' } },
           { phone: { contains: search } },
-        ],
-      })),
+        ] };
+        return tagCondition ? { AND: [tagCondition, searchCondition] } : searchCondition;
+      }),
+      ...(contactSearches.includes('') && tagCondition ? [tagCondition] : []),
+      ...(!contactSearches.length && tagCondition ? [tagCondition] : []),
     ];
     const contacts = await this.db.contact.findMany({
       where: {
@@ -720,7 +734,8 @@ export class CampaignsService {
         ...scopedWhere(auth, 'contacts'),
         ...(excludedContactIds.length ? { id: { notIn: excludedContactIds } } : {}),
         ...((input.channel || 'whatsapp').toUpperCase() === 'EMAIL' ? { email: { not: null } } : {}),
-        ...(!selectsAllContacts ? { OR: selectionConditions } : {}),
+        ...(!selectsAllContacts && selectionConditions.length ? { OR: selectionConditions } : {}),
+        ...(selectsAllContacts && tagCondition ? { OR: selectionConditions } : {}),
       },
       select: { id: true },
     });
@@ -737,7 +752,7 @@ export class CampaignsService {
       .map((bubble) => ({ ...bubble, content: bubble.content?.trim() }))
       .filter((bubble) => Boolean(bubble.content));
     if (input.audience?.source !== 'csv' && !bubbles.length) throw new BadRequestException('Informe ao menos uma mensagem');
-    if (input.audience?.source === 'contacts' && !input.audience.contactIds?.length && !input.audience.contactSearches?.length) {
+    if (input.audience?.source === 'contacts' && !input.audience.contactIds?.length && !input.audience.contactSearches?.length && !input.audience.tagIds?.length) {
       throw new BadRequestException('Selecione ao menos um contato');
     }
     if (input.audience?.source === 'csv' && !input.audience.csv) throw new BadRequestException('Selecione um arquivo CSV');

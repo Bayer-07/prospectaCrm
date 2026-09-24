@@ -6,6 +6,7 @@ import { api, dateTime, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { ContactAvatar } from '../components/ContactAvatar';
+import { TagMultiSelect, type TagMultiSelectOption } from '../components/TagMultiSelect';
 import { useDebouncedValue } from '../lib/useDebouncedValue';
 import {
   contactIsSelected,
@@ -240,7 +241,9 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
   onCreated(): void;
 }>) {
   const [search, setSearch] = useState('');
+  const [tagIds, setTagIds] = useState<string[]>([]);
   const debouncedSearch = useDebouncedValue(search);
+  const tagFilter = tagIds.join(',');
   const [selected, setSelected] = useState<Contact[]>([]);
   const [selectedSearches, setSelectedSearches] = useState<string[]>([]);
   const [excluded, setExcluded] = useState<Contact[]>([]);
@@ -253,8 +256,16 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
     contactMax: 15,
   });
   const contacts = useQuery({
-    queryKey: ['email-campaign-contacts', debouncedSearch],
-    queryFn: () => api<Envelope<Contact[]>>(`/contacts?limit=100&emailOnly=true&search=${encodeURIComponent(debouncedSearch)}`),
+    queryKey: ['email-campaign-contacts', debouncedSearch, tagFilter],
+    queryFn: () => {
+      const query = new URLSearchParams({ limit: '100', emailOnly: 'true', search: debouncedSearch });
+      if (tagFilter) query.set('tagId', tagFilter);
+      return api<Envelope<Contact[]>>(`/contacts?${query}`);
+    },
+  });
+  const tags = useQuery({
+    queryKey: ['tags'],
+    queryFn: () => api<Envelope<TagMultiSelectOption[]>>('/tags'),
   });
   const initialContact = useQuery({
     queryKey: ['email-campaign-initial-contact', initialContactId],
@@ -287,6 +298,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
           source: 'contacts',
           contactIds: selected.map((contact) => contact.id),
           contactSearches: selectedSearches,
+          tagIds: selectedSearches.length ? tagIds : [],
           excludedContactIds: excluded.map((contact) => contact.id),
         },
         bubbles: [{ type: 'html', content: form.html }],
@@ -367,6 +379,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
     <Field label="Assunto" value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required />
     <label className="field"><span>Conteúdo HTML</span><textarea rows={8} value={form.html} onChange={(event) => setForm({ ...form, html: event.target.value })} required /><small>Variáveis: {'{{saudacao}}'}, {'{{nome}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{empresa}}'} e {'{{cargo}}'}.</small></label>
     <div className="email-contact-picker">
+      <TagMultiSelect label="Filtrar por tags" options={tags.data?.data || []} value={tagIds} onChange={setTagIds} />
       <label className="campaign-contact-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar contatos com e-mail…" /></label>
       <div className="campaign-contact-bulk-actions">
         <button
