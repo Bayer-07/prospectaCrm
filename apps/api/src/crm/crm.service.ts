@@ -44,6 +44,33 @@ function importedContactPhone(value: unknown) {
   return normalizePhoneKey(international) || raw;
 }
 
+function contactPhoneSearchTerms(value: string) {
+  const digits = value.replace(/\D/g, '');
+  if (digits.length < 8) return [];
+
+  const terms = new Set<string>([digits]);
+  const candidates = new Set<string>([digits]);
+  if (digits.startsWith('55')) candidates.add(digits.slice(2));
+  else if (digits.length === 10 || digits.length === 11) candidates.add(`55${digits}`);
+
+  for (const candidate of candidates) {
+    const normalized = normalizePhoneKey(candidate);
+    if (!normalized) continue;
+    const normalizedDigits = normalized.slice(1);
+    terms.add(normalized);
+    terms.add(normalizedDigits);
+
+    // Também permite localizar o celular canônico informando o formato legado, sem o 9.
+    if (normalizedDigits.startsWith('55') && normalizedDigits.length === 13 && normalizedDigits[4] === '9') {
+      const legacyDigits = `${normalizedDigits.slice(0, 4)}${normalizedDigits.slice(5)}`;
+      terms.add(legacyDigits);
+      terms.add(`+${legacyDigits}`);
+    }
+  }
+
+  return [...terms];
+}
+
 function csvImportError(error: unknown) {
   const issues = (error as { issues?: Array<{ path?: Array<string | number>; message?: string }> } | null)?.issues;
   if (Array.isArray(issues) && issues.length) {
@@ -322,12 +349,21 @@ export class CrmService {
   listContacts(auth: AuthContext, query: ContactListQuery) {
     const limit = Math.min(Math.max(Number(query.limit) || 25, 1), 100);
     const filters = this.contactFilters(auth, query);
+    const search = primitiveText(query.search).trim();
+    const phoneSearchTerms = contactPhoneSearchTerms(search);
     return this.db.contact.findMany({
       where: {
         organizationId: auth.organizationId, archivedAt: null, AND: filters,
         ...(query.consent ? { consentStatus: query.consent.toUpperCase() as never } : {}),
         ...(query.emailOnly === 'true' ? { email: { not: null } } : {}),
-        ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { email: { contains: query.search, mode: 'insensitive' } }, { phone: { contains: query.search } }] } : {}),
+        ...(search ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { email: { contains: search, mode: 'insensitive' } },
+            { phone: { contains: search } },
+            ...phoneSearchTerms.map((term) => ({ phoneKey: { contains: term } })),
+          ],
+        } : {}),
       },
       include: {
         owner: { select: { id: true, name: true } },

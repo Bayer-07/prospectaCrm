@@ -156,6 +156,36 @@ describe('filtros da listagem de contatos', () => {
       .toThrow('Filtro de responsável inválido');
     expect(findMany).not.toHaveBeenCalled();
   });
+
+  it('busca telefone com máscara usando a chave normalizada', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = new CrmService({ contact: { findMany } } as never, {} as never);
+
+    await service.listContacts(auth, { search: '(45) 99922-5389' });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { phoneKey: { contains: '+5545999225389' } },
+        ]),
+      }),
+    }));
+  });
+
+  it('busca celular tanto com quanto sem o nono dígito', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = new CrmService({ contact: { findMany } } as never, {} as never);
+
+    await service.listContacts(auth, { search: '45 9922-5389' });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { phoneKey: { contains: '+5545999225389' } },
+        ]),
+      }),
+    }));
+  });
 });
 
 describe('tarefas criadas por integrações', () => {
