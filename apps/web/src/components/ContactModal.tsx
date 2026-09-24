@@ -4,11 +4,13 @@ import { api, type Envelope } from '../lib/api';
 import type { Company, Contact } from '../lib/types';
 import { Button, Field, Modal, SelectField } from './ui';
 import { CompanyPicker } from './CompanyPicker';
+import { TagMultiSelect, type TagMultiSelectOption } from './TagMultiSelect';
 import { toast } from '../lib/toast';
 import { formatBrazilPhoneInput, toBrazilE164Phone } from '../lib/phone-input';
 
 export function ContactModal({ contact, onClose, onSaved }: Readonly<{ contact?: Contact; onClose(): void; onSaved(): void }>) {
   const companies = useQuery({ queryKey: ['contact-company-options'], queryFn: () => api<Envelope<Company[]>>('/companies?limit=100'), staleTime: 5 * 60_000 });
+  const tags = useQuery({ queryKey: ['tags'], queryFn: () => api<Envelope<TagMultiSelectOption[]>>('/tags'), staleTime: 5 * 60_000 });
   const [form, setForm] = useState({
     name: contact?.name || '',
     email: contact?.email || '',
@@ -18,8 +20,9 @@ export function ContactModal({ contact, onClose, onSaved }: Readonly<{ contact?:
     consentStatus: contact?.consentStatus.toLowerCase() || 'unknown',
     campaignsBlocked: contact?.campaignsBlocked || false,
   });
+  const [tagIds, setTagIds] = useState<string[]>(() => contact?.tags?.map(({ tag }) => tag.id) || []);
   const mutation = useMutation({
-    mutationFn: () => {
+    mutationFn: async () => {
       const optional = (value: string) => value.trim() || undefined;
       const payload = {
         name: form.name,
@@ -30,7 +33,11 @@ export function ContactModal({ contact, onClose, onSaved }: Readonly<{ contact?:
         consentStatus: form.consentStatus,
         ...(contact ? { campaignsBlocked: form.campaignsBlocked } : {}),
       };
-      return api(contact ? `/contacts/${contact.id}` : '/contacts', { method: contact ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+      const response = await api<Envelope<Contact>>(contact ? `/contacts/${contact.id}` : '/contacts', { method: contact ? 'PATCH' : 'POST', body: JSON.stringify(payload) });
+      if (tagIds.length || contact?.tags !== undefined) {
+        await api<Envelope<Contact>>(`/contacts/${response.data.id}/tags`, { method: 'PATCH', body: JSON.stringify({ tagIds }) });
+      }
+      return response;
     },
     onSuccess: () => {
       toast.success(contact ? 'Contato atualizado.' : 'Contato cadastrado.');
@@ -48,6 +55,7 @@ export function ContactModal({ contact, onClose, onSaved }: Readonly<{ contact?:
         <Field label="Cargo" value={form.jobTitle} onChange={set('jobTitle')} />
         <div className="field"><span>Empresa</span><CompanyPicker companies={sortedCompanies} value={form.companyId} selectedLabel={contact?.companies?.find((item) => item.isPrimary)?.company.name || contact?.companies?.[0]?.company.name} onChange={(companyId) => setForm((current) => ({ ...current, companyId }))} loading={companies.isLoading} error={companies.isError} /></div>
       </div>
+      <TagMultiSelect label="Tags" options={tags.data?.data || []} value={tagIds} onChange={setTagIds} />
       <SelectField label="Consentimento WhatsApp" value={form.consentStatus} onChange={set('consentStatus')}><option value="unknown">Não informado</option><option value="granted">Consentido</option><option value="revoked">Revogado</option></SelectField>
       {contact && <label aria-label="Não enviar campanhas" className={`contact-campaign-block${form.campaignsBlocked ? ' active' : ''}`}>
         <input
