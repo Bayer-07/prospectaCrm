@@ -1,6 +1,7 @@
 export type WhatsappInteractiveButton = {
   id: string;
   text: string;
+  url?: string;
 };
 
 export type WhatsappInteractiveSelection = {
@@ -31,6 +32,17 @@ const asText = (...values: unknown[]) => {
   return null;
 };
 
+const asHttpUrl = (...values: unknown[]) => {
+  const value = asText(...values);
+  if (!value) return null;
+  try {
+    const url = new URL(value);
+    return url.protocol === 'http:' || url.protocol === 'https:' ? value : null;
+  } catch {
+    return null;
+  }
+};
+
 const objectFromJson = (value: unknown): AnyRecord | null => {
   const record = asRecord(value);
   if (record) return record;
@@ -47,6 +59,15 @@ function buttonFrom(value: unknown): WhatsappInteractiveButton | null {
   const quickReply = asRecord(node.quickReplyButton)
     || asRecord(node.quick_reply_button)
     || asRecord(node.quickReply);
+  const urlButton = asRecord(node.urlButton)
+    || asRecord(node.url_button)
+    || asRecord(node.urlButtonMessage);
+  const url = asHttpUrl(
+    urlButton?.url,
+    urlButton?.link,
+    node.url,
+    node.link,
+  );
   const text = asText(
     node.displayText,
     node.display_text,
@@ -57,6 +78,10 @@ function buttonFrom(value: unknown): WhatsappInteractiveButton | null {
     buttonText?.display_text,
     quickReply?.displayText,
     quickReply?.display_text,
+    urlButton?.displayText,
+    urlButton?.display_text,
+    urlButton?.text,
+    url,
   );
   const id = asText(
     node.buttonId,
@@ -66,9 +91,11 @@ function buttonFrom(value: unknown): WhatsappInteractiveButton | null {
     node.row_id,
     quickReply?.id,
     quickReply?.buttonId,
+    urlButton?.id,
+    url,
   );
   if (!text || !id) return null;
-  return { id, text };
+  return { id, text, ...(url ? { url } : {}) };
 }
 
 function nativeFlowButtons(value: unknown) {
@@ -149,16 +176,17 @@ export function extractWhatsappInteractive(input: unknown): WhatsappInteractiveM
   const templateMessage = asRecord(root.templateMessage);
   const hydratedTemplate = templateMessage
     ? asRecord(templateMessage.hydratedTemplate) || asRecord(templateMessage.hydratedFourRowTemplate)
+      || asRecord(templateMessage.fourRowTemplate)
     : null;
   if (hydratedTemplate) {
-    const buttons = arrayFrom(hydratedTemplate.hydratedButtons)
+    const buttons = arrayFrom(hydratedTemplate.hydratedButtons || hydratedTemplate.buttons)
       .map(buttonFrom)
       .filter((button): button is WhatsappInteractiveButton => Boolean(button));
     return {
       kind: 'template',
-      header: asText(hydratedTemplate.hydratedTitleText, hydratedTemplate.hydratedHeaderText),
-      body: asText(hydratedTemplate.hydratedContentText, hydratedTemplate.contentText),
-      footer: asText(hydratedTemplate.hydratedFooterText),
+      header: asText(hydratedTemplate.hydratedTitleText, hydratedTemplate.hydratedHeaderText, hydratedTemplate.titleText, hydratedTemplate.title),
+      body: asText(hydratedTemplate.hydratedContentText, hydratedTemplate.contentText, hydratedTemplate.body, hydratedTemplate.content),
+      footer: asText(hydratedTemplate.hydratedFooterText, hydratedTemplate.footerText, hydratedTemplate.footer),
       buttons: uniqueButtons(buttons),
       selection: null,
     };

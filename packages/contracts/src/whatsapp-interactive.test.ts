@@ -45,6 +45,26 @@ describe('mensagens interativas do WhatsApp', () => {
     });
   });
 
+  it('normaliza templates antigos com botão de link', () => {
+    expect(extractWhatsappInteractive({
+      templateMessage: {
+        fourRowTemplate: {
+          contentText: 'Acesse os detalhes do seu atendimento.',
+          hydratedButtons: [{
+            urlButton: { displayText: 'Abrir atendimento', url: 'https://example.com/atendimento' },
+          }],
+        },
+      },
+    })).toEqual({
+      kind: 'template',
+      header: null,
+      body: 'Acesse os detalhes do seu atendimento.',
+      footer: null,
+      buttons: [{ id: 'https://example.com/atendimento', text: 'Abrir atendimento', url: 'https://example.com/atendimento' }],
+      selection: null,
+    });
+  });
+
   it('transforma respostas de botão em texto legível', () => {
     expect(whatsappInteractiveText({
       message: {

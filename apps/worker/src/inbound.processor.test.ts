@@ -486,6 +486,26 @@ describe('tipos de mensagem da Evolution', () => {
     }, new Date('2026-07-28T00:00:00.000Z'))).toBe(true);
   });
 
+  it('extrai o conteúdo de templates com botão de link', () => {
+    const message = {
+      templateMessage: {
+        fourRowTemplate: {
+          contentText: 'Confira o resultado no link abaixo.',
+          hydratedButtons: [{
+            urlButton: { displayText: 'Ver resultado', url: 'https://example.com/resultado' },
+          }],
+        },
+      },
+    };
+    expect(evolutionMessageType(message)).toBe('interactive');
+    expect(evolutionMessageText(message)).toBe('Confira o resultado no link abaixo.');
+    expect(isSynchronizableEvolutionMessage({
+      key: { id: 'template-1', remoteJid: '554588433153@s.whatsapp.net', fromMe: false },
+      messageTimestamp: 1785262532,
+      message,
+    }, new Date('2026-07-28T00:00:00.000Z'))).toBe(true);
+  });
+
   it('usa o texto selecionado pelo cliente em respostas de botão', () => {
     const message = {
       buttonsResponseMessage: {

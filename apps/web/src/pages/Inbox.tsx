@@ -2883,13 +2883,21 @@ function InteractiveMessageCard({ interactive, canSelect, onSelect }: Readonly<{
     {interactive.body && <p className="message-interactive-body">{interactive.body}</p>}
     {interactive.footer && <small className="message-interactive-footer">{interactive.footer}</small>}
     <div className="message-interactive-options">
-      {interactive.buttons.map((button) => <button
-        type="button"
-        key={`${button.id}:${button.text}`}
-        disabled={!canSelect}
-        title={canSelect ? 'Usar esta opção como resposta' : 'Assuma a conversa para usar uma opção'}
-        onClick={() => onSelect(button)}
-      >{button.text}<ChevronRight size={15} /></button>)}
+      {interactive.buttons.map((button) => button.url
+        ? <a
+          key={`${button.id}:${button.text}`}
+          href={button.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title="Abrir link"
+        >{button.text}<ExternalLink size={15} /></a>
+        : <button
+          type="button"
+          key={`${button.id}:${button.text}`}
+          disabled={!canSelect}
+          title={canSelect ? 'Usar esta opção como resposta' : 'Assuma a conversa para usar uma opção'}
+          onClick={() => onSelect(button)}
+        >{button.text}<ChevronRight size={15} /></button>)}
     </div>
   </div>;
 }
