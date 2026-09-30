@@ -2,8 +2,9 @@ import { describe, expect, it } from 'vitest';
 import type { AuthContext } from '../auth/types.js';
 import { conversationVisibilityWhere } from './conversation-visibility.js';
 
-const auth = (roleKey: string, userId = 'user-1', teamId: string | null = 'team-1'): AuthContext => ({
-  type: 'session', organizationId: 'org-1', userId, teamId, roleKey, name: 'Usuário', permissions: [],
+const auth = (roleKey: string, userId = 'user-1', teamId: string | null = 'team-1', scope: 'OWN' | 'TEAM' | 'ALL' = roleKey === 'manager' ? 'TEAM' : 'OWN'): AuthContext => ({
+  type: 'session', organizationId: 'org-1', userId, teamId, roleKey, name: 'Usuário',
+  permissions: [{ resource: 'conversations', action: 'read', scope }],
 });
 
 describe('visibilidade de conversas', () => {
@@ -19,6 +20,17 @@ describe('visibilidade de conversas', () => {
       { assigneeId: 'user-1' },
       { assigneeId: null },
     ] });
+  });
+
+  it('limita o escopo OWN às conversas sem atendente ou do próprio usuário', () => {
+    expect(conversationVisibilityWhere(auth('sdr', 'user-1', 'team-1', 'OWN'), true)).toEqual({ OR: [
+      { assigneeId: 'user-1' },
+      { assigneeId: null },
+    ] });
+  });
+
+  it('libera todas as conversas para o escopo ALL mesmo sem perfil de administrador', () => {
+    expect(conversationVisibilityWhere(auth('supervisor', 'user-1', 'team-1', 'ALL'))).toEqual({});
   });
 
   it('libera toda a organização somente para administrador no modo todos', () => {

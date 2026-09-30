@@ -57,6 +57,24 @@ describe('filtros da listagem de empresas', () => {
     }));
   });
 
+  it.each([
+    '34.783.405/0001-65',
+    '34783405000165',
+  ])('normaliza a busca de CNPJ (%s) para os mesmos dígitos', async (search) => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = new CrmService({ company: { findMany } } as never, {} as never);
+
+    await service.listCompanies(auth, { search });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { cnpj: { contains: '34783405000165' } },
+        ]),
+      }),
+    }));
+  });
+
   it('rejeita identificadores e valores booleanos inválidos', () => {
     const findMany = vi.fn();
     const service = new CrmService({ company: { findMany } } as never, {} as never);
@@ -157,16 +175,34 @@ describe('filtros da listagem de contatos', () => {
     expect(findMany).not.toHaveBeenCalled();
   });
 
-  it('busca telefone com máscara usando a chave normalizada', async () => {
+  it.each([
+    '(45) 99922-5389',
+    '45999225389',
+  ])('busca telefone com ou sem máscara usando a chave normalizada (%s)', async (search) => {
     const findMany = vi.fn().mockResolvedValue([]);
     const service = new CrmService({ contact: { findMany } } as never, {} as never);
 
-    await service.listContacts(auth, { search: '(45) 99922-5389' });
+    await service.listContacts(auth, { search });
 
     expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
       where: expect.objectContaining({
         OR: expect.arrayContaining([
           { phoneKey: { contains: '+5545999225389' } },
+        ]),
+      }),
+    }));
+  });
+
+  it('busca telefone legado com ou sem máscara no campo original', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = new CrmService({ contact: { findMany } } as never, {} as never);
+
+    await service.listContacts(auth, { search: '45999225389' });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { phone: { contains: '(45) 99922-5389' } },
         ]),
       }),
     }));

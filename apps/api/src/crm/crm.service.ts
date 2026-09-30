@@ -48,7 +48,7 @@ function contactPhoneSearchTerms(value: string) {
   const digits = value.replace(/\D/g, '');
   if (digits.length < 8) return [];
 
-  const terms = new Set<string>([digits]);
+  const terms = new Set<string>([value.trim(), digits]);
   const candidates = new Set<string>([digits]);
   if (digits.startsWith('55')) candidates.add(digits.slice(2));
   else if (digits.length === 10 || digits.length === 11) candidates.add(`55${digits}`);
@@ -59,6 +59,29 @@ function contactPhoneSearchTerms(value: string) {
     const normalizedDigits = normalized.slice(1);
     terms.add(normalized);
     terms.add(normalizedDigits);
+
+    if (normalizedDigits.startsWith('55')) {
+      const nationalDigits = normalizedDigits.slice(2);
+      if (nationalDigits.length === 10 || nationalDigits.length === 11) {
+        const areaCode = nationalDigits.slice(0, 2);
+        const localDigits = nationalDigits.slice(2);
+        const local = localDigits.length === 9
+          ? `${localDigits.slice(0, 5)}-${localDigits.slice(5)}`
+          : `${localDigits.slice(0, 4)}-${localDigits.slice(4)}`;
+        for (const formatted of [
+          `(${areaCode}) ${local}`,
+          `(${areaCode})${local}`,
+          `${areaCode} ${local}`,
+          `${areaCode}${local}`,
+          `+55 (${areaCode}) ${local}`,
+          `+55(${areaCode}) ${local}`,
+          `+55${areaCode} ${local}`,
+          `+55${areaCode}${local}`,
+          `55${areaCode} ${local}`,
+          `55${areaCode}${local}`,
+        ]) terms.add(formatted);
+      }
+    }
 
     // Também permite localizar o celular canônico informando o formato legado, sem o 9.
     if (normalizedDigits.startsWith('55') && normalizedDigits.length === 13 && normalizedDigits[4] === '9') {
@@ -222,10 +245,20 @@ export class CrmService {
         ? { contacts: { some: activeContact } }
         : { contacts: { none: activeContact } });
     }
+    const search = String(query.search || '').trim();
+    const searchConditions: Prisma.CompanyWhereInput[] = search ? [
+      { name: { contains: search, mode: 'insensitive' } },
+      { email: { contains: search, mode: 'insensitive' } },
+      { domain: { contains: search, mode: 'insensitive' } },
+    ] : [];
+    if (search) {
+      const cnpjSearch = /^[\d./\s-]+$/.test(search) ? normalizeCnpj(search) : search;
+      if (cnpjSearch) searchConditions.push({ cnpj: { contains: cnpjSearch } });
+    }
     return this.db.company.findMany({
       where: {
         organizationId: auth.organizationId, archivedAt: null, AND: filters,
-        ...(query.search ? { OR: [{ name: { contains: query.search, mode: 'insensitive' } }, { email: { contains: query.search, mode: 'insensitive' } }, { domain: { contains: query.search, mode: 'insensitive' } }, { cnpj: { contains: query.search } }] } : {}),
+        ...(searchConditions.length ? { OR: searchConditions } : {}),
       },
       include: {
         owner: { select: { id: true, name: true } },
@@ -361,7 +394,10 @@ export class CrmService {
             { name: { contains: search, mode: 'insensitive' } },
             { email: { contains: search, mode: 'insensitive' } },
             { phone: { contains: search } },
-            ...phoneSearchTerms.map((term) => ({ phoneKey: { contains: term } })),
+            ...phoneSearchTerms.flatMap((term) => [
+              { phone: { contains: term } },
+              { phoneKey: { contains: term } },
+            ]),
           ],
         } : {}),
       },

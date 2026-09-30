@@ -331,7 +331,12 @@ describe('busca global de atendimentos', () => {
       conversation: { findMany },
       conversationPin: { findMany: vi.fn().mockResolvedValue([]) },
     } as never, {} as never, {} as never, {} as never);
-    const scopedAuth = { ...auth, roleKey: 'sdr', teamId: 'team-1' };
+    const scopedAuth = {
+      ...auth,
+      roleKey: 'sdr',
+      teamId: 'team-1',
+      permissions: [{ resource: 'conversations', action: '*', scope: 'TEAM' as const }],
+    };
 
     await service.conversations(scopedAuth, {
       status: 'active',
@@ -439,7 +444,12 @@ describe('opções dos filtros de atendimento', () => {
       team: { findMany: vi.fn().mockResolvedValue([]) },
       tag: { findMany: vi.fn().mockResolvedValue([]) },
     } as never, {} as never, {} as never, {} as never);
-    const scopedAuth = { ...auth, roleKey: 'sdr', teamId: 'team-1' };
+    const scopedAuth = {
+      ...auth,
+      roleKey: 'sdr',
+      teamId: 'team-1',
+      permissions: [{ resource: 'conversations', action: '*', scope: 'TEAM' as const }],
+    };
 
     await service.conversationFilterOptions(scopedAuth, 'mine');
 
@@ -710,7 +720,12 @@ describe('responsabilidade ao abrir um atendimento', () => {
       auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
     };
     const service = new EvolutionService(db as never, {} as never, {} as never, { notifyOrganization: vi.fn() } as never);
-    const scopedAuth = { ...auth, roleKey: 'sdr', teamIds: ['team-comercial'] };
+    const scopedAuth = {
+      ...auth,
+      roleKey: 'sdr',
+      teamIds: ['team-comercial'],
+      permissions: [{ resource: 'conversations', action: '*', scope: 'TEAM' as const }],
+    };
 
     await expect(service.startConversation(scopedAuth, {
       contactId: 'contact-1',
@@ -733,7 +748,12 @@ describe('responsabilidade ao abrir um atendimento', () => {
   it('lista somente as equipes acessíveis ao usuário nas opções de atendimento', async () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const service = new EvolutionService({ team: { findMany } } as never, {} as never, {} as never, {} as never);
-    const scopedAuth = { ...auth, roleKey: 'sdr', teamIds: ['team-1', 'team-2'] };
+    const scopedAuth = {
+      ...auth,
+      roleKey: 'sdr',
+      teamIds: ['team-1', 'team-2'],
+      permissions: [{ resource: 'conversations', action: '*', scope: 'TEAM' as const }],
+    };
 
     await service.conversationTeams(scopedAuth);
 
