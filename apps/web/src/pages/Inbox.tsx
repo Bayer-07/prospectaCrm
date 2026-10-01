@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
 import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X, ZoomIn, ZoomOut } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { aiMessageImprovementDisposition, aiSuggestionDisposition } from '../lib/ai-suggestion';
@@ -3346,95 +3346,16 @@ function DocumentAttachment({ media, url, loading = false }: Readonly<{ media: N
   return <a className="message-document" href={url} target="_blank" rel="noreferrer" aria-label={`Abrir documento ${media.filename}`} title="Abrir documento">{content}</a>;
 }
 
-type ImageLightboxPoint = { x: number; y: number };
-type ImageLightboxSize = { width: number; height: number };
-
-function imageLightboxFitSize(naturalSize: ImageLightboxSize, viewport: ImageLightboxSize): ImageLightboxSize {
-  if (!naturalSize.width || !naturalSize.height || !viewport.width || !viewport.height) return { width: 0, height: 0 };
-  const availableWidth = Math.max(1, viewport.width - 56);
-  const availableHeight = Math.max(1, viewport.height - 56);
-  const ratio = Math.min(1, availableWidth / naturalSize.width, availableHeight / naturalSize.height);
-  return { width: naturalSize.width * ratio, height: naturalSize.height * ratio };
-}
-
-function clampImageLightboxPan(pan: ImageLightboxPoint, zoom: number, imageSize: ImageLightboxSize, viewport: ImageLightboxSize): ImageLightboxPoint {
-  const maxX = Math.max(0, (imageSize.width * zoom - viewport.width) / 2);
-  const maxY = Math.max(0, (imageSize.height * zoom - viewport.height) / 2);
-  return {
-    x: Math.min(maxX, Math.max(-maxX, pan.x)),
-    y: Math.min(maxY, Math.max(-maxY, pan.y)),
-  };
-}
-
 function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: string; onClose(): void }>) {
-  const [zoom, setZoom] = useState(1);
-  const [viewport, setViewport] = useState({ width: 0, height: 0 });
-  const [naturalSize, setNaturalSize] = useState({ width: 0, height: 0 });
-  const [pan, setPan] = useState<ImageLightboxPoint>({ x: 0, y: 0 });
-  const [dragging, setDragging] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
-  const stageRef = useRef<HTMLDivElement>(null);
-  const zoomRef = useRef(1);
-  const panRef = useRef<ImageLightboxPoint>({ x: 0, y: 0 });
-  const viewportRef = useRef(viewport);
-  const naturalSizeRef = useRef(naturalSize);
   const onCloseRef = useRef(onClose);
-  const dragRef = useRef<{ pointerId: number; x: number; y: number; pan: ImageLightboxPoint } | null>(null);
-  const imageSize = imageLightboxFitSize(naturalSize, viewport);
-  const imageReady = imageSize.width > 0 && imageSize.height > 0;
-
-  viewportRef.current = viewport;
-  naturalSizeRef.current = naturalSize;
   onCloseRef.current = onClose;
-
-  const applyPan = (requested: ImageLightboxPoint) => {
-    const next = clampImageLightboxPan(requested, zoomRef.current, imageLightboxFitSize(naturalSizeRef.current, viewportRef.current), viewportRef.current);
-    if (next.x === panRef.current.x && next.y === panRef.current.y) return;
-    panRef.current = next;
-    setPan(next);
-  };
-
-  const resetView = () => {
-    zoomRef.current = 1;
-    panRef.current = { x: 0, y: 0 };
-    setZoom(1);
-    setPan({ x: 0, y: 0 });
-  };
-
-  const changeZoom = (requested: number, anchor?: ImageLightboxPoint) => {
-    const next = Math.max(1, Math.min(4, Math.round(requested * 4) / 4));
-    const current = zoomRef.current;
-    if (next === current) return;
-    const currentViewport = viewportRef.current;
-    const anchorX = (anchor?.x ?? currentViewport.width / 2) - currentViewport.width / 2;
-    const anchorY = (anchor?.y ?? currentViewport.height / 2) - currentViewport.height / 2;
-    const factor = next / current;
-    const nextPan = {
-      x: anchorX - (anchorX - panRef.current.x) * factor,
-      y: anchorY - (anchorY - panRef.current.y) * factor,
-    };
-    zoomRef.current = next;
-    setZoom(next);
-    applyPan(nextPan);
-  };
-
-  const movePanBy = (delta: ImageLightboxPoint) => {
-    applyPan({ x: panRef.current.x + delta.x, y: panRef.current.y + delta.y });
-  };
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') onCloseRef.current();
-      if (event.key === '+' || event.key === '=') changeZoom(zoomRef.current + 0.25);
-      if (event.key === '-') changeZoom(zoomRef.current - 0.25);
-      if (event.key === '0') resetView();
-      const movement: Record<string, [number, number]> = { ArrowUp: [0, -90], ArrowDown: [0, 90], ArrowLeft: [-90, 0], ArrowRight: [90, 0] };
-      if (movement[event.key] && zoomRef.current > 1) {
-        event.preventDefault();
-        movePanBy({ x: movement[event.key][0], y: movement[event.key][1] });
-      }
     };
     document.addEventListener('keydown', onKeyDown);
     closeRef.current?.focus();
@@ -3444,90 +3365,11 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     };
   }, []);
 
-  useLayoutEffect(() => {
-    const stage = stageRef.current;
-    if (!stage) return;
-    const update = () => setViewport({ width: stage.clientWidth, height: stage.clientHeight });
-    update();
-    const observer = new ResizeObserver(update);
-    observer.observe(stage);
-    return () => observer.disconnect();
-  }, []);
-
-  useLayoutEffect(() => {
-    applyPan(panRef.current);
-  }, [naturalSize.width, naturalSize.height, viewport.width, viewport.height, zoom]);
-
-  const beginPan = (event: React.PointerEvent<HTMLDivElement>) => {
-    const stage = stageRef.current;
-    if (!stage || zoomRef.current <= 1 || (event.pointerType === 'mouse' && event.button !== 0)) return;
-    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, pan: panRef.current };
-    stage.setPointerCapture(event.pointerId);
-    setDragging(true);
-    event.preventDefault();
-  };
-  const movePan = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (!drag || drag.pointerId !== event.pointerId) return;
-    const deltaX = event.clientX - drag.x;
-    const deltaY = event.clientY - drag.y;
-    applyPan({ x: drag.pan.x + deltaX, y: drag.pan.y + deltaY });
-    event.preventDefault();
-  };
-  const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
-    const drag = dragRef.current;
-    if (drag?.pointerId !== event.pointerId) return;
-    dragRef.current = null;
-    if (stageRef.current?.hasPointerCapture(event.pointerId)) stageRef.current.releasePointerCapture(event.pointerId);
-    setDragging(false);
-  };
-
-  return createPortal(<dialog
-    open
-    className="image-lightbox"
-    aria-label={`Visualização ampliada de ${alt}`}
-    aria-modal="true"
-    style={{ margin: 0, padding: 0, border: 0 }}
-  >
-    <header className="image-lightbox-toolbar">
-      <strong title={alt}>{alt}</strong>
-      <div>
-        <button type="button" onClick={() => changeZoom(zoom - 0.25)} disabled={zoom <= 1} aria-label="Diminuir zoom" title="Diminuir zoom"><ZoomOut size={19} /></button>
-        <span aria-live="polite">{Math.round(zoom * 100)}%</span>
-        <button type="button" onClick={() => changeZoom(zoom + 0.25)} disabled={zoom >= 4} aria-label="Aumentar zoom" title="Aumentar zoom"><ZoomIn size={19} /></button>
-        <button type="button" onClick={() => changeZoom(1)} disabled={zoom === 1} aria-label="Restaurar zoom" title="Restaurar zoom"><RotateCcw size={18} /></button>
-        <button ref={closeRef} type="button" onClick={onClose} aria-label="Fechar imagem" title="Fechar"><X size={22} /></button>
-      </div>
-    </header>
-    <div
-      ref={stageRef}
-      className={`image-lightbox-stage${zoom > 1 ? ' zoomed' : ''}${dragging ? ' dragging' : ''}`}
-      onPointerDown={beginPan}
-      onPointerMove={movePan}
-      onPointerUp={endPan}
-      onPointerCancel={endPan}
-      onWheel={(event) => {
-        event.preventDefault();
-        const rect = event.currentTarget.getBoundingClientRect();
-        changeZoom(zoomRef.current + (event.deltaY < 0 ? 0.25 : -0.25), { x: event.clientX - rect.left, y: event.clientY - rect.top });
-      }}
-    >
-      <div className="image-lightbox-canvas">
-        <img
-          className={imageReady ? 'image-lightbox-image' : 'image-lightbox-image image-lightbox-image-pending'}
-          src={url}
-          alt={alt}
-          draggable={false}
-          style={{
-            width: imageSize.width || undefined,
-            height: imageSize.height || undefined,
-            transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})`,
-          }}
-          onLoad={(event) => setNaturalSize({ width: event.currentTarget.naturalWidth, height: event.currentTarget.naturalHeight })}
-        />
-      </div>
-    </div>
-  </dialog>, document.body);
+  return createPortal(<div className="image-lightbox" role="dialog" aria-modal="true" aria-label={`Visualização de ${alt}`}>
+    <button type="button" className="image-lightbox-backdrop" onClick={onClose} aria-label="Fechar visualização da imagem" tabIndex={-1} />
+    <img className="image-lightbox-image" src={url} alt={alt} draggable={false} />
+    <button ref={closeRef} type="button" className="image-lightbox-close" onClick={onClose} aria-label="Fechar imagem" title="Fechar"><X size={22} /></button>
+  </div>, document.body);
 }
 
 type TimelineItem = ({ kind: 'message'; message: Message } | { kind: 'event'; event: ConversationEvent }) & { createdAt: string; timestamp: number };

@@ -507,23 +507,12 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 .message-bubble.sticker { min-width: 150px; padding: 5px 2px 4px; border-color: transparent; background: transparent; box-shadow: none; }
 .message-bubble.sticker > small { width: max-content; margin-left: auto; padding: 2px 5px; border-radius: 6px; background: color-mix(in srgb, var(--surface) 88%, transparent); }
 .message-media.sticker-media { width: min(190px, 100%); max-height: 190px; border-radius: 0; object-fit: contain; }
-.image-lightbox { position: fixed; z-index: 180; inset: 0; background: rgba(8, 11, 15, .94); color: #f6f8fa; display: grid; grid-template-rows: 62px minmax(0, 1fr); animation: image-lightbox-in .16s ease-out; }
-.image-lightbox-toolbar { min-width: 0; padding: 0 16px 0 22px; border-bottom: 1px solid rgba(255,255,255,.12); background: rgba(20, 25, 31, .9); display: flex; align-items: center; justify-content: space-between; gap: 18px; backdrop-filter: blur(12px); }
-.image-lightbox-toolbar > strong { min-width: 0; overflow: hidden; font-size: 14px; font-weight: 650; text-overflow: ellipsis; white-space: nowrap; }
-.image-lightbox-toolbar > div { flex: none; display: flex; align-items: center; gap: 5px; }
-.image-lightbox-toolbar button { width: 38px; height: 38px; padding: 0; border: 0; border-radius: 9px; background: transparent; color: #dbe1e7; display: grid; place-items: center; }
-.image-lightbox-toolbar button:hover:not(:disabled) { background: #30363d; color: #fff; }
-.image-lightbox-toolbar button:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(45,166,220,.4); }
-.image-lightbox-toolbar button:disabled { opacity: .32; }
-.image-lightbox-toolbar span { min-width: 50px; color: #b9c1c9; font-size: 12px; text-align: center; }
-.image-lightbox-stage { position: relative; min-width: 0; min-height: 0; overflow: hidden; overscroll-behavior: contain; touch-action: none; display: grid; place-items: center; cursor: default; }
-.image-lightbox-canvas { width: 100%; height: 100%; overflow: hidden; display: grid; place-items: center; }
-.image-lightbox-stage img { display: block; max-width: none; max-height: none; object-fit: contain; transform-origin: center; transition: transform .18s ease; user-select: none; -webkit-user-drag: none; pointer-events: auto; }
-.image-lightbox-stage img.image-lightbox-image-pending { width: auto; height: auto; max-width: calc(100vw - 56px); max-height: calc(100dvh - 118px); }
-.image-lightbox-stage.zoomed { cursor: grab; }
-.image-lightbox-stage.zoomed img { cursor: grab; }
-.image-lightbox-stage.dragging, .image-lightbox-stage.dragging img { cursor: grabbing; }
-.image-lightbox-stage.dragging img { transition: none; }
+.image-lightbox { position: fixed; z-index: 180; inset: 0; padding: max(18px, env(safe-area-inset-top, 0px)) max(18px, env(safe-area-inset-right, 0px)) max(18px, env(safe-area-inset-bottom, 0px)) max(18px, env(safe-area-inset-left, 0px)); overflow: hidden; background: rgba(8, 11, 15, .78); color: #f6f8fa; display: grid; place-items: center; isolation: isolate; animation: image-lightbox-in .16s ease-out; backdrop-filter: blur(18px); -webkit-backdrop-filter: blur(18px); }
+.image-lightbox-backdrop { position: absolute; z-index: 0; inset: 0; width: 100%; height: 100%; padding: 0; border: 0; background: transparent; cursor: default; }
+.image-lightbox-image { position: relative; z-index: 1; display: block; width: auto; height: auto; max-width: calc(100vw - 48px); max-height: calc(100dvh - 48px); object-fit: contain; user-select: none; -webkit-user-drag: none; }
+.image-lightbox-close { position: absolute; z-index: 2; top: max(14px, env(safe-area-inset-top, 0px)); right: max(14px, env(safe-area-inset-right, 0px)); width: 44px; height: 44px; padding: 0; border: 1px solid rgba(255,255,255,.24); border-radius: 50%; background: rgba(20, 25, 31, .86); color: #fff; display: grid; place-items: center; cursor: pointer; box-shadow: 0 8px 24px rgba(0,0,0,.28); }
+.image-lightbox-close:hover { background: rgba(48, 54, 61, .96); }
+.image-lightbox-close:focus-visible { outline: 0; box-shadow: 0 0 0 3px rgba(45,166,220,.5), 0 8px 24px rgba(0,0,0,.28); }
 @keyframes image-lightbox-in { from { opacity: 0; } to { opacity: 1; } }
 .message-bubble p { font-size: 14px; line-height: 1.5; }
 .message-bubble p code, .whatsapp-composer code { padding: 1px 4px; border-radius: 4px; background: color-mix(in srgb, var(--ink) 9%, transparent); color: inherit; font-family: "Cascadia Mono", "SFMono-Regular", Consolas, monospace; font-size: .92em; }
@@ -740,10 +729,7 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
   .voice-recorder-time { min-width: 53px; gap: 6px; font-size: 13px; }
   .voice-recorder-waveform { gap: 1px; }
   .scroll-to-latest { right: 14px; bottom: 88px; }
-  .image-lightbox-toolbar { padding: 0 8px; }
-  .image-lightbox-toolbar > strong { display: none; }
-  .image-lightbox-toolbar > div { width: 100%; justify-content: center; }
-  .image-lightbox-canvas { padding: 14px; }
+  .image-lightbox-image { max-width: calc(100vw - 28px); max-height: calc(100dvh - 28px); }
 }
 
 @media (hover: none) {
