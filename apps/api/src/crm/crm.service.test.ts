@@ -222,6 +222,21 @@ describe('filtros da listagem de contatos', () => {
       }),
     }));
   });
+
+  it('busca pelo nome da empresa principal atribuída ao contato', async () => {
+    const findMany = vi.fn().mockResolvedValue([]);
+    const service = new CrmService({ contact: { findMany } } as never, {} as never);
+
+    await service.listContacts(auth, { search: 'Empresa 1' });
+
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        OR: expect.arrayContaining([
+          { companies: { some: { isPrimary: true, company: { name: { contains: 'Empresa 1', mode: 'insensitive' } } } } },
+        ]),
+      }),
+    }));
+  });
 });
 
 describe('tarefas criadas por integrações', () => {

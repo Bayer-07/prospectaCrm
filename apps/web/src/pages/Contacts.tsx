@@ -139,7 +139,7 @@ export function ContactsPage() {
   return <div className="list-page">
     <div className="toolbar">
       <div className="toolbar-left">
-        <div className="inline-search wide"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar nome, e-mail ou telefone…" /></div>
+        <div className="inline-search wide"><Search size={15} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar nome, empresa, e-mail ou telefone…" /></div>
         <div className="list-filter-wrap">
           <button type="button" className={`filter-button ${activeFilters ? 'active' : ''}`} onClick={toggleFilters} aria-expanded={filterOpen}><Filter size={15} />Filtros{activeFilters > 0 && <span>{activeFilters}</span>}</button>
           {filterOpen && <>

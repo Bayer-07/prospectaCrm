@@ -393,6 +393,7 @@ export class CrmService {
           OR: [
             { name: { contains: search, mode: 'insensitive' } },
             { email: { contains: search, mode: 'insensitive' } },
+            { companies: { some: { isPrimary: true, company: { name: { contains: search, mode: 'insensitive' } } } } },
             { phone: { contains: search } },
             ...phoneSearchTerms.flatMap((term) => [
               { phone: { contains: term } },

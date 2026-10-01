@@ -894,7 +894,7 @@ function NewConversationModal({ onClose, onStarted }: Readonly<{ onClose(): void
   else if (teams.error) teamPicker = <div className="form-hint">Não foi possível carregar as equipes disponíveis.</div>;
   return <Modal title="Nova conversa" onClose={onClose} width={620}>
     <form className="new-conversation-form" onSubmit={(event) => { event.preventDefault(); if (contactId && instanceId && teamId && selectedWhatsappStatus !== false) start.mutate(); }}>
-      <label className="conversation-contact-search"><span>Selecionar contato</span><div><Search size={16} /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, telefone ou e-mail…" /></div></label>
+      <label className="conversation-contact-search"><span>Selecionar contato</span><div><Search size={16} /><input autoFocus value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar por nome, empresa, telefone ou e-mail…" /></div></label>
       <div className="conversation-contact-list">{contactListContent}</div>
       {selectedContact && <div className="conversation-selected-contact"><Check size={15} /><span><strong>{selectedContact.name}</strong> será aberto em um novo ticket.</span></div>}
       {teamPicker}
