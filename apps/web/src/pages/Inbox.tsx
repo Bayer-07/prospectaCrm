@@ -3347,9 +3347,18 @@ function DocumentAttachment({ media, url, loading = false }: Readonly<{ media: N
 }
 
 function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: string; onClose(): void }>) {
+  const [zoom, setZoom] = useState(1);
   const closeRef = useRef<HTMLButtonElement>(null);
   const onCloseRef = useRef(onClose);
+  const zoomRef = useRef(1);
   onCloseRef.current = onClose;
+
+  const changeZoom = (deltaY: number) => {
+    const next = Math.max(1, Math.min(4, zoomRef.current + (deltaY < 0 ? 0.25 : -0.25)));
+    if (next === zoomRef.current) return;
+    zoomRef.current = next;
+    setZoom(next);
+  };
 
   useEffect(() => {
     const previousOverflow = document.body.style.overflow;
@@ -3367,7 +3376,18 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
 
   return createPortal(<div className="image-lightbox" role="dialog" aria-modal="true" aria-label={`Visualização de ${alt}`}>
     <button type="button" className="image-lightbox-backdrop" onClick={onClose} aria-label="Fechar visualização da imagem" tabIndex={-1} />
-    <img className="image-lightbox-image" src={url} alt={alt} draggable={false} />
+    <img
+      className={`image-lightbox-image${zoom > 1 ? ' zoomed' : ''}`}
+      src={url}
+      alt={alt}
+      draggable={false}
+      style={{ transform: `scale(${zoom})` }}
+      onWheel={(event) => {
+        event.preventDefault();
+        event.stopPropagation();
+        changeZoom(event.deltaY);
+      }}
+    />
     <button ref={closeRef} type="button" className="image-lightbox-close" onClick={onClose} aria-label="Fechar imagem" title="Fechar"><X size={22} /></button>
   </div>, document.body);
 }
