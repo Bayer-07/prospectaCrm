@@ -1914,14 +1914,30 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   }, []);
   const copyMessage = async (message: Message) => {
     const value = messageCopyText(message);
+    const imageMedia = message.media?.find((media) => media.contentType.toLowerCase().startsWith('image/'));
     try {
-      await navigator.clipboard.writeText(value);
+      if (imageMedia) {
+        await copyImageMessageToClipboard(imageMedia, value);
+      } else {
+        await navigator.clipboard.writeText(value);
+      }
     } catch {
+      if (imageMedia) {
+        try {
+          await navigator.clipboard.writeText(value);
+          setMessageMenu(null);
+          toast.error('O navegador não permitiu copiar a imagem. O texto da mensagem foi copiado.');
+          return;
+        } catch {
+          toast.error('Não foi possível copiar a mensagem neste navegador.');
+          return;
+        }
+      }
       toast.error('Não foi possível copiar a mensagem neste navegador.');
       return;
     }
     setMessageMenu(null);
-    setActionNotice('Mensagem copiada');
+    setActionNotice(imageMedia ? (message.text?.trim() ? 'Imagem e texto copiados' : 'Imagem copiada') : 'Mensagem copiada');
   };
   const downloadAudio = async (message: Message) => {
     const media = messageAudioMedia(message);
@@ -3163,6 +3179,45 @@ function messageCopyText(message: Message) {
   const location = extractWhatsappLocation(message.payload);
   if (location) return location.mapsUrl;
   return message.text?.trim() || message.media?.[0]?.filename || messagePreview(message);
+}
+
+async function copyImageMessageToClipboard(media: NonNullable<Message['media']>[number], text: string) {
+  if (!navigator.clipboard.write || typeof ClipboardItem === 'undefined') throw new Error('Clipboard de imagem indisponível');
+  const signed = await api<Envelope<{ url: string }>>(`/media/${media.id}/url`);
+  const response = await fetch(signed.data.url);
+  if (!response.ok) throw new Error('Não foi possível carregar a imagem');
+  const source = await response.blob();
+  const image = await imageClipboardBlob(source);
+  await navigator.clipboard.write([new ClipboardItem({
+    'image/png': image,
+    'text/plain': new Blob([text], { type: 'text/plain' }),
+  })]);
+}
+
+async function imageClipboardBlob(source: Blob) {
+  if (source.type === 'image/png') return source;
+  const objectUrl = URL.createObjectURL(source);
+  try {
+    const image = new Image();
+    const loaded = new Promise<void>((resolve, reject) => {
+      image.onload = () => resolve();
+      image.onerror = () => reject(new Error('Não foi possível preparar a imagem'));
+    });
+    image.src = objectUrl;
+    await loaded;
+    const canvas = document.createElement('canvas');
+    canvas.width = image.naturalWidth;
+    canvas.height = image.naturalHeight;
+    const context = canvas.getContext('2d');
+    if (!context) throw new Error('Canvas indisponível');
+    context.drawImage(image, 0, 0);
+    const png = await new Promise<Blob>((resolve, reject) => {
+      canvas.toBlob((blob) => blob ? resolve(blob) : reject(new Error('Não foi possível converter a imagem')), 'image/png');
+    });
+    return png;
+  } finally {
+    URL.revokeObjectURL(objectUrl);
+  }
 }
 
 function messageAudioMedia(message: Message) {
