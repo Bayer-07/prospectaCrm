@@ -518,7 +518,8 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 .image-lightbox-toolbar span { min-width: 50px; color: #b9c1c9; font-size: 12px; text-align: center; }
 .image-lightbox-stage { min-width: 0; min-height: 0; overflow: auto; overscroll-behavior: contain; scrollbar-color: rgba(255,255,255,.38) rgba(255,255,255,.08); }
 .image-lightbox-canvas { min-width: 100%; min-height: 100%; width: max-content; height: max-content; padding: 28px; display: grid; place-items: center; }
-.image-lightbox-stage img { max-width: none; max-height: none; object-fit: contain; cursor: zoom-in; transition: width .18s ease, height .18s ease; user-select: none; -webkit-user-drag: none; }
+.image-lightbox-stage img { display: block; max-width: none; max-height: none; object-fit: contain; cursor: zoom-in; transition: width .18s ease, height .18s ease; user-select: none; -webkit-user-drag: none; }
+.image-lightbox-stage img.image-lightbox-image-pending { width: auto; height: auto; max-width: calc(100vw - 56px); max-height: calc(100dvh - 118px); }
 .image-lightbox-stage.zoomed, .image-lightbox-stage.zoomed img { cursor: grab; touch-action: none; }
 .image-lightbox-stage.dragging, .image-lightbox-stage.dragging img { cursor: grabbing; }
 @keyframes image-lightbox-in { from { opacity: 0; } to { opacity: 1; } }

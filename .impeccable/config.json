@@ -1,0 +1,26 @@
+{
+  "detector": {
+    "ignoreRules": [],
+    "ignoreFiles": [],
+    "ignoreValues": [
+      {
+        "rule": "side-tab",
+        "value": "*",
+        "files": [
+          "apps/web/src/interface-v2.css"
+        ],
+        "createdAt": "2026-10-01T14:30:16.341Z",
+        "reason": "Os side-tabs deste CSS são marcadores semânticos intencionais para resposta citada, composer reply, confirmação de exclusão e transcrição; não são decoração genérica."
+      },
+      {
+        "rule": "layout-transition",
+        "value": "*",
+        "files": [
+          "apps/web/src/interface-v2.css"
+        ],
+        "createdAt": "2026-10-01T14:30:21.358Z",
+        "reason": "As transições de largura/altura neste CSS são animações de estado intencionais: zoom do visualizador de imagens e atualização da forma de onda do gravador."
+      }
+    ]
+  }
+}

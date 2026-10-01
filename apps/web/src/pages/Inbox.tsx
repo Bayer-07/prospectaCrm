@@ -3357,11 +3357,14 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
   const onCloseRef = useRef(onClose);
   const dragRef = useRef<{ pointerId: number; x: number; y: number; scrollLeft: number; scrollTop: number; moved: boolean; captureTarget: HTMLButtonElement } | null>(null);
   const suppressClickRef = useRef(false);
+  const hasNaturalSize = naturalSize.width > 0 && naturalSize.height > 0;
+  const hasViewportSize = viewport.width > 0 && viewport.height > 0;
+  const canSizeImage = hasNaturalSize && hasViewportSize;
   const availableWidth = Math.max(1, viewport.width - 56);
   const availableHeight = Math.max(1, viewport.height - 56);
-  const fitRatio = naturalSize.width && naturalSize.height ? Math.min(1, availableWidth / naturalSize.width, availableHeight / naturalSize.height) : 1;
-  const displayWidth = naturalSize.width ? naturalSize.width * fitRatio * zoom : undefined;
-  const displayHeight = naturalSize.height ? naturalSize.height * fitRatio * zoom : undefined;
+  const fitRatio = canSizeImage ? Math.min(1, availableWidth / naturalSize.width, availableHeight / naturalSize.height) : 1;
+  const displayWidth = canSizeImage ? naturalSize.width * fitRatio * zoom : undefined;
+  const displayHeight = canSizeImage ? naturalSize.height * fitRatio * zoom : undefined;
 
   onCloseRef.current = onClose;
   const changeZoom = (requested: number) => {
@@ -3489,6 +3492,7 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
           style={{ position: 'relative', zIndex: 1, display: 'block', border: 0, padding: 0, background: 'transparent' }}
         >
           <img
+            className={canSizeImage ? undefined : 'image-lightbox-image-pending'}
             src={url}
             alt={alt}
             draggable={false}
