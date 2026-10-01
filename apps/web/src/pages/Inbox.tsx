@@ -3379,8 +3379,7 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
   const viewportRef = useRef(viewport);
   const naturalSizeRef = useRef(naturalSize);
   const onCloseRef = useRef(onClose);
-  const dragRef = useRef<{ pointerId: number; x: number; y: number; pan: ImageLightboxPoint; moved: boolean } | null>(null);
-  const suppressClickRef = useRef(false);
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; pan: ImageLightboxPoint } | null>(null);
   const imageSize = imageLightboxFitSize(naturalSize, viewport);
   const imageReady = imageSize.width > 0 && imageSize.height > 0;
 
@@ -3462,7 +3461,7 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
   const beginPan = (event: React.PointerEvent<HTMLDivElement>) => {
     const stage = stageRef.current;
     if (!stage || zoomRef.current <= 1 || (event.pointerType === 'mouse' && event.button !== 0)) return;
-    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, pan: panRef.current, moved: false };
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, pan: panRef.current };
     stage.setPointerCapture(event.pointerId);
     setDragging(true);
     event.preventDefault();
@@ -3472,16 +3471,12 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     if (!drag || drag.pointerId !== event.pointerId) return;
     const deltaX = event.clientX - drag.x;
     const deltaY = event.clientY - drag.y;
-    if (Math.abs(deltaX) > 3 || Math.abs(deltaY) > 3) {
-      drag.moved = true;
-    }
     applyPan({ x: drag.pan.x + deltaX, y: drag.pan.y + deltaY });
     event.preventDefault();
   };
   const endPan = (event: React.PointerEvent<HTMLDivElement>) => {
     const drag = dragRef.current;
     if (drag?.pointerId !== event.pointerId) return;
-    suppressClickRef.current = drag.moved;
     dragRef.current = null;
     if (stageRef.current?.hasPointerCapture(event.pointerId)) stageRef.current.releasePointerCapture(event.pointerId);
     setDragging(false);
@@ -3515,13 +3510,6 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
         event.preventDefault();
         const rect = event.currentTarget.getBoundingClientRect();
         changeZoom(zoomRef.current + (event.deltaY < 0 ? 0.25 : -0.25), { x: event.clientX - rect.left, y: event.clientY - rect.top });
-      }}
-      onClick={(event) => {
-        if (suppressClickRef.current) {
-          suppressClickRef.current = false;
-          return;
-        }
-        if (event.target === event.currentTarget || event.target === event.currentTarget.firstElementChild) onClose();
       }}
     >
       <div className="image-lightbox-canvas">
