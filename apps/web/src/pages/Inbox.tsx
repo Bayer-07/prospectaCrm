@@ -3346,18 +3346,47 @@ function DocumentAttachment({ media, url, loading = false }: Readonly<{ media: N
   return <a className="message-document" href={url} target="_blank" rel="noreferrer" aria-label={`Abrir documento ${media.filename}`} title="Abrir documento">{content}</a>;
 }
 
+type ImageLightboxPoint = { x: number; y: number };
+
+function clampImageLightboxPan(requested: ImageLightboxPoint, zoom: number, image: ImageLightboxPoint, viewport: ImageLightboxPoint): ImageLightboxPoint {
+  const maxX = Math.max(0, (image.x * zoom - viewport.x) / 2);
+  const maxY = Math.max(0, (image.y * zoom - viewport.y) / 2);
+  return {
+    x: Math.min(maxX, Math.max(-maxX, requested.x)),
+    y: Math.min(maxY, Math.max(-maxY, requested.y)),
+  };
+}
+
 function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: string; onClose(): void }>) {
   const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<ImageLightboxPoint>({ x: 0, y: 0 });
+  const [viewport, setViewport] = useState<ImageLightboxPoint>({ x: 0, y: 0 });
+  const [imageLoaded, setImageLoaded] = useState(false);
+  const [dragging, setDragging] = useState(false);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const stageRef = useRef<HTMLDivElement>(null);
+  const imageRef = useRef<HTMLImageElement>(null);
   const onCloseRef = useRef(onClose);
   const zoomRef = useRef(1);
+  const panRef = useRef<ImageLightboxPoint>({ x: 0, y: 0 });
+  const dragRef = useRef<{ pointerId: number; x: number; y: number; pan: ImageLightboxPoint } | null>(null);
   onCloseRef.current = onClose;
+
+  const applyPan = (requested: ImageLightboxPoint) => {
+    const stage = stageRef.current;
+    const image = imageRef.current;
+    if (!stage || !image) return;
+    const next = clampImageLightboxPan(requested, zoomRef.current, { x: image.clientWidth, y: image.clientHeight }, { x: stage.clientWidth, y: stage.clientHeight });
+    panRef.current = next;
+    setPan(next);
+  };
 
   const changeZoom = (deltaY: number) => {
     const next = Math.max(1, Math.min(4, zoomRef.current + (deltaY < 0 ? 0.25 : -0.25)));
     if (next === zoomRef.current) return;
     zoomRef.current = next;
     setZoom(next);
+    applyPan(panRef.current);
   };
 
   useEffect(() => {
@@ -3374,14 +3403,58 @@ function ImageLightbox({ url, alt, onClose }: Readonly<{ url: string; alt: strin
     };
   }, []);
 
-  return createPortal(<div className="image-lightbox" role="dialog" aria-modal="true" aria-label={`Visualização de ${alt}`}>
+  useLayoutEffect(() => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const update = () => setViewport({ x: stage.clientWidth, y: stage.clientHeight });
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(stage);
+    return () => observer.disconnect();
+  }, []);
+
+  useLayoutEffect(() => {
+    if (imageLoaded) applyPan(panRef.current);
+  }, [imageLoaded, viewport.x, viewport.y, zoom]);
+
+  const beginPan = (event: React.PointerEvent<HTMLImageElement>) => {
+    if (zoomRef.current <= 1 || (event.pointerType === 'mouse' && event.button !== 0)) return;
+    const image = event.currentTarget;
+    dragRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY, pan: panRef.current };
+    image.setPointerCapture(event.pointerId);
+    setDragging(true);
+    event.preventDefault();
+  };
+
+  const movePan = (event: React.PointerEvent<HTMLImageElement>) => {
+    const drag = dragRef.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    applyPan({ x: drag.pan.x + event.clientX - drag.x, y: drag.pan.y + event.clientY - drag.y });
+    event.preventDefault();
+  };
+
+  const endPan = (event: React.PointerEvent<HTMLImageElement>) => {
+    const drag = dragRef.current;
+    if (drag?.pointerId !== event.pointerId) return;
+    dragRef.current = null;
+    if (imageRef.current?.hasPointerCapture(event.pointerId)) imageRef.current.releasePointerCapture(event.pointerId);
+    setDragging(false);
+  };
+
+  return createPortal(<div ref={stageRef} className="image-lightbox" role="dialog" aria-modal="true" aria-label={`Visualização de ${alt}`}>
     <button type="button" className="image-lightbox-backdrop" onClick={onClose} aria-label="Fechar visualização da imagem" tabIndex={-1} />
     <img
-      className={`image-lightbox-image${zoom > 1 ? ' zoomed' : ''}`}
+      ref={imageRef}
+      className={`image-lightbox-image${zoom > 1 ? ' zoomed' : ''}${dragging ? ' dragging' : ''}`}
       src={url}
       alt={alt}
       draggable={false}
-      style={{ transform: `scale(${zoom})` }}
+      style={{ transform: `translate3d(${pan.x}px, ${pan.y}px, 0) scale(${zoom})` }}
+      onLoad={() => setImageLoaded(true)}
+      onPointerDown={beginPan}
+      onPointerMove={movePan}
+      onPointerUp={endPan}
+      onPointerCancel={endPan}
       onWheel={(event) => {
         event.preventDefault();
         event.stopPropagation();
