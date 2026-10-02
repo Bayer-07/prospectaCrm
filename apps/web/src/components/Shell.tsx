@@ -238,7 +238,7 @@ export function Shell() {
   const rootPath = `/${location.pathname.split('/')[1]}`.replace(/^\/$/, '/');
   const info = pageInfo[rootPath] || pageInfo['/'];
   const isInbox = rootPath === '/inbox';
-  const isChatbotEditor = location.pathname === '/chatbots' && new URLSearchParams(location.search).has('edit');
+  const isFlowEditor = ['/chatbots', '/automacoes'].includes(location.pathname) && new URLSearchParams(location.search).has('edit');
   const canRead = (resource?: string) => !resource || user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === resource) && (permission.action === '*' || permission.action === 'read'));
   const canWrite = (resource: string) => user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === resource) && (permission.action === '*' || permission.action === 'write'));
   const quickAddItems = [
@@ -485,7 +485,7 @@ export function Shell() {
 
   return <div className="app-shell">
     {sidebar}{mobileOpen && <button type="button" className="mobile-overlay" onClick={() => setMobileOpen(false)} aria-label="Fechar menu lateral" />}
-    <main className={`main-column ${isInbox ? 'inbox-shell' : ''} ${isChatbotEditor ? 'chatbot-editor-shell-active' : ''}`}>
+    <main className={`main-column ${isInbox ? 'inbox-shell' : ''} ${isFlowEditor ? 'chatbot-editor-shell-active' : ''}`}>
       <header className="topbar">
         <button type="button" className="mobile-menu" onClick={() => setMobileOpen(true)} aria-label="Abrir menu"><Menu size={20} /></button>
         <GlobalSearch />
