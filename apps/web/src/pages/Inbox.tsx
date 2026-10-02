@@ -2056,6 +2056,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const renderHeader = () => <header className="conversation-header">
     <div className="conversation-person">
       <button type="button" className="conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
+        <span className="conversation-queue-marker conversation-header-queue-marker" style={{ '--queue-color': conversation.team?.color || '#94a3b8' } as React.CSSProperties} title={`Fila: ${conversation.team?.name || 'Sem fila'}`} aria-hidden="true" />
         <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
         <div><strong>{conversation.contact.name}</strong><div className="conversation-person-details"><span className="conversation-person-phone"><i />{formatPhone(conversation.contact.phone) || 'Sem telefone'}</span><span className="conversation-instance-badge">{conversation.instance.name}</span></div></div>
       </button>
