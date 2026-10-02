@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
 import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MailOpen, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { aiMessageImprovementDisposition, aiSuggestionDisposition } from '../lib/ai-suggestion';
@@ -464,6 +464,15 @@ export function InboxPage() {
     void client.invalidateQueries({ queryKey: ['conversation', selectedId] });
     void client.invalidateQueries({ queryKey: ['conversation-messages', selectedId] });
   }, [client, selectedId]);
+  const markUnread = useMutation({
+    mutationFn: (id: string) => api<Envelope<Conversation>>(`/conversations/${id}/unread`, { method: 'POST' }),
+    onSuccess: (_response, id) => {
+      toast.success('Ticket marcado como não lido.');
+      if (id === selectedId) navigate('/inbox', { replace: true });
+      invalidate();
+    },
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível marcar o ticket como não lido')),
+  });
   const moveToConversationStatus = useCallback((updated: Conversation) => {
     const nextFilter = inboxFilterForStatus(updated.status);
     setFilter(nextFilter);
@@ -607,7 +616,7 @@ export function InboxPage() {
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
     const width = 252;
-    const height = 294;
+    const height = 336;
     const pointerX = event.clientX || rect.left + Math.min(rect.width - 12, 90);
     const pointerY = event.clientY || rect.top + 18;
     setTicketMenu({
@@ -694,6 +703,7 @@ export function InboxPage() {
       menu={ticketMenu}
       onClose={() => setTicketMenu(null)}
       onUpdated={invalidate}
+      onMarkUnread={(id) => markUnread.mutate(id)}
       onFollowUp={setFollowUpConversation}
       onFinalized={(conversationId) => {
         if (conversationId === selectedId) {
@@ -720,10 +730,11 @@ export function InboxPage() {
   </div>;
 }
 
-function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowUp }: Readonly<{
+function TicketContextActions({ menu, onClose, onUpdated, onMarkUnread, onFinalized, onFollowUp }: Readonly<{
   menu: TicketContextMenuState | null;
   onClose(): void;
   onUpdated(): void;
+  onMarkUnread(id: string): void;
   onFinalized(conversationId: string): void;
   onFollowUp(conversation: Conversation): void;
 }>) {
@@ -807,6 +818,7 @@ function TicketContextActions({ menu, onClose, onUpdated, onFinalized, onFollowU
       <button type="button" className="message-menu-scrim" onClick={onClose} aria-label="Fechar ações do ticket" />
       <div className="conversation-action-menu ticket-context-menu" role="menu" style={{ top: menu.top, left: menu.left }}>
         {menu.conversation.status === 'OPEN' && <button type="button" role="menuitem" disabled={pin.isPending} onClick={() => { const item = menu.conversation; onClose(); pin.mutate(item); }}>{menu.conversation.isPinned ? <PinOff size={17} /> : <Pin size={17} />}<span>{menu.conversation.isPinned ? 'Desafixar' : 'Fixar'}</span></button>}
+        <button type="button" role="menuitem" disabled={menu.conversation.unreadCount > 0} title={menu.conversation.unreadCount > 0 ? 'Este ticket já está marcado como não lido' : undefined} onClick={() => { const item = menu.conversation; onClose(); onMarkUnread(item.id); }}><MailOpen size={17} /><span>Marcar como não lido</span></button>
         <button type="button" role="menuitem" disabled={!menu.conversation.assignee || !canScheduleFollowUp} title={followUpDisabledReason(menu.conversation, canScheduleFollowUp)} onClick={() => { const item = menu.conversation; onClose(); onFollowUp(item); }}><Clock size={17} /><span>{menu.conversation.followUps?.length ? 'Ver/editar follow-up' : 'Agendar follow-up automático'}</span></button>
         <button type="button" role="menuitem" className="danger" disabled={menu.conversation.status === 'CLOSED' || finalize.isPending} title={menu.conversation.status === 'CLOSED' ? 'Este atendimento já está finalizado' : undefined} onClick={() => { const item = menu.conversation; onClose(); finalize.mutate(item); }}><Archive size={17} /><span>Finalizar</span></button>
         {menu.conversation.contact.phone

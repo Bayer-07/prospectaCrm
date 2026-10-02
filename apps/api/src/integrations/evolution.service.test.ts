@@ -470,6 +470,22 @@ describe('opções dos filtros de atendimento', () => {
   });
 });
 
+describe('estado de leitura das conversas', () => {
+  it('marca uma conversa como não lida e notifica as telas abertas', async () => {
+    const conversation = { id: 'conversation-1', organizationId: auth.organizationId, unreadCount: 0 };
+    const updated = { ...conversation, unreadCount: 1 };
+    const update = vi.fn().mockResolvedValue(updated);
+    const notifyOrganization = vi.fn();
+    const service = new EvolutionService({
+      conversation: { findFirst: vi.fn().mockResolvedValue(conversation), update },
+    } as never, {} as never, {} as never, { notifyOrganization } as never);
+
+    await expect(service.markUnread(auth, conversation.id)).resolves.toEqual(updated);
+    expect(update).toHaveBeenCalledWith({ where: { id: conversation.id }, data: { unreadCount: 1 } });
+    expect(notifyOrganization).toHaveBeenCalledWith(auth.organizationId, 'inbox.updated', { conversationId: conversation.id });
+  });
+});
+
 describe('conversas fixadas', () => {
   it('mantém os fixados do usuário antes das conversas recentes', async () => {
     const pinnedConversation = { id: 'conversation-pinned', contact: { id: 'contact-1', name: 'Fixado' } };

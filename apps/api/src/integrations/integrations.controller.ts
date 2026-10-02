@@ -197,6 +197,10 @@ export class IntegrationsController {
   async read(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.evolution.markRead(auth, id) }; }
 
   @RequirePermission('conversations', 'read')
+  @Post('conversations/:id/unread')
+  async unread(@CurrentUser() auth: AuthContext, @Param('id') id: string) { return { data: await this.evolution.markUnread(auth, id) }; }
+
+  @RequirePermission('conversations', 'read')
   @Patch('conversations/:id/pin')
   async pin(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { pinned: boolean }) {
     return { data: await this.evolution.setConversationPinned(auth, id, body.pinned === true) };

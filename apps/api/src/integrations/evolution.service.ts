@@ -1438,6 +1438,14 @@ export class EvolutionService {
     return updated;
   }
 
+  async markUnread(auth: AuthContext, id: string) {
+    const conversation = await this.assertConversation(auth, id);
+    if (conversation.unreadCount > 0) return conversation;
+    const updated = await this.db.conversation.update({ where: { id }, data: { unreadCount: 1 } });
+    this.realtime.notifyOrganization(auth.organizationId, 'inbox.updated', { conversationId: id });
+    return updated;
+  }
+
   async sendMessage(auth: AuthContext, conversationId: string, input: { type?: string; text?: string; mediaKey?: string; replyToMessageId?: string; signatureEnabled?: boolean }) {
     const conversation = await this.assertConversation(auth, conversationId);
     if (conversation.status !== 'OPEN' || !conversation.assigneeId) throw new BadRequestException('Assuma a conversa antes de responder');
