@@ -317,13 +317,17 @@ function InboxConversationList(props: InboxConversationListProps) {
     const description = props.activeFilterCount ? 'Ajuste ou limpe os filtros aplicados.' : 'Tente buscar por outro contato.';
     return <div className="conversation-list-empty"><Filter size={20} /><strong>Nenhuma conversa encontrada</strong><span>{description}</span>{props.activeFilterCount > 0 && <button type="button" onClick={props.onClearFilters}>Limpar filtros</button>}</div>;
   }
-  return <>{props.conversations.map((item) => <button
-    type="button"
-    key={item.id}
-    className={`${item.id === props.selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
-    onClick={() => props.onSelect(item.id)}
-    onContextMenu={(event) => props.onContextMenu(event, item)}
-  ><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{conversationListPreview(item)}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small><QueueBadge team={item.team} /></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>)}</>;
+  return <>{props.conversations.map((item) => {
+    const queueName = item.team?.name || 'Sem fila';
+    return <button
+      type="button"
+      key={item.id}
+      className={`${item.id === props.selectedId ? 'active ' : ''}${item.isPinned ? 'pinned' : ''}`.trim()}
+      style={{ '--queue-color': item.team?.color || '#94a3b8' } as React.CSSProperties}
+      onClick={() => props.onSelect(item.id)}
+      onContextMenu={(event) => props.onContextMenu(event, item)}
+    ><span className="conversation-queue-marker" title={`Fila: ${queueName}`} aria-label={`Fila: ${queueName}`} /><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{conversationListPreview(item)}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>;
+  })}</>;
 }
 
 type InboxSidebarProps = Readonly<{
