@@ -397,7 +397,7 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .conversation-search > input { font-size: 13px; }
 .conversation-search > button { width: 32px; height: 32px; }
 .conversation-list > button { min-height: 88px; padding: 12px 14px; grid-template-columns: 5px 38px minmax(0, 1fr); gap: 10px; }
-.conversation-queue-marker { width: 5px; margin: -12px 0; }
+.conversation-queue-marker { width: 5px; margin: -12px 0 -12px -14px; }
 .conversation-list strong { font-size: 14px; }
 .conversation-list time { font-size: 11px; }
 .conversation-list p { margin: 5px 0; font-size: 13px; }
