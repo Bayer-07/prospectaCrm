@@ -2814,6 +2814,22 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
     },
   });
   useEffect(() => setContactTags(contact.tags || []), [contact.tags]);
+  useEffect(() => {
+    if (!pickerOpen) return;
+    const closePicker = (event: PointerEvent) => {
+      if (pickerRef.current?.contains(event.target as Node)) return;
+      setPickerOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPickerOpen(false);
+    };
+    document.addEventListener('pointerdown', closePicker);
+    document.addEventListener('keydown', closeOnEscape);
+    return () => {
+      document.removeEventListener('pointerdown', closePicker);
+      document.removeEventListener('keydown', closeOnEscape);
+    };
+  }, [pickerOpen]);
   const selectedIds = new Set(contactTags.map(({ tag }) => tag.id));
   const normalizedSearch = tagSearch.trim().toLocaleLowerCase('pt-BR');
   const matchingTags = (availableTags.data?.data || []).filter((tag) => !selectedIds.has(tag.id)
@@ -2846,9 +2862,9 @@ function InboxContactTags({ contact, conversationId, canEdit }: Readonly<{ conta
     {contactTags.length ? <div className="inbox-contact-tag-chips">{contactTags.map(({ tag }) => <span className="inbox-contact-tag-chip" key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}{canEdit && <button type="button" onClick={() => removeTag(tag.id)} disabled={updateTags.isPending} aria-label={`Remover tag ${tag.name}`} title={`Remover ${tag.name}`}><X size={12} /></button>}</span>)}</div> : !canEdit && <p className="drawer-empty-copy">Nenhuma tag adicionada.</p>}
     {canEdit && <div className="inbox-contact-tags-picker" ref={pickerRef}>
       <div className={`inbox-contact-tags-input ${pickerOpen ? 'active' : ''}`}><Tags size={14} /><input value={tagSearch} onFocus={() => setPickerOpen(true)} onChange={(event) => { setTagSearch(event.target.value); setPickerOpen(true); }} onKeyDown={(event) => { if (event.key === 'Escape') setPickerOpen(false); }} placeholder="Adicionar tag…" aria-label="Buscar tags para o contato" aria-expanded={pickerOpen} aria-controls="inbox-contact-tag-options" role="combobox" autoComplete="off" disabled={updateTags.isPending} /></div>
-      <FloatingMenu anchorRef={pickerRef} open={pickerOpen} className="inbox-contact-tag-options" maxHeight={210} onOutsideClick={() => setPickerOpen(false)} id="inbox-contact-tag-options" role="listbox">
+      {pickerOpen && <div className="inbox-contact-tag-options" id="inbox-contact-tag-options" role="listbox" aria-label="Etiquetas disponíveis">
         {availableTags.isLoading ? <p>Carregando tags…</p> : availableTags.isError ? <p>Não foi possível carregar as tags.</p> : matchingTags.length ? matchingTags.map((tag) => <button type="button" role="option" aria-selected="false" key={tag.id} onClick={() => selectTag(tag)}><i style={{ background: tag.color }} /><span>{tag.name}</span><Plus size={14} /></button>) : tagSearch.trim() ? <button type="button" className="inbox-contact-tag-create" onClick={openTagCreation}><Plus size={15} /><span>Adicionar tag “{tagSearch.trim()}”</span></button> : availableTags.data?.data.length ? <p>Digite para buscar uma tag.</p> : <p><span>Você ainda não criou tags.</span> <Link to="/tags">Criar tag</Link></p>}
-      </FloatingMenu>
+      </div>}
     </div>}
     </section>
     {creatingTagName !== null && <TagModal tag={null} initialName={creatingTagName} onClose={() => setCreatingTagName(null)} onSaved={handleTagCreated} />}
