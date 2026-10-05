@@ -386,7 +386,7 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 
 /* Inbox e atendimento */
 .inbox-layout { grid-template-columns: 330px minmax(0, 1fr); }
-.conversation-view { grid-template-rows: 68px minmax(0, 1fr) auto; }
+.conversation-view { grid-template-rows: auto auto minmax(0, 1fr) auto; }
 .conversation-sidebar-heading { min-height: 56px; padding: 9px 12px; }
 .conversation-sidebar-heading > strong { font-size: 14px; }
 .conversation-sidebar-heading .button { min-height: 36px; padding: 0 11px; font-size: 12px; }
@@ -711,7 +711,7 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 
 @media (max-width: 680px) {
   .inbox-layout { display: block; }
-  .conversation-view { grid-template-rows: 64px minmax(0, 1fr) auto; }
+  .conversation-view { grid-template-rows: auto auto minmax(0, 1fr) auto; }
   .conversation-person-details > span { max-width: 170px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .conversation-actions .button { max-width: 120px; }
   .conversation-status-button { width: 38px; padding: 0; }
