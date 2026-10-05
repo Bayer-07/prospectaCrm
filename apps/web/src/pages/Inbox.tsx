@@ -1128,6 +1128,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [recordingSeconds, setRecordingSeconds] = useState(0);
   const [voiceLevels, setVoiceLevels] = useState(EMPTY_VOICE_LEVELS);
   const [audioPlaybackRate, setAudioPlaybackRate] = useState<number>(1);
+  const [contactTags, setContactTags] = useState(conversation.contact.tags || []);
   const bodyRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<WhatsappComposerHandle>(null);
@@ -1166,6 +1167,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     (permission.resource === '*' || permission.resource === 'opportunities') && (permission.action === '*' || permission.action === 'write')));
   const canScheduleFollowUp = canWriteResource(user, 'conversations') && canWriteResource(user, 'tasks');
   const canTransfer = canWriteResource(user, 'conversations') && conversation.status !== 'CLOSED';
+  const canEditContactTags = canWriteResource(user, 'contacts');
   const workflows = useQuery({
     queryKey: ['workflow-shortcuts'],
     queryFn: () => api<Envelope<WorkflowShortcut[]>>('/workflows'),
@@ -1410,6 +1412,25 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     onError: (_error, _enabled, context) => setSignatureEnabled(context?.previous ?? false),
     onSuccess: () => { void refresh(); },
   });
+  const updateContactTags = useMutation({
+    mutationFn: (nextTags: typeof contactTags) => api<Envelope<Contact>>(`/contacts/${conversation.contact.id}/tags`, {
+      method: 'PATCH',
+      body: JSON.stringify({ tagIds: nextTags.map(({ tag }) => tag.id) }),
+    }),
+    onMutate: (nextTags) => {
+      const previous = contactTags;
+      setContactTags(nextTags);
+      return { previous };
+    },
+    onSuccess: (response) => {
+      setContactTags(response.data.tags || []);
+      onSend();
+    },
+    onError: (error, _nextTags, context) => {
+      setContactTags(context?.previous || []);
+      toast.error(apiErrorMessage(error, 'Não foi possível atualizar as etiquetas do contato'));
+    },
+  });
   const assignees = useQuery({
     queryKey: ['conversation-assignees'],
     queryFn: () => api<Envelope<ConversationAssignee[]>>('/conversations/assignees'),
@@ -1510,6 +1531,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     setFilePreviewUrl(url);
     return () => URL.revokeObjectURL(url);
   }, [file]);
+  useEffect(() => setContactTags(conversation.contact.tags || []), [conversation.contact.tags]);
   useEffect(() => setSignatureEnabled(Boolean(user?.messageSignatureEnabled)), [user?.messageSignatureEnabled]);
   useEffect(() => setAutomationIndex(0), [automationSearch, automationMenuOpen]);
   useEffect(() => setQuickReplyIndex(0), [quickReplySearch, quickReplyMenuOpen]);
@@ -2057,13 +2079,12 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     setConversationMenu(null);
     transfer.reset();
   };
-  const contactTags = conversation.contact.tags || [];
-  const visibleContactTags = contactTags.slice(0, 3);
-  const hiddenContactTagCount = contactTags.length - visibleContactTags.length;
   const contactTagNames = contactTags.map(({ tag }) => tag.name).join(', ');
   const renderContactTags = () => <div className={`conversation-contact-tags-bar${contactTags.length ? ' has-tags' : ''}`} aria-label={contactTags.length ? `Etiquetas: ${contactTagNames}` : undefined}>
-    {visibleContactTags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}
-    {hiddenContactTagCount > 0 && <b title={`Mais etiquetas: ${contactTags.slice(3).map(({ tag }) => tag.name).join(', ')}`}>+{hiddenContactTagCount}</b>}
+    {contactTags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>
+      <span className="conversation-contact-tag-label">{tag.name}</span>
+      {canEditContactTags && <button type="button" className="conversation-contact-tag-remove" onClick={() => updateContactTags.mutate(contactTags.filter(({ tag: currentTag }) => currentTag.id !== tag.id))} disabled={updateContactTags.isPending} aria-label={`Remover etiqueta ${tag.name}`} title={`Remover etiqueta ${tag.name}`}><X size={11} /></button>}
+    </span>)}
   </div>;
   const renderHeader = () => <header className="conversation-header">
     <div className="conversation-person">
