@@ -2057,12 +2057,16 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     setConversationMenu(null);
     transfer.reset();
   };
+  const contactTags = conversation.contact.tags || [];
+  const visibleContactTags = contactTags.slice(0, 3);
+  const hiddenContactTagCount = contactTags.length - visibleContactTags.length;
+  const contactTagNames = contactTags.map(({ tag }) => tag.name).join(', ');
   const renderHeader = () => <header className="conversation-header">
     <div className="conversation-person">
       <button type="button" className="conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
         <span className="conversation-queue-marker conversation-header-queue-marker" style={{ '--queue-color': conversation.team?.color || '#94a3b8' } as React.CSSProperties} title={`Fila: ${conversation.team?.name || 'Sem fila'}`} aria-hidden="true" />
         <WhatsappAvatar conversationId={conversation.id} name={conversation.contact.name} large />
-        <div><strong>{conversation.contact.name}</strong><div className="conversation-person-details"><span className="conversation-person-phone"><i />{formatPhone(conversation.contact.phone) || 'Sem telefone'}</span><span className="conversation-instance-badge">{conversation.instance.name}</span></div></div>
+        <div><strong>{conversation.contact.name}</strong>{contactTags.length > 0 && <div className="conversation-header-contact-tags" title={`Etiquetas: ${contactTagNames}`} aria-label={`Etiquetas: ${contactTagNames}`}>{visibleContactTags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}{hiddenContactTagCount > 0 && <b>+{hiddenContactTagCount}</b>}</div>}<div className="conversation-person-details"><span className="conversation-person-phone"><i />{formatPhone(conversation.contact.phone) || 'Sem telefone'}</span><span className="conversation-instance-badge">{conversation.instance.name}</span></div></div>
       </button>
       <button
         type="button"
