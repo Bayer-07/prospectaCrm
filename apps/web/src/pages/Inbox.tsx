@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
 import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MailOpen, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
+import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Bot, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MailOpen, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { aiMessageImprovementDisposition, aiSuggestionDisposition } from '../lib/ai-suggestion';
@@ -3003,6 +3003,12 @@ function messageBubbleText(message: Message, sharedContactMessage: boolean, loca
   return `[${message.type}]`;
 }
 
+function isAiGeneratedMessage(message: Message) {
+  return message.direction === 'OUTBOUND'
+    && typeof message.payload?.aiGenerationId === 'string'
+    && message.payload.aiGenerationId.trim().length > 0;
+}
+
 function messageBubbleClassName(state: {
   sticker: boolean;
   visualMedia: boolean;
@@ -3084,11 +3090,13 @@ type MessageBubbleContentProps = Pick<MessageBubbleProps,
   reactions: MessageReaction[];
   edited: boolean;
   outbound: boolean;
+  aiGenerated: boolean;
 };
 
 function MessageBubbleContent(props: MessageBubbleContentProps) {
-  const { message, replyTo, replyFallback, contactName, originalType, sticker, deleted, messageText, messageLink, interactive, sharedContacts, location, failure, reactions, edited, outbound } = props;
+  const { message, replyTo, replyFallback, contactName, originalType, sticker, deleted, messageText, messageLink, interactive, sharedContacts, location, failure, reactions, edited, outbound, aiGenerated } = props;
   return <>
+    {aiGenerated && <span className="message-ai-badge" title="Mensagem enviada automaticamente pela IA"><Bot size={12} />Resposta da IA</span>}
     {deleted && <div className="message-deleted-notice" role="note" title="Esta mensagem foi apagada"><Trash2 size={13} /><strong>Mensagem apagada</strong></div>}
     {replyTo && <button type="button" className="message-reply-quote" onClick={() => props.onJumpToReply(replyTo.id)} aria-label={`Ir para a mensagem: ${messagePreview(replyTo)}`}><strong>{replyTo.direction === 'OUTBOUND' ? 'Você' : contactName}</strong><span>{messagePreview(replyTo)}</span></button>}
     {!replyTo && replyFallback && <div className="message-reply-quote message-reply-static" role="note"><strong>Mensagem respondida</strong><span>{replyFallback}</span></div>}
@@ -3107,6 +3115,7 @@ function MessageBubbleContent(props: MessageBubbleContentProps) {
 const MessageBubble = memo(function MessageBubble(props: MessageBubbleProps) {
   const { message, menuOpen, onMenu, onReactionMenu, onReply, canRetry } = props;
   const outbound = message.direction === 'OUTBOUND';
+  const aiGenerated = isAiGeneratedMessage(message);
   const failure = message.status === 'FAILED' ? describeMessageFailure(message.payload) : undefined;
   const reactions = messageReactions(message);
   const edited = isMessageEdited(message);
@@ -3139,7 +3148,7 @@ const MessageBubble = memo(function MessageBubble(props: MessageBubbleProps) {
       }}
     >
       <button type="button" className="message-menu-trigger" aria-label="Abrir opções da mensagem" aria-expanded={menuOpen} onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); onMenu(message, rect.right, rect.bottom + 4); }}><ChevronDown size={17} /></button>
-      <MessageBubbleContent {...props} originalType={originalType} sticker={sticker} deleted={deleted} messageText={messageText} messageLink={messageLink} interactive={interactive} sharedContacts={sharedContacts} location={location || undefined} failure={failure} reactions={reactions} edited={edited} outbound={outbound} />
+      <MessageBubbleContent {...props} originalType={originalType} sticker={sticker} deleted={deleted} messageText={messageText} messageLink={messageLink} interactive={interactive} sharedContacts={sharedContacts} location={location || undefined} failure={failure} reactions={reactions} edited={edited} outbound={outbound} aiGenerated={aiGenerated} />
     </article>
     {!outbound && <MessageQuickReaction visible={quickReactionVisible} message={message} onReactionMenu={onReactionMenu} />}
   </div>;
