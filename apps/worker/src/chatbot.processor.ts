@@ -25,7 +25,14 @@ type ChatbotHttpRequester = (url: string, options?: PublicHttpRequestOptions) =>
 const MAX_WAIT_SECONDS = 31_536_000;
 const AUDIO_TRANSCRIPTION_POLL_MS = 5_000;
 const DEFAULT_AUDIO_TRANSCRIPTION_WAIT_MS = 15 * 60_000;
+const AI_REPLY_DELAY_MIN_MS = 10_000;
+const AI_REPLY_DELAY_MAX_MS = 15_000;
 const RESERVED_SESSION_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
+
+export function chatbotAiReplyDelayMs(randomValue = Math.random()) {
+  const normalized = Number.isFinite(randomValue) ? Math.min(1, Math.max(0, randomValue)) : 0.5;
+  return Math.round(AI_REPLY_DELAY_MIN_MS + normalized * (AI_REPLY_DELAY_MAX_MS - AI_REPLY_DELAY_MIN_MS));
+}
 
 function temporaryVariableName(value: unknown) {
   const variableName = textValue(value).trim();
@@ -645,6 +652,8 @@ export class ChatbotProcessor {
     if (!nextNodeId) throw new Error('O bloco de IA precisa estar conectado a uma saída');
     const context = (storedSession?.context || {}) as Record<string, unknown>;
     const turnCount = (Number(context.aiTurns) || 0) + 1;
+    const responseDelayMs = chatbotAiReplyDelayMs();
+    const responseNotBefore = new Date(Date.now() + responseDelayMs).toISOString();
     const deduplicationKey = `chatbot:${session.id}:${node.id}:${inboundMessageId}`;
     await this.db.conversationAiGeneration.updateMany({
       where: {
@@ -675,6 +684,7 @@ export class ChatbotProcessor {
           maxInteractions: Number(node.data?.maxInteractions) || 6,
           minimumConfidence: Number(node.data?.minimumConfidence) || 65,
           fallbackMessage: textValue(node.data?.fallbackMessage),
+          responseNotBefore,
         },
       },
       update: {},
@@ -688,7 +698,7 @@ export class ChatbotProcessor {
       }),
     ]);
     await this.aiQueue.add('generate', { generationId: generation.id }, {
-      jobId: `ai-${generation.id}`, priority: 1, attempts: 1, removeOnComplete: 1_000, removeOnFail: 5_000,
+      jobId: `ai-${generation.id}`, priority: 1, delay: responseDelayMs, attempts: 1, removeOnComplete: 1_000, removeOnFail: 5_000,
     });
     return { nextNodeId: node.id, shouldStop: true };
   }

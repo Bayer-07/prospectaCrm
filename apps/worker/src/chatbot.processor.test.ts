@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChatbotProcessor, chatbotWaitSeconds } from './chatbot.processor.js';
+import { ChatbotProcessor, chatbotAiReplyDelayMs, chatbotWaitSeconds } from './chatbot.processor.js';
 
 const graph = {
   nodes: [
@@ -110,6 +110,12 @@ function inboundMessage(chatbotSession: Record<string, unknown> | null = null) {
 }
 
 describe('espera do chatbot', () => {
+  it('mantém o atraso da resposta de IA entre 10 e 15 segundos', () => {
+    expect(chatbotAiReplyDelayMs(0)).toBe(10_000);
+    expect(chatbotAiReplyDelayMs(0.5)).toBe(12_500);
+    expect(chatbotAiReplyDelayMs(1)).toBe(15_000);
+  });
+
   it('transcreve o áudio antes de iniciar o atendimento por IA', async () => {
     const audio = {
       ...inboundMessage(),
@@ -203,8 +209,11 @@ describe('espera do chatbot', () => {
     expect(aiQueue.add).toHaveBeenCalledWith(
       'generate',
       { generationId: 'generation-audio' },
-      expect.objectContaining({ priority: 1 }),
+      expect.objectContaining({ priority: 1, delay: expect.any(Number) }),
     );
+    const delay = aiQueue.add.mock.calls[0]?.[2]?.delay;
+    expect(delay).toBeGreaterThanOrEqual(10_000);
+    expect(delay).toBeLessThanOrEqual(15_000);
   });
 
   it('não responde fora de ordem quando outra mensagem chega durante a transcrição', async () => {
