@@ -1087,6 +1087,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   onClose(): void;
 }>) {
   const { user, refresh } = useAuth();
+  const client = useQueryClient();
   const navigate = useNavigate();
   const [text, setText] = useState('');
   const [file, setFile] = useState<File | null>(null);
@@ -1129,6 +1130,9 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const [voiceLevels, setVoiceLevels] = useState(EMPTY_VOICE_LEVELS);
   const [audioPlaybackRate, setAudioPlaybackRate] = useState<number>(1);
   const [contactTags, setContactTags] = useState(conversation.contact.tags || []);
+  const [tagSearch, setTagSearch] = useState('');
+  const [tagPickerOpen, setTagPickerOpen] = useState(false);
+  const [creatingTagName, setCreatingTagName] = useState<string | null>(null);
   const bodyRef = useRef<HTMLDivElement>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   const textRef = useRef<WhatsappComposerHandle>(null);
@@ -1155,6 +1159,8 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const recordingRequestIdRef = useRef(0);
   const sendRecordingRef = useRef(false);
   const recordingDraftRef = useRef<{ replyToMessageId?: string; signatureEnabled: boolean }>({ signatureEnabled: false });
+  const contactTagsBarRef = useRef<HTMLDivElement>(null);
+  const tagSearchInputRef = useRef<HTMLInputElement>(null);
   const messagesById = useMemo(() => new Map(conversation.messages.map((message) => [message.id, message])), [conversation.messages]);
   const messagesByProviderId = useMemo(() => new Map(conversation.messages.map((message) => [message.providerMessageId, message])), [conversation.messages]);
   const newestMessageId = conversation.messages.at(-1)?.id;
@@ -1168,6 +1174,12 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
   const canScheduleFollowUp = canWriteResource(user, 'conversations') && canWriteResource(user, 'tasks');
   const canTransfer = canWriteResource(user, 'conversations') && conversation.status !== 'CLOSED';
   const canEditContactTags = canWriteResource(user, 'contacts');
+  const availableContactTags = useQuery({
+    queryKey: ['tags'],
+    queryFn: () => api<Envelope<InboxTagOption[]>>('/tags'),
+    enabled: canEditContactTags && tagPickerOpen,
+    staleTime: 5 * 60_000,
+  });
   const workflows = useQuery({
     queryKey: ['workflow-shortcuts'],
     queryFn: () => api<Envelope<WorkflowShortcut[]>>('/workflows'),
@@ -1424,6 +1436,12 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     },
     onSuccess: (response) => {
       setContactTags(response.data.tags || []);
+      client.setQueryData<Envelope<Conversation>>(['conversation', conversation.id], (current) => current
+        ? { ...current, data: { ...current.data, contact: response.data } }
+        : current);
+      void client.invalidateQueries({ queryKey: ['conversations'] });
+      void client.invalidateQueries({ queryKey: ['contacts'] });
+      void client.invalidateQueries({ queryKey: ['tags'] });
       onSend();
     },
     onError: (error, _nextTags, context) => {
@@ -2079,13 +2097,79 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     setConversationMenu(null);
     transfer.reset();
   };
+  const selectContactTag = (tag: InboxTagOption) => {
+    if (updateContactTags.isPending || contactTags.some(({ tag: currentTag }) => currentTag.id === tag.id)) return;
+    updateContactTags.mutate([...contactTags, { tag }]);
+    setTagSearch('');
+    setTagPickerOpen(true);
+    tagSearchInputRef.current?.focus();
+  };
+  const removeContactTag = (tagId: string) => {
+    if (!canEditContactTags || updateContactTags.isPending) return;
+    updateContactTags.mutate(contactTags.filter(({ tag }) => tag.id !== tagId));
+  };
+  const openTagCreation = () => {
+    const name = tagSearch.trim();
+    if (!name || updateContactTags.isPending) return;
+    setCreatingTagName(name);
+    setTagPickerOpen(false);
+  };
+  const handleTagCreated = (tag: TagRecord) => {
+    setCreatingTagName(null);
+    setTagSearch('');
+    setTagPickerOpen(true);
+    updateContactTags.mutate([...contactTags, { tag }]);
+    void client.invalidateQueries({ queryKey: ['tags'] });
+  };
+  const normalizedTagSearch = tagSearch.trim().toLocaleLowerCase('pt-BR');
+  const tagNameExists = Boolean(normalizedTagSearch && availableContactTags.data?.data.some((tag) => tag.name.toLocaleLowerCase('pt-BR') === normalizedTagSearch));
+  const matchingContactTags = (availableContactTags.data?.data || []).filter((tag) => !contactTags.some(({ tag: currentTag }) => currentTag.id === tag.id)
+    && (!normalizedTagSearch || tag.name.toLocaleLowerCase('pt-BR').includes(normalizedTagSearch)));
   const contactTagNames = contactTags.map(({ tag }) => tag.name).join(', ');
-  const renderContactTags = () => <div className={`conversation-contact-tags-bar${contactTags.length ? ' has-tags' : ''}`} aria-label={contactTags.length ? `Etiquetas: ${contactTagNames}` : undefined}>
-    {contactTags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>
-      <span className="conversation-contact-tag-label">{tag.name}</span>
-      {canEditContactTags && <button type="button" className="conversation-contact-tag-remove" onClick={() => updateContactTags.mutate(contactTags.filter(({ tag: currentTag }) => currentTag.id !== tag.id))} disabled={updateContactTags.isPending} aria-label={`Remover etiqueta ${tag.name}`} title={`Remover etiqueta ${tag.name}`}><X size={11} /></button>}
-    </span>)}
-  </div>;
+  const renderContactTags = () => <>
+    <div
+      ref={contactTagsBarRef}
+      className={`conversation-contact-tags-bar${contactTags.length || canEditContactTags ? ' has-tags' : ''}`}
+      aria-label={contactTags.length ? `Etiquetas: ${contactTagNames}` : undefined}
+      onClick={(event) => {
+        if (event.target === event.currentTarget) {
+          setTagPickerOpen(true);
+          tagSearchInputRef.current?.focus();
+        }
+      }}
+    >
+      {contactTags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>
+        <span className="conversation-contact-tag-label">{tag.name}</span>
+        {canEditContactTags && <button type="button" className="conversation-contact-tag-remove" onClick={() => removeContactTag(tag.id)} disabled={updateContactTags.isPending} aria-label={`Remover etiqueta ${tag.name}`} title={`Remover etiqueta ${tag.name}`}><X size={11} /></button>}
+      </span>)}
+      {canEditContactTags && <div className={`conversation-contact-tags-search${tagPickerOpen ? ' active' : ''}`} onClick={() => { setTagPickerOpen(true); tagSearchInputRef.current?.focus(); }}>
+        <Tags size={13} aria-hidden="true" />
+        <input
+          ref={tagSearchInputRef}
+          value={tagSearch}
+          onFocus={() => setTagPickerOpen(true)}
+          onChange={(event) => { setTagSearch(event.target.value); setTagPickerOpen(true); }}
+          onKeyDown={(event) => { if (event.key === 'Escape') setTagPickerOpen(false); }}
+          placeholder="Adicionar etiqueta…"
+          aria-label="Buscar etiquetas para o contato"
+          aria-expanded={tagPickerOpen}
+          aria-controls="conversation-contact-tag-options"
+          role="combobox"
+          autoComplete="off"
+          disabled={updateContactTags.isPending}
+        />
+      </div>}
+    </div>
+    <FloatingMenu anchorRef={contactTagsBarRef} open={tagPickerOpen && canEditContactTags} className="inbox-contact-tag-options" maxHeight={230} onOutsideClick={() => setTagPickerOpen(false)} id="conversation-contact-tag-options" role="listbox" ariaLabel="Etiquetas disponíveis">
+      {availableContactTags.isLoading ? <p>Carregando etiquetas…</p> : availableContactTags.isError ? <p>Não foi possível carregar as etiquetas.</p> : <>
+        {matchingContactTags.map((tag) => <button type="button" role="option" aria-selected="false" key={tag.id} onClick={() => selectContactTag(tag)}><i style={{ background: tag.color }} /><span>{tag.name}</span><Plus size={14} /></button>)}
+        {normalizedTagSearch && !tagNameExists && <button type="button" className="inbox-contact-tag-create" onClick={openTagCreation}><Plus size={15} /><span>Adicionar etiqueta “{tagSearch.trim()}”</span></button>}
+        {!matchingContactTags.length && normalizedTagSearch && tagNameExists && <p>Essa etiqueta já está adicionada.</p>}
+        {!matchingContactTags.length && !normalizedTagSearch && <p>Digite para buscar uma etiqueta.</p>}
+      </>}
+    </FloatingMenu>
+    {creatingTagName !== null && <TagModal tag={null} initialName={creatingTagName} onClose={() => setCreatingTagName(null)} onSaved={handleTagCreated} />}
+  </>;
   const renderHeader = () => <header className="conversation-header">
     <div className="conversation-person">
       <button type="button" className="conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>

@@ -794,6 +794,10 @@ a.message-document:hover .message-document-action { border-color: var(--violet);
 .inbox-contact-tag-chip button { width: 17px; height: 17px; padding: 0; border: 0; border-radius: 5px; background: color-mix(in srgb, var(--tag-color) 14%, transparent); color: currentColor; display: grid; place-items: center; cursor: pointer; }
 .inbox-contact-tag-chip button:hover:not(:disabled) { background: color-mix(in srgb, var(--tag-color) 28%, transparent); }
 .inbox-contact-tag-chip button:disabled { opacity: .45; cursor: wait; }
+.conversation-contact-tags-search { min-width: min(190px, 100%); flex: 1 1 190px; min-height: 26px; padding: 0 5px; border: 1px solid transparent; border-radius: 6px; color: var(--muted); display: inline-flex; align-items: center; gap: 6px; transition: border-color .15s, background .15s, box-shadow .15s; }
+.conversation-contact-tags-search.active, .conversation-contact-tags-search:focus-within { border-color: var(--violet); background: var(--surface-soft); box-shadow: 0 0 0 3px color-mix(in srgb, var(--violet) 12%, transparent); }
+.conversation-contact-tags-search input { min-width: 0; width: 100%; height: 24px; padding: 0; border: 0; outline: 0; background: transparent; color: var(--ink); font: inherit; font-size: 11px; }
+.conversation-contact-tags-search input::placeholder { color: var(--muted); }
 .inbox-contact-tags-picker { position: relative; }
 .inbox-contact-tags-input { min-height: 35px; padding: 0 10px; border: 1px solid var(--line-strong); border-radius: 8px; background: var(--surface-soft); color: var(--muted); display: flex; align-items: center; gap: 7px; transition: border-color .15s, box-shadow .15s; }
 .inbox-contact-tags-input.active { border-color: var(--violet); box-shadow: 0 0 0 3px color-mix(in srgb, var(--violet) 16%, transparent); }
