@@ -268,10 +268,14 @@ type CampaignListItemProps = Readonly<{
   campaign: Campaign;
   schedulePending: boolean;
   scheduledCampaignId?: string;
+  cancelSchedulePending: boolean;
+  cancelScheduleCampaignId?: string;
   invalidDownloadPending: boolean;
   invalidDownloadCampaignId?: string;
   onOpen(campaignId: string): void;
   onSchedule(campaignId: string): void;
+  onEditSchedule(campaign: Campaign): void;
+  onCancelSchedule(campaignId: string): void;
   onChangeStatus(campaignId: string, action: 'pause' | 'resume'): void;
   onDownloadInvalid(campaign: Campaign): void;
   onDelete(campaign: Campaign): void;
@@ -281,10 +285,14 @@ function CampaignListItem({
   campaign,
   schedulePending,
   scheduledCampaignId,
+  cancelSchedulePending,
+  cancelScheduleCampaignId,
   invalidDownloadPending,
   invalidDownloadCampaignId,
   onOpen,
   onSchedule,
+  onEditSchedule,
+  onCancelSchedule,
   onChangeStatus,
   onDownloadInvalid,
   onDelete,
@@ -297,6 +305,7 @@ function CampaignListItem({
       : 'Sem prévia de conteúdo';
   }
   const schedulingThisCampaign = schedulePending && scheduledCampaignId === campaign.id;
+  const cancellingThisCampaign = cancelSchedulePending && cancelScheduleCampaignId === campaign.id;
   const downloadingThisCampaign = invalidDownloadPending && invalidDownloadCampaignId === campaign.id;
 
   return <article style={{ position: 'relative' }}>
@@ -311,6 +320,10 @@ function CampaignListItem({
     <div className="campaign-numbers"><div><span>Enviados</span><strong>{progress.sent}</strong></div><div><span>Responderam</span><strong>{progress.replied}</strong></div><div><span>Faltam</span><strong>{progress.remaining}</strong></div></div>
     <div className="campaign-actions" style={{ position: 'relative', zIndex: 2 }}>
       {campaign.status === 'DRAFT' && <button type="button" className="campaign-start-button" title="Validar contatos e iniciar" disabled={schedulePending} onClick={() => onSchedule(campaign.id)}>{schedulingThisCampaign ? <LoaderCircle size={15} className="spin" /> : <Play size={15} />}<span>Iniciar</span></button>}
+      {campaign.status === 'SCHEDULED' && <>
+        <button type="button" title="Editar horário de início" aria-label={`Editar horário de início da campanha ${campaign.name}`} disabled={cancelSchedulePending} onClick={() => onEditSchedule(campaign)}><CalendarClock size={16} /></button>
+        <button type="button" className="campaign-cancel-schedule-button" title="Cancelar agendamento" aria-label={`Cancelar agendamento da campanha ${campaign.name}`} disabled={cancelSchedulePending} onClick={() => onCancelSchedule(campaign.id)}>{cancellingThisCampaign ? <LoaderCircle size={16} className="spin" /> : <X size={16} />}</button>
+      </>}
       {campaign.status === 'RUNNING' && <button type="button" title="Pausar" onClick={() => onChangeStatus(campaign.id, 'pause')}><Pause size={16} /></button>}
       {campaign.status === 'PAUSED' && <button type="button" title="Retomar" onClick={() => onChangeStatus(campaign.id, 'resume')}><Play size={16} /></button>}
       <button
@@ -334,6 +347,7 @@ export function CampaignsPage() {
   const [modal, setModal] = useState(false);
   const [detailsId, setDetailsId] = useState<string | null>(null);
   const [schedulingCampaign, setSchedulingCampaign] = useState<Campaign | null>(null);
+  const [editingSchedule, setEditingSchedule] = useState<Campaign | null>(null);
   const [deleting, setDeleting] = useState<Campaign | null>(null);
   const [filter, setFilter] = useState<'all' | 'RUNNING' | 'SCHEDULED' | 'COMPLETED'>('all');
   const invalidWhatsappDownload = useInvalidWhatsappDownload();
@@ -351,6 +365,24 @@ export function CampaignsPage() {
     onSuccess: (_result, variables) => {
       setSchedulingCampaign(null);
       toast.success(variables.scheduledAt ? 'Campanha agendada.' : 'Campanha iniciada.');
+      return client.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+  });
+  const reschedule = useMutation({
+    mutationFn: ({ id, scheduledAt }: { id: string; scheduledAt: string }) => api(`/campaigns/${id}/reschedule`, {
+      method: 'POST',
+      body: JSON.stringify({ scheduledAt }),
+    }),
+    onSuccess: () => {
+      setEditingSchedule(null);
+      toast.success('Horário da campanha alterado.');
+      return client.invalidateQueries({ queryKey: ['campaigns'] });
+    },
+  });
+  const cancelSchedule = useMutation({
+    mutationFn: (id: string) => api(`/campaigns/${id}/cancel-schedule`, { method: 'POST' }),
+    onSuccess: () => {
+      toast.success('Agendamento cancelado. A campanha voltou para rascunho.');
       return client.invalidateQueries({ queryKey: ['campaigns'] });
     },
   });
@@ -399,10 +431,14 @@ export function CampaignsPage() {
       campaign={campaign}
       schedulePending={schedule.isPending}
       scheduledCampaignId={schedule.variables?.id}
+      cancelSchedulePending={cancelSchedule.isPending}
+      cancelScheduleCampaignId={cancelSchedule.variables}
       invalidDownloadPending={invalidWhatsappDownload.isPending}
       invalidDownloadCampaignId={invalidWhatsappDownload.variables?.id}
       onOpen={setDetailsId}
       onSchedule={(campaignId) => setSchedulingCampaign(allCampaigns.find((campaign) => campaign.id === campaignId) || null)}
+      onEditSchedule={setEditingSchedule}
+      onCancelSchedule={(campaignId) => cancelSchedule.mutate(campaignId)}
       onChangeStatus={(campaignId, action) => status.mutate({ id: campaignId, action })}
       onDownloadInvalid={(selectedCampaign) => invalidWhatsappDownload.mutate(selectedCampaign)}
       onDelete={setDeleting}
@@ -413,6 +449,15 @@ export function CampaignsPage() {
       loading={schedule.isPending}
       onClose={() => !schedule.isPending && setSchedulingCampaign(null)}
       onConfirm={(scheduledAt) => schedule.mutate({ id: schedulingCampaign.id, scheduledAt })}
+    />}
+    {editingSchedule && <ScheduleCampaignModal
+      campaign={editingSchedule}
+      title="Editar início da campanha"
+      onlyScheduled
+      initialScheduledAt={editingSchedule.scheduledAt}
+      loading={reschedule.isPending}
+      onClose={() => !reschedule.isPending && setEditingSchedule(null)}
+      onConfirm={(scheduledAt) => scheduledAt && reschedule.mutate({ id: editingSchedule.id, scheduledAt })}
     />}
     {detailsId && <CampaignDetails campaignId={detailsId} onClose={() => setDetailsId(null)} />}
     {deleting && <DeleteCampaignModal
@@ -450,14 +495,20 @@ function localDateTimeValue(date: Date) {
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
 }
 
-function ScheduleCampaignModal({ campaign, loading, onClose, onConfirm }: Readonly<{
+function ScheduleCampaignModal({ campaign, title, onlyScheduled = false, initialScheduledAt, loading, onClose, onConfirm }: Readonly<{
   campaign: Campaign;
+  title?: string;
+  onlyScheduled?: boolean;
+  initialScheduledAt?: string;
   loading: boolean;
   onClose(): void;
   onConfirm(scheduledAt?: string): void;
 }>) {
-  const [mode, setMode] = useState<'now' | 'scheduled'>('now');
-  const [scheduledAt, setScheduledAt] = useState(() => localDateTimeValue(new Date(Date.now() + 30 * 60_000)));
+  const [mode, setMode] = useState<'now' | 'scheduled'>(onlyScheduled ? 'scheduled' : 'now');
+  const [scheduledAt, setScheduledAt] = useState(() => {
+    const initial = initialScheduledAt ? new Date(initialScheduledAt) : new Date(Date.now() + 30 * 60_000);
+    return Number.isFinite(initial.getTime()) ? localDateTimeValue(initial) : localDateTimeValue(new Date(Date.now() + 30 * 60_000));
+  });
   const minimumDateTime = useMemo(() => localDateTimeValue(new Date(Date.now() + 60_000)), []);
   const scheduledTimestamp = new Date(scheduledAt).getTime();
   const scheduleIsValid = Number.isFinite(scheduledTimestamp) && scheduledTimestamp > Date.now();
@@ -469,10 +520,10 @@ function ScheduleCampaignModal({ campaign, loading, onClose, onConfirm }: Readon
     onConfirm(mode === 'scheduled' ? new Date(scheduledAt).toISOString() : undefined);
   };
 
-  return <Modal title={`Iniciar campanha “${campaign.name}”`} onClose={onClose}>
+  return <Modal title={title ? `${title} “${campaign.name}”` : `Iniciar campanha “${campaign.name}”`} onClose={onClose}>
     <form className="modal-form campaign-schedule-form" onSubmit={submit}>
-      <p className="campaign-schedule-intro">Escolha quando a validação dos contatos deve ser executada e os envios devem começar.</p>
-      <div className="campaign-schedule-options">
+      <p className="campaign-schedule-intro">{onlyScheduled ? 'Escolha a nova data e horário para iniciar automaticamente os envios.' : 'Escolha quando a validação dos contatos deve ser executada e os envios devem começar.'}</p>
+      {!onlyScheduled && <div className="campaign-schedule-options">
         <label className={`campaign-schedule-option${mode === 'now' ? ' active' : ''}`}>
           <input type="radio" name="campaign-schedule-mode" checked={mode === 'now'} onChange={() => setMode('now')} />
           <span><strong>Iniciar agora</strong><small>Valida os contatos e começa os envios assim que possível.</small></span>
@@ -481,7 +532,7 @@ function ScheduleCampaignModal({ campaign, loading, onClose, onConfirm }: Readon
           <input type="radio" name="campaign-schedule-mode" checked={mode === 'scheduled'} onChange={() => setMode('scheduled')} />
           <span><strong>Agendar início</strong><small>A campanha será iniciada automaticamente na data e horário escolhidos.</small></span>
         </label>
-      </div>
+      </div>}
       {mode === 'scheduled' && <Field
         label="Data e horário de início"
         type="datetime-local"
@@ -492,7 +543,7 @@ function ScheduleCampaignModal({ campaign, loading, onClose, onConfirm }: Readon
         hint="Horário local do seu navegador."
         required
       />}
-      <div className="campaign-schedule-note"><CalendarClock size={17} /><span>A campanha ficará como <strong>Agendada</strong> até o horário definido. Você ainda poderá excluí-la antes do início.</span></div>
+      <div className="campaign-schedule-note"><CalendarClock size={17} /><span>A campanha ficará como <strong>Agendada</strong> até o horário definido. Você poderá editar o horário ou cancelar o agendamento antes do início.</span></div>
       <div className="modal-actions">
         <Button type="button" variant="secondary" onClick={onClose} disabled={loading}>Cancelar</Button>
         <Button type="submit" loading={loading} disabled={!canConfirm}>{mode === 'scheduled' ? <><CalendarClock size={16} />Agendar campanha</> : <><Play size={16} />Iniciar campanha</>}</Button>

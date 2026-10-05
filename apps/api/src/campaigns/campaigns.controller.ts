@@ -114,6 +114,19 @@ export class CampaignsController {
   async schedule(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { scheduledAt?: string }) { return { data: await this.campaigns.schedule(auth, id, body.scheduledAt) }; }
 
   @RequirePermission('campaigns', 'launch')
+  @Post(':id/reschedule')
+  async reschedule(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Body() body: { scheduledAt?: string }) {
+    if (!body.scheduledAt) throw new BadRequestException('Informe a nova data e hora do agendamento');
+    return { data: await this.campaigns.reschedule(auth, id, body.scheduledAt) };
+  }
+
+  @RequirePermission('campaigns', 'launch')
+  @Post(':id/cancel-schedule')
+  async cancelSchedule(@CurrentUser() auth: AuthContext, @Param('id') id: string) {
+    return { data: await this.campaigns.cancelSchedule(auth, id) };
+  }
+
+  @RequirePermission('campaigns', 'launch')
   @Post(':id/:action')
   async status(@CurrentUser() auth: AuthContext, @Param('id') id: string, @Param('action') action: 'pause' | 'resume' | 'cancel') { return { data: await this.campaigns.setStatus(auth, id, action) }; }
 }

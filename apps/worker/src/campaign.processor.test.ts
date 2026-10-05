@@ -557,9 +557,34 @@ describe('campanhas de e-mail', () => {
 
     expect(add).toHaveBeenCalledWith(
       'dispatch-campaign',
-      { campaignId: 'scheduled' },
+      { campaignId: 'scheduled', scheduledAt: scheduledAt.toISOString() },
       expect.objectContaining({ delay: expect.any(Number) }),
     );
+  });
+
+  it('ignora um job de agendamento que ficou com horário antigo', async () => {
+    const currentScheduledAt = new Date(Date.now() + 20 * 60_000);
+    const campaignUpdateMany = vi.fn();
+    const db = {
+      campaign: {
+        findUnique: vi.fn().mockResolvedValue({
+          id: 'scheduled',
+          status: 'SCHEDULED',
+          scheduledAt: currentScheduledAt,
+          channel: 'EMAIL',
+          instance: null,
+        }),
+        updateMany: campaignUpdateMany,
+      },
+    };
+    const processor = new CampaignProcessor(db as never, {} as never, {} as never);
+
+    await processor.process({
+      name: 'dispatch-campaign',
+      data: { campaignId: 'scheduled', scheduledAt: new Date(Date.now() + 10 * 60_000).toISOString() },
+    } as never);
+
+    expect(campaignUpdateMany).not.toHaveBeenCalled();
   });
 
   it('registra entrega recebida pelo webhook sem duplicar o evento', async () => {

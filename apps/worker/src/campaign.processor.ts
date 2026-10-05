@@ -58,8 +58,8 @@ export class CampaignProcessor {
     private readonly campaignEmail = new SmtpCampaignClient(),
   ) {}
 
-  async process(job: Job<{ campaignId?: string; recipientId?: string; position?: number; eventData?: MailgunEventData }>) {
-    if (job.name === 'dispatch-campaign') return this.dispatch(job.data.campaignId!);
+  async process(job: Job<{ campaignId?: string; recipientId?: string; position?: number; scheduledAt?: string; eventData?: MailgunEventData }>) {
+    if (job.name === 'dispatch-campaign') return this.dispatch(job.data.campaignId!, job.data.scheduledAt);
     if (job.name === 'send-campaign-bubble') return this.sendBubble(job.data.recipientId!, job.data.position || 0, job);
     if (job.name === 'send-campaign-email') return this.sendEmail(job.data.recipientId!, job);
     if (job.name === 'mailgun-event') return this.processMailgunEvent(job.data.eventData!);
@@ -105,7 +105,7 @@ export class CampaignProcessor {
       const delay = scheduledAt ? Math.max(0, scheduledAt - Date.now()) : 0;
       return this.queue.add(
         'dispatch-campaign',
-        { campaignId: campaign.id },
+        { campaignId: campaign.id, ...(campaign.status === 'SCHEDULED' && campaign.scheduledAt ? { scheduledAt: campaign.scheduledAt.toISOString() } : {}) },
         {
           jobId: `campaign-${campaign.id}-recovery-${recoveryBucket}`,
           ...(delay ? { delay } : {}),
@@ -116,7 +116,7 @@ export class CampaignProcessor {
     return { completed: completed.count, requeued: missing.length };
   }
 
-  private async dispatch(campaignId: string) {
+  private async dispatch(campaignId: string, scheduledAt?: string) {
     const campaign = await this.db.campaign.findUnique({
       where: { id: campaignId },
       include: {
@@ -129,6 +129,7 @@ export class CampaignProcessor {
       },
     });
     if (!campaign || !['RUNNING', 'SCHEDULED'].includes(campaign.status)) return;
+    if (scheduledAt && campaign.status === 'SCHEDULED' && campaign.scheduledAt?.getTime() !== new Date(scheduledAt).getTime()) return;
     if (campaign.channel === 'WHATSAPP' && campaign.instance?.status !== 'CONNECTED') {
       await this.db.campaign.updateMany({
         where: { id: campaignId, status: { in: ['RUNNING', 'SCHEDULED'] } },
@@ -137,7 +138,18 @@ export class CampaignProcessor {
       return;
     }
     if (campaign.channel === 'WHATSAPP' && !campaign.instance?.warmupProfile) return;
-    if (campaign.status === 'SCHEDULED') await this.db.campaign.update({ where: { id: campaignId }, data: { status: 'RUNNING', startedAt: new Date() } });
+    if (campaign.status === 'SCHEDULED') {
+      const scheduledAtValue = scheduledAt ? new Date(scheduledAt) : campaign.scheduledAt;
+      const started = await this.db.campaign.updateMany({
+        where: {
+          id: campaignId,
+          status: 'SCHEDULED',
+          ...(scheduledAtValue ? { scheduledAt: scheduledAtValue } : {}),
+        },
+        data: { status: 'RUNNING', startedAt: new Date() },
+      });
+      if (!started.count) return;
+    }
     if (!this.withinWindow(campaign.sendingWindowStart, campaign.sendingWindowEnd, campaign.sendingDays as number[])) {
       await this.queue.add('dispatch-campaign', { campaignId }, { delay: 15 * 60_000, jobId: `campaign-${campaignId}-window-${Math.floor(Date.now() / 900_000)}` });
       return;

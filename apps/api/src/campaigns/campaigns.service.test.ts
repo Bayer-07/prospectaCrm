@@ -397,7 +397,7 @@ describe('pré-validação de campanhas', () => {
     });
     expect(queueAdd).toHaveBeenCalledWith(
       'dispatch-campaign',
-      { campaignId: 'campaign-1' },
+      { campaignId: 'campaign-1', scheduledAt: scheduledAt.toISOString() },
       expect.objectContaining({ delay: expect.any(Number) }),
     );
     expect(auditCreate).toHaveBeenCalledWith(expect.objectContaining({
@@ -423,6 +423,72 @@ describe('pré-validação de campanhas', () => {
 
     await expect(service.schedule(auth, 'campaign-1', 'data-invalida')).rejects.toThrow('Informe uma data e hora válidas');
     expect(preflight).not.toHaveBeenCalled();
+  });
+
+  it('altera o horário de uma campanha agendada e remove o job anterior', async () => {
+    const previousScheduledAt = new Date(Date.now() + 10 * 60_000);
+    const nextScheduledAt = new Date(Date.now() + 20 * 60_000);
+    const campaignUpdate = vi.fn().mockResolvedValue({});
+    const oldJobRemove = vi.fn().mockResolvedValue(undefined);
+    const queueAdd = vi.fn().mockResolvedValue({});
+    const db = {
+      campaign: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'campaign-1',
+          channel: 'WHATSAPP',
+          status: 'SCHEDULED',
+          scheduledAt: previousScheduledAt,
+          segmentId: null,
+          stats: {},
+          instance: { instanceKey: 'comercial', status: 'CONNECTED' },
+        }),
+        update: campaignUpdate,
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+    const service = new CampaignsService(db as never, {
+      add: queueAdd,
+      getJob: vi.fn().mockResolvedValue({ remove: oldJobRemove }),
+    } as never, {} as never);
+    vi.spyOn(service, 'get').mockResolvedValue({ id: 'campaign-1' } as never);
+
+    await service.reschedule(auth, 'campaign-1', nextScheduledAt.toISOString());
+
+    expect(oldJobRemove).toHaveBeenCalledOnce();
+    expect(campaignUpdate).toHaveBeenCalledWith({ where: { id: 'campaign-1' }, data: { scheduledAt: nextScheduledAt } });
+    expect(queueAdd).toHaveBeenCalledWith(
+      'dispatch-campaign',
+      { campaignId: 'campaign-1', scheduledAt: nextScheduledAt.toISOString() },
+      expect.objectContaining({ delay: expect.any(Number) }),
+    );
+  });
+
+  it('cancela somente o agendamento e mantém a campanha como rascunho', async () => {
+    const scheduledAt = new Date(Date.now() + 10 * 60_000);
+    const campaignUpdate = vi.fn().mockResolvedValue({});
+    const oldJobRemove = vi.fn().mockResolvedValue(undefined);
+    const db = {
+      campaign: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'campaign-1',
+          channel: 'WHATSAPP',
+          status: 'SCHEDULED',
+          scheduledAt,
+          segmentId: null,
+          stats: {},
+          instance: { instanceKey: 'comercial', status: 'CONNECTED' },
+        }),
+        update: campaignUpdate,
+      },
+      auditLog: { create: vi.fn().mockResolvedValue({}) },
+    };
+    const service = new CampaignsService(db as never, { getJob: vi.fn().mockResolvedValue({ remove: oldJobRemove }) } as never, {} as never);
+    vi.spyOn(service, 'get').mockResolvedValue({ id: 'campaign-1' } as never);
+
+    await service.cancelSchedule(auth, 'campaign-1');
+
+    expect(oldJobRemove).toHaveBeenCalledOnce();
+    expect(campaignUpdate).toHaveBeenCalledWith({ where: { id: 'campaign-1' }, data: { status: 'DRAFT', scheduledAt: null } });
   });
 
   it('classifica os contatos do CSV pelo WhatsApp ao carregar o arquivo', async () => {

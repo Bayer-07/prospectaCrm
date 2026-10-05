@@ -446,8 +446,28 @@ export class CampaignsService {
     );
     const status = date > new Date(Date.now() + 30_000) ? 'SCHEDULED' : 'RUNNING';
     await this.db.campaign.update({ where: { id }, data: { status, scheduledAt: date, startedAt: status === 'RUNNING' ? new Date() : undefined } });
-    await this.queue.add('dispatch-campaign', { campaignId: id }, { jobId: `campaign-${id}-${date.getTime()}`, delay: Math.max(0, date.getTime() - Date.now()), attempts: 5, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: 1000 });
+    await this.enqueueDispatch(id, date);
     await this.audit(auth, 'campaign.scheduled', id, { scheduledAt: date, eligible });
+    return this.get(auth, id);
+  }
+
+  async reschedule(auth: AuthContext, id: string, scheduledAt: string) {
+    const campaign = await this.getForAction(auth, id);
+    if (campaign.status !== 'SCHEDULED') throw new BadRequestException('Somente campanhas agendadas podem ter o horário alterado');
+    const date = this.parseFutureSchedule(scheduledAt);
+    await this.removeScheduledDispatch(campaign.id, campaign.scheduledAt);
+    await this.db.campaign.update({ where: { id }, data: { scheduledAt: date } });
+    await this.enqueueDispatch(id, date);
+    await this.audit(auth, 'campaign.rescheduled', id, { previousScheduledAt: campaign.scheduledAt, scheduledAt: date });
+    return this.get(auth, id);
+  }
+
+  async cancelSchedule(auth: AuthContext, id: string) {
+    const campaign = await this.getForAction(auth, id);
+    if (campaign.status !== 'SCHEDULED') throw new BadRequestException('Somente campanhas agendadas podem ter o início cancelado');
+    await this.removeScheduledDispatch(campaign.id, campaign.scheduledAt);
+    await this.db.campaign.update({ where: { id }, data: { status: 'DRAFT', scheduledAt: null } });
+    await this.audit(auth, 'campaign.schedule_cancelled', id, { scheduledAt: campaign.scheduledAt });
     return this.get(auth, id);
   }
 
@@ -817,11 +837,39 @@ export class CampaignsService {
         status: true,
         segmentId: true,
         stats: true,
+        scheduledAt: true,
         instance: { select: { instanceKey: true, status: true } },
       },
     });
     if (!campaign) throw new NotFoundException('Campanha não encontrada');
     return campaign;
+  }
+
+  private parseFutureSchedule(scheduledAt: string) {
+    const date = new Date(scheduledAt);
+    if (!Number.isFinite(date.getTime())) throw new BadRequestException('Informe uma data e hora válidas para o agendamento');
+    if (date.getTime() <= Date.now()) throw new BadRequestException('A data e hora do agendamento devem estar no futuro');
+    return date;
+  }
+
+  private async enqueueDispatch(campaignId: string, scheduledAt: Date) {
+    await this.queue.add(
+      'dispatch-campaign',
+      { campaignId, scheduledAt: scheduledAt.toISOString() },
+      {
+        jobId: `campaign-${campaignId}-${scheduledAt.getTime()}`,
+        delay: Math.max(0, scheduledAt.getTime() - Date.now()),
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: 1000,
+      },
+    );
+  }
+
+  private async removeScheduledDispatch(campaignId: string, scheduledAt: Date | null) {
+    if (!scheduledAt) return;
+    const job = await this.queue.getJob(`campaign-${campaignId}-${scheduledAt.getTime()}`);
+    if (job) await job.remove();
   }
 
   private audit(auth: AuthContext, action: string, entityId: string, after: object) {
