@@ -430,6 +430,13 @@ export class CampaignsService {
       }
     }
     if (!['DRAFT', 'PAUSED'].includes(campaign.status)) throw new BadRequestException('Estado inválido para iniciar campanha');
+    const date = scheduledAt ? new Date(scheduledAt) : new Date();
+    if (scheduledAt && !Number.isFinite(date.getTime())) {
+      throw new BadRequestException('Informe uma data e hora válidas para o agendamento');
+    }
+    if (scheduledAt && date.getTime() <= Date.now()) {
+      throw new BadRequestException('A data e hora do agendamento devem estar no futuro');
+    }
     const validation = await this.preflight(auth, id);
     const eligible = validation.eligible;
     if (!eligible) throw new BadRequestException(
@@ -437,7 +444,6 @@ export class CampaignsService {
         ? 'Nenhum contato válido com e-mail foi encontrado para iniciar a campanha'
         : 'Nenhum contato válido com WhatsApp foi encontrado para iniciar a campanha',
     );
-    const date = scheduledAt ? new Date(scheduledAt) : new Date();
     const status = date > new Date(Date.now() + 30_000) ? 'SCHEDULED' : 'RUNNING';
     await this.db.campaign.update({ where: { id }, data: { status, scheduledAt: date, startedAt: status === 'RUNNING' ? new Date() : undefined } });
     await this.queue.add('dispatch-campaign', { campaignId: id }, { jobId: `campaign-${id}-${date.getTime()}`, delay: Math.max(0, date.getTime() - Date.now()), attempts: 5, backoff: { type: 'exponential', delay: 5000 }, removeOnComplete: 1000 });

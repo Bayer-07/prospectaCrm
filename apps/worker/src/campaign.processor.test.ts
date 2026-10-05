@@ -541,6 +541,27 @@ describe('campanhas de e-mail', () => {
     );
   });
 
+  it('preserva o horário de uma campanha agendada ao recuperar o job', async () => {
+    const campaignUpdateMany = vi.fn().mockResolvedValue({ count: 0 });
+    const scheduledAt = new Date(Date.now() + 60_000);
+    const db = {
+      campaign: {
+        updateMany: campaignUpdateMany,
+        findMany: vi.fn().mockResolvedValue([{ id: 'scheduled', status: 'SCHEDULED', scheduledAt }]),
+      },
+    };
+    const add = vi.fn().mockResolvedValue({});
+    const processor = new CampaignProcessor(db as never, { add, getJobs: vi.fn().mockResolvedValue([]) } as never, {} as never);
+
+    await processor.reconcileActiveCampaigns();
+
+    expect(add).toHaveBeenCalledWith(
+      'dispatch-campaign',
+      { campaignId: 'scheduled' },
+      expect.objectContaining({ delay: expect.any(Number) }),
+    );
+  });
+
   it('registra entrega recebida pelo webhook sem duplicar o evento', async () => {
     const eventCreate = vi.fn().mockResolvedValue({});
     const recipientUpdate = vi.fn().mockResolvedValue({});

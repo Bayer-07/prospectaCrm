@@ -366,6 +366,65 @@ describe('pré-validação de campanhas', () => {
     expect(preflight).toHaveBeenCalledWith(auth, 'campaign-1');
   });
 
+  it('agenda o disparo para o horário informado', async () => {
+    const campaignUpdate = vi.fn().mockResolvedValue({});
+    const queueAdd = vi.fn().mockResolvedValue({});
+    const auditCreate = vi.fn().mockResolvedValue({});
+    const db = {
+      campaign: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'campaign-1',
+          channel: 'WHATSAPP',
+          status: 'DRAFT',
+          segmentId: null,
+          stats: {},
+          instance: { instanceKey: 'comercial', status: 'CONNECTED' },
+        }),
+        update: campaignUpdate,
+      },
+      auditLog: { create: auditCreate },
+    };
+    const service = new CampaignsService(db as never, { add: queueAdd } as never, {} as never);
+    vi.spyOn(service, 'preflight').mockResolvedValue({ audience: 1, eligible: 1, skipped: 0, reasons: {} });
+    vi.spyOn(service, 'get').mockResolvedValue({ id: 'campaign-1' } as never);
+    const scheduledAt = new Date(Date.now() + 10 * 60_000);
+
+    await service.schedule(auth, 'campaign-1', scheduledAt.toISOString());
+
+    expect(campaignUpdate).toHaveBeenCalledWith({
+      where: { id: 'campaign-1' },
+      data: { status: 'SCHEDULED', scheduledAt, startedAt: undefined },
+    });
+    expect(queueAdd).toHaveBeenCalledWith(
+      'dispatch-campaign',
+      { campaignId: 'campaign-1' },
+      expect.objectContaining({ delay: expect.any(Number) }),
+    );
+    expect(auditCreate).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ action: 'campaign.scheduled', entityId: 'campaign-1' }),
+    }));
+  });
+
+  it('rejeita uma data de agendamento inválida antes de validar os contatos', async () => {
+    const db = {
+      campaign: {
+        findFirst: vi.fn().mockResolvedValue({
+          id: 'campaign-1',
+          channel: 'WHATSAPP',
+          status: 'DRAFT',
+          segmentId: null,
+          stats: {},
+          instance: { instanceKey: 'comercial', status: 'CONNECTED' },
+        }),
+      },
+    };
+    const service = new CampaignsService(db as never, {} as never, {} as never);
+    const preflight = vi.spyOn(service, 'preflight');
+
+    await expect(service.schedule(auth, 'campaign-1', 'data-invalida')).rejects.toThrow('Informe uma data e hora válidas');
+    expect(preflight).not.toHaveBeenCalled();
+  });
+
   it('classifica os contatos do CSV pelo WhatsApp ao carregar o arquivo', async () => {
     const db = {
       whatsappInstance: {

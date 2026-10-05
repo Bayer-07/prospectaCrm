@@ -75,13 +75,13 @@ export class CampaignProcessor {
     });
     const waitingCampaigns = await this.db.campaign.findMany({
       where: {
-        status: 'RUNNING',
+        status: { in: ['RUNNING', 'SCHEDULED'] },
         recipients: {
           some: { status: 'PENDING' },
           none: { status: 'QUEUED' },
         },
       },
-      select: { id: true },
+      select: { id: true, status: true, scheduledAt: true },
     });
     if (!waitingCampaigns.length) return { completed: completed.count, requeued: 0 };
 
@@ -98,11 +98,21 @@ export class CampaignProcessor {
     );
     const missing = waitingCampaigns.filter((campaign) => !scheduledCampaignIds.has(campaign.id));
     const recoveryBucket = Math.floor(Date.now() / 300_000);
-    await Promise.all(missing.map((campaign) => this.queue.add(
-      'dispatch-campaign',
-      { campaignId: campaign.id },
-      { jobId: `campaign-${campaign.id}-recovery-${recoveryBucket}`, removeOnComplete: 1000 },
-    )));
+    await Promise.all(missing.map((campaign) => {
+      const scheduledAt = campaign.status === 'SCHEDULED' && campaign.scheduledAt instanceof Date
+        ? campaign.scheduledAt.getTime()
+        : 0;
+      const delay = scheduledAt ? Math.max(0, scheduledAt - Date.now()) : 0;
+      return this.queue.add(
+        'dispatch-campaign',
+        { campaignId: campaign.id },
+        {
+          jobId: `campaign-${campaign.id}-recovery-${recoveryBucket}`,
+          ...(delay ? { delay } : {}),
+          removeOnComplete: 1000,
+        },
+      );
+    }));
     return { completed: completed.count, requeued: missing.length };
   }
 
