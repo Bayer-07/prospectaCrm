@@ -488,6 +488,10 @@ export class EvolutionService {
             orderBy: { isPrimary: 'desc' as const },
             take: 1,
           },
+          tags: {
+            select: { tag: { select: { id: true, name: true, color: true } } },
+            orderBy: { tag: { name: 'asc' as const } },
+          },
         },
       },
       assignee: { select: { id: true, name: true } },

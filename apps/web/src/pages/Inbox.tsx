@@ -319,6 +319,10 @@ function InboxConversationList(props: InboxConversationListProps) {
   }
   return <>{props.conversations.map((item) => {
     const queueName = item.team?.name || 'Sem fila';
+    const contactTags = item.contact.tags || [];
+    const visibleContactTags = contactTags.slice(0, 3);
+    const hiddenContactTagCount = contactTags.length - visibleContactTags.length;
+    const contactTagNames = contactTags.map(({ tag }) => tag.name).join(', ');
     return <button
       type="button"
       key={item.id}
@@ -326,7 +330,7 @@ function InboxConversationList(props: InboxConversationListProps) {
       style={{ '--queue-color': item.team?.color || '#94a3b8' } as React.CSSProperties}
       onClick={() => props.onSelect(item.id)}
       onContextMenu={(event) => props.onContextMenu(event, item)}
-    ><span className="conversation-queue-marker" title={`Fila: ${queueName}`} aria-label={`Fila: ${queueName}`} /><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{conversationListPreview(item)}</p><small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>;
+    ><span className="conversation-queue-marker" title={`Fila: ${queueName}`} aria-label={`Fila: ${queueName}`} /><WhatsappAvatar conversationId={item.id} name={item.contact.name} /><div><div><strong>{item.contact.name}</strong><span className="conversation-ticket-meta">{item.isPinned && <Pin size={12} aria-label="Conversa fixada" />}<time>{item.lastMessageAt ? dateTime(item.lastMessageAt).split(' ')[1] : ''}</time></span></div><p>{conversationListPreview(item)}</p>{contactTags.length > 0 && <div className="conversation-contact-tags" title={`Etiquetas: ${contactTagNames}`} aria-label={`Etiquetas: ${contactTagNames}`}>{visibleContactTags.map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}{hiddenContactTagCount > 0 && <b>+{hiddenContactTagCount}</b>}</div>}<small>{item.instance.name}{item.assignee ? ` · ${item.assignee.name}` : ' · Aguardando atendente'}</small></div>{item.unreadCount > 0 && <b>{item.unreadCount}</b>}</button>;
   })}</>;
 }
 
