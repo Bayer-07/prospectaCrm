@@ -149,8 +149,7 @@ export class ChatbotProcessor {
     if (!version) return;
     const provider = this.providers.get(chatbot.responseProvider);
     if (!provider) return;
-    if (chatbot.responseProvider === 'OPENAI'
-      && inbound.type === 'audio'
+    if (inbound.type === 'audio'
       && !inbound.transcriptionText
       && await this.waitForAudioTranscription(inbound, audioWaitCount)) return;
     const graph = version.graph as unknown as Graph;

@@ -163,6 +163,51 @@ describe('espera do chatbot', () => {
     expect(aiQueue.add).not.toHaveBeenCalled();
   });
 
+  it('transcreve o áudio antes de avaliar as regras do chatbot', async () => {
+    const audio = {
+      ...inboundMessage(),
+      type: 'audio',
+      text: null,
+      transcriptionStatus: null,
+      transcriptionText: null,
+      transcriptionError: null,
+    };
+    const updateMessage = vi.fn().mockResolvedValue({});
+    const chatbotQueue = { add: vi.fn().mockResolvedValue({}) };
+    const transcriptionQueue = { add: vi.fn().mockResolvedValue({}) };
+    const db = {
+      message: { findUnique: vi.fn().mockResolvedValue(audio), update: updateMessage },
+      chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'RULES' }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph }) },
+      chatbotSession: { upsert: vi.fn() },
+    };
+    const processor = new ChatbotProcessor(
+      db as never,
+      chatbotQueue as never,
+      { add: vi.fn() } as never,
+      undefined,
+      transcriptionQueue as never,
+    );
+
+    await expect(processor.process({ data: { messageId: 'inbound-1' } } as never)).resolves.toBeUndefined();
+
+    expect(updateMessage).toHaveBeenCalledWith({
+      where: { id: 'inbound-1' },
+      data: expect.objectContaining({ transcriptionStatus: 'PROCESSING', transcriptionText: null }),
+    });
+    expect(transcriptionQueue.add).toHaveBeenCalledWith(
+      'transcribe-audio',
+      { messageId: 'inbound-1' },
+      expect.objectContaining({ jobId: 'transcription-inbound-1', attempts: 3 }),
+    );
+    expect(chatbotQueue.add).toHaveBeenCalledWith(
+      'process-chatbot-message',
+      { messageId: 'inbound-1', audioWaitCount: 1 },
+      expect.objectContaining({ delay: 5_000 }),
+    );
+    expect(db.chatbotSession.upsert).not.toHaveBeenCalled();
+  });
+
   it('usa a transcrição como mensagem atual ao acionar a IA', async () => {
     const transcribedAudio = {
       ...inboundMessage(),
