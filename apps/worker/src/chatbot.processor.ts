@@ -25,8 +25,8 @@ type ChatbotHttpRequester = (url: string, options?: PublicHttpRequestOptions) =>
 const MAX_WAIT_SECONDS = 31_536_000;
 const AUDIO_TRANSCRIPTION_POLL_MS = 5_000;
 const DEFAULT_AUDIO_TRANSCRIPTION_WAIT_MS = 15 * 60_000;
-const AI_REPLY_DELAY_MIN_MS = 10_000;
-const AI_REPLY_DELAY_MAX_MS = 15_000;
+const AI_REPLY_DELAY_MIN_MS = 35_000;
+const AI_REPLY_DELAY_MAX_MS = 40_000;
 const RESERVED_SESSION_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
 
 export function chatbotAiReplyDelayMs(randomValue = Math.random()) {
