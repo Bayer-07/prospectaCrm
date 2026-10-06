@@ -34,6 +34,28 @@ describe('TranscriptionClient', () => {
     expect(form.get('file')).toBeInstanceOf(Blob);
   });
 
+  it('usa a OpenAI como provedor padrão e reutiliza a chave global', async () => {
+    vi.stubEnv('TRANSCRIPTION_API_URL', '');
+    vi.stubEnv('TRANSCRIPTION_API_KEY', '');
+    vi.stubEnv('TRANSCRIPTION_MODEL', '');
+    vi.stubEnv('OPENAI_API_KEY', 'openai-test-key');
+    const fetchMock = vi.spyOn(globalThis, 'fetch').mockResolvedValue(new Response(JSON.stringify({ text: 'Transcrição pela OpenAI.' }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    }));
+
+    const result = await new TranscriptionClient().transcribe({
+      body: Buffer.from('audio'),
+      filename: 'mensagem.ogg',
+      contentType: 'audio/ogg',
+    });
+
+    expect(result.text).toBe('Transcrição pela OpenAI.');
+    expect(fetchMock.mock.calls[0][0]).toBe('https://api.openai.com/v1/audio/transcriptions');
+    expect(fetchMock.mock.calls[0][1]?.headers).toEqual({ Authorization: 'Bearer openai-test-key' });
+    expect((fetchMock.mock.calls[0][1]?.body as FormData).get('model')).toBe('whisper-1');
+  });
+
   it('explains when the default provider has no API key', async () => {
     vi.stubEnv('TRANSCRIPTION_API_URL', 'https://api.openai.com/v1/audio/transcriptions');
     vi.stubEnv('TRANSCRIPTION_API_KEY', '');

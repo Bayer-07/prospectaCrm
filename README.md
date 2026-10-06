@@ -225,24 +225,20 @@ Se o WhatsApp não conectar, confirme primeiro se `prospecta-evolution-1`, `pros
 
 Áudios recebidos pelo WhatsApp e áudios gravados dentro do BZS One exibem o botão **Transcrever áudio**. A solicitação é processada pelo worker, sem travar o Inbox, e o texto fica salvo na própria mensagem para não processar o mesmo arquivo novamente.
 
-Por padrão, a transcrição é totalmente local e gratuita. O container `transcription` executa o [Speaches](https://github.com/speaches-ai/speaches), baseado em `faster-whisper`, com CPU, quantização INT8 e o modelo multilíngue `small`:
+Por padrão, a transcrição usa a API oficial da OpenAI. A chave pode ser a mesma configurada em `OPENAI_API_KEY`; `TRANSCRIPTION_API_KEY` só precisa ser preenchida se for desejado usar uma chave separada:
 
 ```dotenv
-TRANSCRIPTION_API_URL=http://localhost:8000/v1/audio/transcriptions
+TRANSCRIPTION_API_URL=https://api.openai.com/v1/audio/transcriptions
 TRANSCRIPTION_API_KEY=
-TRANSCRIPTION_MODEL=Systran/faster-whisper-small
+TRANSCRIPTION_MODEL=whisper-1
 TRANSCRIPTION_LANGUAGE=pt
 TRANSCRIPTION_TIMEOUT_MS=120000
-TRANSCRIPTION_MODEL_DOWNLOAD_TIMEOUT_MS=600000
 TRANSCRIPTION_MAX_BYTES=26214400
 TRANSCRIPTION_CONCURRENCY=1
-TRANSCRIPTION_BIND_PORT=8000
-TRANSCRIPTION_CPU_THREADS=4
 AI_AUDIO_TRANSCRIPTION_WAIT_TIMEOUT_MS=900000
-SPEACHES_IMAGE=ghcr.io/speaches-ai/speaches:latest-cpu
 ```
 
-Na primeira transcrição, o worker verifica se o modelo existe, baixa-o automaticamente e o mantém no volume `transcription_models`; isso pode levar alguns minutos, mas acontece somente uma vez. A porta `8000` fica vinculada ao `localhost` e não é exposta para outros computadores da rede. Se necessário, ajuste `TRANSCRIPTION_CPU_THREADS` à quantidade de núcleos que deseja reservar para as transcrições.
+O áudio é enviado à OpenAI somente quando a transcrição é solicitada. O serviço local `transcription` baseado em [Speaches](https://github.com/speaches-ai/speaches) continua disponível como alternativa: para usá-lo, defina `TRANSCRIPTION_API_URL` para `http://transcription:8000/v1/audio/transcriptions` e escolha um modelo `faster-whisper` compatível.
 
 ## IA com OpenAI API
 

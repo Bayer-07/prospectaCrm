@@ -101,15 +101,14 @@ services:
       EVOLUTION_API_URL: http://evolution:8080
       S3_ENDPOINT: http://minio:9000
       S3_DELIVERY_ENDPOINT: ${S3_DELIVERY_ENDPOINT_DOCKER:-http://minio.local:9000}
-      TRANSCRIPTION_API_URL: http://transcription:8000/v1/audio/transcriptions
-      TRANSCRIPTION_API_KEY: ""
-      TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}
+      TRANSCRIPTION_API_URL: ${TRANSCRIPTION_API_URL:-https://api.openai.com/v1/audio/transcriptions}
+      TRANSCRIPTION_API_KEY: ${TRANSCRIPTION_API_KEY:-}
+      TRANSCRIPTION_MODEL: ${TRANSCRIPTION_MODEL:-whisper-1}
       OPENAI_API_URL: ${OPENAI_API_URL:-https://api.openai.com/v1}
       OPENAI_MODEL: ${OPENAI_MODEL:-gpt-5.6-luna}
     depends_on:
       api: { condition: service_healthy }
       evolution: { condition: service_started }
-      transcription: { condition: service_started }
     networks: [app, egress]
 
   transcription:
@@ -119,7 +118,7 @@ services:
     environment:
       LOG_LEVEL: warning
       ENABLE_UI: "false"
-      PRELOAD_MODELS: '["${TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}"]'
+      PRELOAD_MODELS: '["${LOCAL_TRANSCRIPTION_MODEL:-Systran/faster-whisper-small}"]'
       WHISPER__INFERENCE_DEVICE: cpu
       WHISPER__COMPUTE_TYPE: int8
       WHISPER__CPU_THREADS: ${TRANSCRIPTION_CPU_THREADS:-4}

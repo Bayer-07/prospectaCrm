@@ -1,4 +1,4 @@
-const DEFAULT_TRANSCRIPTION_URL = 'http://localhost:8000/v1/audio/transcriptions';
+const DEFAULT_TRANSCRIPTION_URL = 'https://api.openai.com/v1/audio/transcriptions';
 
 export class TranscriptionConfigurationError extends Error {}
 
@@ -20,7 +20,7 @@ export class TranscriptionClient {
     || (/^https?:\/\/api\.openai\.com(?:\/|$)/i.test(this.apiUrl) ? process.env.OPENAI_API_KEY : '')
     || ''
   ).trim();
-  private readonly model = (process.env.TRANSCRIPTION_MODEL || 'Systran/faster-whisper-small').trim();
+  private readonly model = (process.env.TRANSCRIPTION_MODEL || 'whisper-1').trim();
   private readonly language = (process.env.TRANSCRIPTION_LANGUAGE || 'pt').trim();
   private readonly prompt = (process.env.TRANSCRIPTION_PROMPT || '').trim();
   private readonly timeoutMs = Math.min(Math.max(Number(process.env.TRANSCRIPTION_TIMEOUT_MS) || 120_000, 10_000), 10 * 60_000);
