@@ -710,7 +710,7 @@ tbody tr:last-child td { border-bottom: 0; } tbody tr:hover { background: #fcfbf
 .chatbot-node-field > input, .chatbot-node-field > select { min-height: 32px; }
 .chatbot-node-field > textarea { min-height: 72px; resize: none; overflow: hidden; }
 .chatbot-node-field > input:focus, .chatbot-node-field > select:focus, .chatbot-node-field > textarea:focus, .chatbot-node-route-heading > input:focus { border-color: var(--violet); box-shadow: 0 0 0 3px var(--focus-ring); }
-.chatbot-node-field > small { color: var(--muted); font-size: 10px; line-height: 1.35; }
+.chatbot-node-field > small, .chatbot-node-field-hint { color: var(--muted); font-size: 10px; line-height: 1.35; }
 .chatbot-node-inline-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; }
 .chatbot-node-note { margin: 0; padding: 9px 10px; border-radius: 8px; background: var(--violet-soft); color: var(--muted); font-size: 11px; line-height: 1.4; }
 .chatbot-node-routes { padding-top: 3px; border-top: 1px solid var(--line); display: flex; flex-direction: column; gap: 8px; }

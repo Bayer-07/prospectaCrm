@@ -25,13 +25,25 @@ type ChatbotHttpRequester = (url: string, options?: PublicHttpRequestOptions) =>
 const MAX_WAIT_SECONDS = 31_536_000;
 const AUDIO_TRANSCRIPTION_POLL_MS = 5_000;
 const DEFAULT_AUDIO_TRANSCRIPTION_WAIT_MS = 15 * 60_000;
-const AI_REPLY_DELAY_MIN_MS = 35_000;
-const AI_REPLY_DELAY_MAX_MS = 40_000;
+const DEFAULT_AI_REPLY_DELAY_MIN_SECONDS = 35;
+const DEFAULT_AI_REPLY_DELAY_MAX_SECONDS = 40;
+const AI_REPLY_DELAY_LIMIT_SECONDS = 300;
 const RESERVED_SESSION_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
 
-export function chatbotAiReplyDelayMs(randomValue = Math.random()) {
+function normalizedAiReplyDelaySeconds(value: number, fallback: number) {
+  const seconds = Number.isFinite(value) ? Math.floor(value) : fallback;
+  return Math.min(AI_REPLY_DELAY_LIMIT_SECONDS, Math.max(0, seconds));
+}
+
+export function chatbotAiReplyDelayMs(
+  randomValue = Math.random(),
+  minSeconds = DEFAULT_AI_REPLY_DELAY_MIN_SECONDS,
+  maxSeconds = DEFAULT_AI_REPLY_DELAY_MAX_SECONDS,
+) {
   const normalized = Number.isFinite(randomValue) ? Math.min(1, Math.max(0, randomValue)) : 0.5;
-  return Math.round(AI_REPLY_DELAY_MIN_MS + normalized * (AI_REPLY_DELAY_MAX_MS - AI_REPLY_DELAY_MIN_MS));
+  const minimum = normalizedAiReplyDelaySeconds(minSeconds, DEFAULT_AI_REPLY_DELAY_MIN_SECONDS);
+  const maximum = Math.max(minimum, normalizedAiReplyDelaySeconds(maxSeconds, DEFAULT_AI_REPLY_DELAY_MAX_SECONDS));
+  return Math.round((minimum + normalized * (maximum - minimum)) * 1_000);
 }
 
 function temporaryVariableName(value: unknown) {
@@ -651,7 +663,9 @@ export class ChatbotProcessor {
     if (!nextNodeId) throw new Error('O bloco de IA precisa estar conectado a uma saída');
     const context = (storedSession?.context || {}) as Record<string, unknown>;
     const turnCount = (Number(context.aiTurns) || 0) + 1;
-    const responseDelayMs = chatbotAiReplyDelayMs();
+    const responseDelayMinSeconds = normalizedAiReplyDelaySeconds(Number(node.data?.responseDelayMinSeconds), DEFAULT_AI_REPLY_DELAY_MIN_SECONDS);
+    const responseDelayMaxSeconds = Math.max(responseDelayMinSeconds, normalizedAiReplyDelaySeconds(Number(node.data?.responseDelayMaxSeconds), DEFAULT_AI_REPLY_DELAY_MAX_SECONDS));
+    const responseDelayMs = chatbotAiReplyDelayMs(Math.random(), responseDelayMinSeconds, responseDelayMaxSeconds);
     const responseNotBefore = new Date(Date.now() + responseDelayMs).toISOString();
     const deduplicationKey = `chatbot:${session.id}:${node.id}:${inboundMessageId}`;
     await this.db.conversationAiGeneration.updateMany({
@@ -682,6 +696,8 @@ export class ChatbotProcessor {
           transferCriteria: textValue(node.data?.transferCriteria),
           maxInteractions: Number(node.data?.maxInteractions) || 6,
           minimumConfidence: Number(node.data?.minimumConfidence) || 65,
+          responseDelayMinSeconds,
+          responseDelayMaxSeconds,
           fallbackMessage: textValue(node.data?.fallbackMessage),
           responseNotBefore,
         },

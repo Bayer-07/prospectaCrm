@@ -114,6 +114,9 @@ describe('espera do chatbot', () => {
     expect(chatbotAiReplyDelayMs(0)).toBe(35_000);
     expect(chatbotAiReplyDelayMs(0.5)).toBe(37_500);
     expect(chatbotAiReplyDelayMs(1)).toBe(40_000);
+    expect(chatbotAiReplyDelayMs(0, 12, 18)).toBe(12_000);
+    expect(chatbotAiReplyDelayMs(0.5, 12, 18)).toBe(15_000);
+    expect(chatbotAiReplyDelayMs(1, 12, 18)).toBe(18_000);
   });
 
   it('transcreve o áudio antes de iniciar o atendimento por IA', async () => {
@@ -208,7 +211,7 @@ describe('espera do chatbot', () => {
     expect(db.chatbotSession.upsert).not.toHaveBeenCalled();
   });
 
-  it('usa a transcrição como mensagem atual ao acionar a IA', async () => {
+  it('usa a transcrição e o atraso configurado no nó ao acionar a IA', async () => {
     const transcribedAudio = {
       ...inboundMessage(),
       type: 'audio',
@@ -221,7 +224,13 @@ describe('espera do chatbot', () => {
     const db = {
       message: { findUnique: vi.fn().mockResolvedValue(transcribedAudio) },
       chatbot: { findFirst: vi.fn().mockResolvedValue({ id: 'chatbot-1', publishedVersion: 1, responseProvider: 'OPENAI' }) },
-      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: aiGraph }) },
+      chatbotVersion: { findUnique: vi.fn().mockResolvedValue({ id: 'version-1', graph: {
+        ...aiGraph,
+        nodes: aiGraph.nodes.map((node) => node.id === 'ai' ? {
+          ...node,
+          data: { ...node.data, responseDelayMinSeconds: 12, responseDelayMaxSeconds: 18 },
+        } : node),
+      } }) },
       chatbotSession: {
         upsert: upsertSession,
         update: vi.fn().mockResolvedValue({}),
@@ -257,8 +266,13 @@ describe('espera do chatbot', () => {
       expect.objectContaining({ priority: 1, delay: expect.any(Number) }),
     );
     const delay = aiQueue.add.mock.calls[0]?.[2]?.delay;
-    expect(delay).toBeGreaterThanOrEqual(35_000);
-    expect(delay).toBeLessThanOrEqual(40_000);
+    expect(delay).toBeGreaterThanOrEqual(12_000);
+    expect(delay).toBeLessThanOrEqual(18_000);
+    expect(aiQueue.add).toHaveBeenCalledWith(
+      'generate',
+      { generationId: 'generation-audio' },
+      expect.objectContaining({ delay }),
+    );
   });
 
   it('não responde fora de ordem quando outra mensagem chega durante a transcrição', async () => {

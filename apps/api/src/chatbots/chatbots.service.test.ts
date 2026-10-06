@@ -27,6 +27,28 @@ describe('validação do mapa do chatbot', () => {
     }, true)).not.toThrow();
   });
 
+  it('aceita configurar o intervalo de atraso do bloco de IA', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'ai', type: 'ai_conversation', data: { objective: 'Qualificar', maxInteractions: 6, minimumConfidence: 65, responseDelayMinSeconds: 35, responseDelayMaxSeconds: 40 } },
+        { id: 'handoff', type: 'handoff' },
+      ],
+      edges: [{ source: 'start', target: 'ai' }, { source: 'ai', target: 'handoff' }],
+    }, true)).not.toThrow();
+  });
+
+  it('bloqueia intervalo de atraso inválido no bloco de IA', () => {
+    expect(() => service.validateShape({
+      nodes: [
+        { id: 'start', type: 'trigger' },
+        { id: 'ai', type: 'ai_conversation', data: { objective: 'Qualificar', maxInteractions: 6, minimumConfidence: 65, responseDelayMinSeconds: 40, responseDelayMaxSeconds: 35 } },
+        { id: 'handoff', type: 'handoff' },
+      ],
+      edges: [{ source: 'start', target: 'ai' }, { source: 'ai', target: 'handoff' }],
+    }, true)).toThrow(/atraso da resposta/);
+  });
+
   it('exige uma fila no novo bloco', () => {
     expect(() => service.validateShape({
       nodes: [{ id: 'start', type: 'trigger' }, { id: 'queue', type: 'assign_queue', data: {} }, { id: 'handoff', type: 'handoff' }],

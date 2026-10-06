@@ -22,6 +22,9 @@ const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const HTTP_ROUTE_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'exists', 'not_exists', 'greater_than', 'less_than', 'between']);
 const RESERVED_CHATBOT_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
 const BLOCKED_HTTP_HEADERS = new Set(['connection', 'content-length', 'host', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
+const DEFAULT_AI_REPLY_DELAY_MIN_SECONDS = 35;
+const DEFAULT_AI_REPLY_DELAY_MAX_SECONDS = 40;
+const AI_REPLY_DELAY_LIMIT_SECONDS = 300;
 
 type HttpResponseRoute = { id?: unknown; label?: unknown; path?: unknown; operator?: unknown; value?: unknown };
 
@@ -134,6 +137,8 @@ function validateNodeText(node: ChatbotNode) {
     const fallbackMessage = primitiveText(node.data?.fallbackMessage).trim();
     const maxInteractions = Number(node.data?.maxInteractions);
     const minimumConfidence = Number(node.data?.minimumConfidence);
+    const responseDelayMinSeconds = Number(node.data?.responseDelayMinSeconds ?? DEFAULT_AI_REPLY_DELAY_MIN_SECONDS);
+    const responseDelayMaxSeconds = Number(node.data?.responseDelayMaxSeconds ?? DEFAULT_AI_REPLY_DELAY_MAX_SECONDS);
     if (!objective) throw new BadRequestException(`Preencha o objetivo do bloco ${nodeLabel(node)}`);
     if (objective.length > 2_000 || instructions.length > 5_000 || transferCriteria.length > 3_000 || fallbackMessage.length > 1_000) {
       throw new BadRequestException(`As instruções do bloco ${nodeLabel(node)} ultrapassam o limite permitido`);
@@ -143,6 +148,10 @@ function validateNodeText(node: ChatbotNode) {
     }
     if (!Number.isFinite(minimumConfidence) || minimumConfidence < 0 || minimumConfidence > 100) {
       throw new BadRequestException(`A confiança do bloco ${nodeLabel(node)} deve ficar entre 0% e 100%`);
+    }
+    if (!Number.isInteger(responseDelayMinSeconds) || responseDelayMinSeconds < 0 || responseDelayMinSeconds > AI_REPLY_DELAY_LIMIT_SECONDS
+      || !Number.isInteger(responseDelayMaxSeconds) || responseDelayMaxSeconds < responseDelayMinSeconds || responseDelayMaxSeconds > AI_REPLY_DELAY_LIMIT_SECONDS) {
+      throw new BadRequestException(`O atraso da resposta do bloco ${nodeLabel(node)} deve ficar entre 0 e ${AI_REPLY_DELAY_LIMIT_SECONDS} segundos, com o máximo maior ou igual ao mínimo`);
     }
   }
 }
