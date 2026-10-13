@@ -1,0 +1,29 @@
+{
+  "$schema": "https://agent-plugins.org/schemas/1.0.0/plugin.schema.json",
+  "name": "bzs-one",
+  "version": "0.1.0",
+  "description": "Gerencie o CRM BZS One e seus chatbots pelo ChatGPT.",
+  "author": {
+    "name": "BZS One"
+  },
+  "repository": "https://github.com/Bayer-07/prospectaCrm",
+  "extensions": {
+    "com.openai": {
+      "interface": {
+        "displayName": "BZS One",
+        "shortDescription": "CRM e chatbots BZS One",
+        "longDescription": "Conecte o BZS One para consultar e atualizar o CRM, equipes, filas, campanhas e chatbots com regras ou IA.",
+        "developerName": "BZS One",
+        "category": "Productivity",
+        "capabilities": [
+          "Read",
+          "Write"
+        ],
+        "defaultPrompt": [
+          "Use o BZS One para consultar meus dados do CRM.",
+          "Ajude a criar ou editar um chatbot do BZS One."
+        ]
+      }
+    }
+  }
+}

@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "bzs-one": {
+      "type": "http",
+      "url": "https://bzsone.tail9c7481.ts.net/mcp",
+      "bearer_token_env_var": "BZS_ONE_MCP_API_KEY"
+    }
+  }
+}

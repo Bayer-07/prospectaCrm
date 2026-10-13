@@ -1,0 +1,7 @@
+{
+  "name": "bzs-one",
+  "version": "0.1.0",
+  "description": "Gerencie o CRM BZS One e seus chatbots pelo ChatGPT.",
+  "skills": "./skills/",
+  "mcpServers": "./.mcp.json"
+}
