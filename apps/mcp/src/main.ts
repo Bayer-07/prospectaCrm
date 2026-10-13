@@ -83,6 +83,9 @@ async function handleOAuthRequest(request: IncomingMessage, response: ServerResp
   if (request.method === 'POST' && url.pathname === '/oauth/register') {
     return handleOAuthRegistration(request, response);
   }
+  if (request.method === 'GET' && url.pathname === '/oauth/authorize.js') {
+    return javascript(response, authorizationPageScript());
+  }
   if ((request.method === 'GET' || request.method === 'POST') && url.pathname === '/oauth/authorize') {
     return handleOAuthAuthorization(request, response, url);
   }
@@ -130,9 +133,18 @@ async function handleOAuthAuthorization(request: IncomingMessage, response: Serv
     redirect.searchParams.set('code', code);
     if (authorizationRequest.state) redirect.searchParams.set('state', authorizationRequest.state);
     redirect.searchParams.set('iss', oauth.issuer);
+    if (acceptsJson(request)) {
+      return json(response, 200, { redirect_uri: redirect.toString() });
+    }
     response.writeHead(302, { Location: redirect.toString(), 'Cache-Control': 'no-store' });
     response.end();
   } catch (error) {
+    if (acceptsJson(request)) {
+      const message = error instanceof BzsApiError && error.status === 401
+        ? 'E-mail ou senha inválidos.'
+        : 'Não foi possível concluir a autorização agora. Tente novamente.';
+      return json(response, error instanceof BzsApiError ? error.status : 502, { error: message });
+    }
     const message = error instanceof BzsApiError && error.status === 401
       ? 'E-mail ou senha inválidos.'
       : 'Não foi possível concluir a autorização agora. Tente novamente.';
@@ -222,7 +234,7 @@ function renderAuthorizationPage(request: OAuthAuthorizationRequest, error?: str
   ].filter((entry): entry is [string, string] => Boolean(entry[1]))
     .map(([name, value]) => `<input type="hidden" name="${escapeHtml(name)}" value="${escapeHtml(value)}">`)
     .join('');
-  const errorMarkup = error ? `<div class="error">${escapeHtml(error)}</div>` : '';
+  const errorMarkup = `<div id="oauth-error" class="error"${error ? '' : ' hidden'}>${error ? escapeHtml(error) : ''}</div>`;
   return `<!doctype html>
 <html lang="pt-BR">
   <head>
@@ -238,6 +250,7 @@ function renderAuthorizationPage(request: OAuthAuthorizationRequest, error?: str
       input { width: 100%; box-sizing: border-box; border: 1px solid #3b465d; border-radius: 10px; padding: 12px; background: #0f1420; color: #fff; font: inherit; }
       button { width: 100%; margin-top: 24px; border: 0; border-radius: 10px; padding: 13px; background: #4f7cff; color: #fff; font: inherit; font-weight: 700; cursor: pointer; }
       .error { margin: 16px 0; padding: 12px; border-radius: 10px; background: #542631; color: #ffd8dd; }
+      .hidden { display: none; }
       small { display: block; margin-top: 18px; color: #8f9ab0; line-height: 1.45; }
     </style>
   </head>
@@ -246,16 +259,17 @@ function renderAuthorizationPage(request: OAuthAuthorizationRequest, error?: str
       <h1>Conectar ao BZS One</h1>
       <p>Autorize o ChatGPT a consultar e atualizar os dados do seu BZS One.</p>
       ${errorMarkup}
-      <form method="post" action="/oauth/authorize" autocomplete="on">
+      <form id="oauth-form" method="post" action="/oauth/authorize" autocomplete="on">
         ${fields}
         <label for="email">E-mail</label>
         <input id="email" name="email" type="email" autocomplete="username" required autofocus>
         <label for="password">Senha</label>
         <input id="password" name="password" type="password" autocomplete="current-password" required>
-        <button type="submit">Autorizar acesso</button>
+        <button id="oauth-submit" type="submit">Autorizar acesso</button>
       </form>
       <small>Suas credenciais são usadas apenas para criar uma sessão segura do BZS One e não são armazenadas pelo servidor MCP.</small>
     </main>
+    <script src="/oauth/authorize.js" defer></script>
   </body>
 </html>`;
 }
@@ -308,11 +322,62 @@ function json(response: ServerResponse, status: number, body: unknown) {
 function html(response: ServerResponse, status: number, body: string) {
   response.writeHead(status, {
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
     'Content-Type': 'text/html; charset=utf-8',
     'Referrer-Policy': 'no-referrer',
   });
   response.end(body);
+}
+
+function javascript(response: ServerResponse, body: string) {
+  response.writeHead(200, {
+    'Cache-Control': 'no-store',
+    'Content-Type': 'application/javascript; charset=utf-8',
+    'Content-Security-Policy': "default-src 'none'",
+  });
+  response.end(body);
+}
+
+function acceptsJson(request: IncomingMessage) {
+  return request.headers.accept?.includes('application/json') === true;
+}
+
+function authorizationPageScript() {
+  return `(() => {
+  const form = document.getElementById('oauth-form');
+  const button = document.getElementById('oauth-submit');
+  const error = document.getElementById('oauth-error');
+  if (!form || !button || !error) return;
+
+  form.addEventListener('submit', async (event) => {
+    event.preventDefault();
+    button.disabled = true;
+    button.textContent = 'Conectando…';
+    error.hidden = true;
+
+    try {
+      const response = await fetch(form.action, {
+        method: 'POST',
+        body: new URLSearchParams(new FormData(form)),
+        headers: { Accept: 'application/json' },
+        credentials: 'same-origin',
+      });
+      const payload = await response.json();
+      if (!response.ok || typeof payload.error === 'string') {
+        throw new Error(typeof payload.error === 'string' ? payload.error : 'Não foi possível concluir a autorização agora.');
+      }
+      if (typeof payload.redirect_uri !== 'string') {
+        throw new Error('O servidor não retornou o endereço de conclusão da autorização.');
+      }
+      window.location.assign(payload.redirect_uri);
+    } catch (requestError) {
+      error.textContent = requestError instanceof Error ? requestError.message : 'Não foi possível concluir a autorização agora.';
+      error.hidden = false;
+      button.disabled = false;
+      button.textContent = 'Autorizar acesso';
+    }
+  });
+})();`;
 }
 
 function escapeHtml(value: string) {
