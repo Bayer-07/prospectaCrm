@@ -39,7 +39,7 @@ export class AuthGuard implements CanActivate {
       throw error;
     }
 
-    if (request.auth.type === 'apiKey' && !/^\/api\/v1\/(companies|contacts|opportunities|pipelines|tasks|tags|custom-fields|segments|mcp)(\/|\?|$)/.test(request.originalUrl)) {
+    if (request.auth.type === 'apiKey' && !/^\/api\/v1\/(companies|contacts|opportunities|pipelines|tasks|tags|custom-fields|segments|mcp|chatbots)(\/|\?|$)/.test(request.originalUrl)) {
       throw new ForbiddenException('Este endpoint não faz parte da API pública');
     }
 
