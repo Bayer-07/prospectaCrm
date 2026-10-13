@@ -359,6 +359,8 @@ function authorizationPageScript() {
     button.disabled = true;
     button.textContent = 'Conectando…';
     error.hidden = true;
+    const controller = new AbortController();
+    const timeout = window.setTimeout(() => controller.abort(), 10_000);
 
     try {
       const response = await fetch(form.action, {
@@ -366,6 +368,7 @@ function authorizationPageScript() {
         body: new URLSearchParams(new FormData(form)),
         headers: { Accept: 'application/json' },
         credentials: 'same-origin',
+        signal: controller.signal,
       });
       const payload = await response.json();
       if (!response.ok || typeof payload.error === 'string') {
@@ -376,7 +379,7 @@ function authorizationPageScript() {
       }
       window.location.assign(payload.redirect_uri);
     } catch (requestError) {
-      if (requestError instanceof TypeError) {
+      if (requestError instanceof TypeError || (requestError instanceof DOMException && requestError.name === 'AbortError')) {
         submitWithBrowserNavigation();
         return;
       }
@@ -384,6 +387,8 @@ function authorizationPageScript() {
       error.hidden = false;
       button.disabled = false;
       button.textContent = 'Autorizar acesso';
+    } finally {
+      window.clearTimeout(timeout);
     }
   }
 
