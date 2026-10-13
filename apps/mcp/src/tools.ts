@@ -130,6 +130,18 @@ export function registerBzsTools(server: McpServer, api: BzsApiClient, scopes: s
     scopes.includes('*:*')
     || scopes.includes(`${resource}:*`)
     || scopes.includes(`${resource}:${action}`);
+
+  // ChatGPT uses the per-tool security declaration to know that these tools
+  // require the OAuth connection before it attempts to invoke them.
+  const registerTool = server.registerTool.bind(server);
+  server.registerTool = ((name: string, config: Record<string, unknown>, callback: (...args: never[]) => unknown) => registerTool(name, {
+    ...config,
+    _meta: {
+      ...((config as { _meta?: Record<string, unknown> })._meta || {}),
+      securitySchemes: [{ type: 'oauth2', scopes: ['bzs'] }],
+    },
+  }, callback as never)) as typeof server.registerTool;
+
   const add = (name: string, register: () => void) => {
     register();
     registered.push(name);

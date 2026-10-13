@@ -34,6 +34,10 @@ describe('servidor MCP BZS One', () => {
       'listar_segmentos',
     ]);
     expect(tools.every((tool) => tool.annotations?.destructiveHint === false)).toBe(true);
+    expect(tools.every((tool) => {
+      const security = (tool as { _meta?: { securitySchemes?: unknown } })._meta?.securitySchemes;
+      return JSON.stringify(security) === JSON.stringify([{ type: 'oauth2', scopes: ['bzs'] }]);
+    })).toBe(true);
 
     await Promise.all([client.close(), server.close()]);
   });
