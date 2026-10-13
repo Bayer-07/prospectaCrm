@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 
-type ApiMethod = 'GET' | 'POST' | 'PATCH';
+type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 
 export type ApiKeyContext = {
   name: string;
@@ -47,6 +47,10 @@ export class BzsApiClient {
 
   patch(path: string, body?: unknown) {
     return this.request(path, { method: 'PATCH', body });
+  }
+
+  delete(path: string) {
+    return this.request(path, { method: 'DELETE' });
   }
 
   private async request<T = unknown>(

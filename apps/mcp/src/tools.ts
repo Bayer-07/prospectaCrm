@@ -1,6 +1,7 @@
 import { McpServer, type CallToolResult, type ToolAnnotations } from '@modelcontextprotocol/server';
 import { z } from 'zod';
 import { BzsApiClient } from './api-client.js';
+import { chatbotCatalog, chatbotNodeCatalog } from './chatbot-catalog.js';
 
 const uuid = z.string().uuid();
 const jsonObject = z.record(z.string(), z.unknown());
@@ -22,6 +23,12 @@ const createAnnotations: ToolAnnotations = {
 const updateAnnotations: ToolAnnotations = {
   readOnlyHint: false,
   destructiveHint: false,
+  idempotentHint: true,
+  openWorldHint: false,
+};
+const destructiveAnnotations: ToolAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: true,
   idempotentHint: true,
   openWorldHint: false,
 };
@@ -84,6 +91,27 @@ const taskFields = {
   opportunityId: uuid.optional(),
 };
 
+const chatbotNodeType = z.enum([
+  'trigger', 'message', 'question', 'wait', 'http_request', 'ai_conversation',
+  'condition', 'add_tag', 'assign_queue', 'handoff', 'close', 'end',
+]);
+const chatbotGraph = z.object({
+  nodes: z.array(z.object({
+    id: z.string().min(1).max(120),
+    type: chatbotNodeType,
+    data: jsonObject.optional(),
+    position: z.object({ x: z.number(), y: z.number() }).optional(),
+  })).max(100),
+  edges: z.array(z.object({
+    id: z.string().max(120).optional(),
+    source: z.string().min(1).max(120),
+    target: z.string().min(1).max(120),
+    sourceHandle: z.string().max(80).nullable().optional(),
+  })).max(300),
+}).describe('Grafo versionado do chatbot. Consulte listar_nos_chatbot para os campos de cada nó, comportamento e regras de conexão.');
+
+const chatbotNodeKnowledge = chatbotNodeCatalog.map((node) => `${node.type}: ${node.behavior} Dados: ${node.data} Conexões: ${node.connections}`).join(' ');
+
 export const potentialToolNames = [
   'listar_empresas', 'obter_empresa', 'criar_empresa', 'editar_empresa',
   'listar_contatos', 'obter_contato', 'criar_contato', 'editar_contato',
@@ -92,6 +120,8 @@ export const potentialToolNames = [
   'listar_tags', 'criar_tag', 'editar_tag',
   'listar_campos_personalizados', 'criar_campo_personalizado', 'editar_campo_personalizado',
   'listar_segmentos', 'criar_segmento', 'editar_segmento',
+  'listar_chatbots', 'obter_chatbot', 'obter_metadados_chatbots', 'listar_nos_chatbot',
+  'criar_chatbot', 'editar_chatbot', 'publicar_chatbot', 'alterar_status_chatbot', 'excluir_chatbot',
 ] as const;
 
 export function registerBzsTools(server: McpServer, api: BzsApiClient, scopes: string[]) {
@@ -362,6 +392,83 @@ export function registerBzsTools(server: McpServer, api: BzsApiClient, scopes: s
       inputSchema: z.object({ id: uuid }),
       annotations: updateAnnotations,
     }, safeTool(({ id }) => api.patch(`/tasks/${id}/complete`))));
+  }
+
+  if (can('workflows', 'read')) {
+    add('listar_chatbots', () => server.registerTool('listar_chatbots', {
+      title: 'Listar chatbots',
+      description: 'Lista chatbots não arquivados da organização, incluindo status, motor de resposta, número do WhatsApp, última versão e quantidade de sessões.',
+      inputSchema: z.object({}),
+      annotations: readAnnotations,
+    }, safeTool(() => api.get('/chatbots'))));
+
+    add('obter_chatbot', () => server.registerTool('obter_chatbot', {
+      title: 'Obter chatbot',
+      description: `Lê um chatbot, suas versões, grafos e sessões recentes. O grafo suporta trigger, message, question, wait, http_request, ai_conversation, condition, add_tag, assign_queue, handoff, close e end. ${chatbotNodeKnowledge}`,
+      inputSchema: z.object({ id: uuid }),
+      annotations: readAnnotations,
+    }, safeTool(({ id }) => api.get(`/chatbots/${id}`))));
+
+    add('obter_metadados_chatbots', () => server.registerTool('obter_metadados_chatbots', {
+      title: 'Obter metadados de chatbots',
+      description: 'Lista números de WhatsApp, tags, filas/equipes e disponibilidade dos motores RULES e OPENAI. Use os UUIDs retornados ao criar nós assign_queue, add_tag ou ao criar um chatbot.',
+      inputSchema: z.object({}),
+      annotations: readAnnotations,
+    }, safeTool(() => api.get('/chatbots/metadata'))));
+
+    add('listar_nos_chatbot', () => server.registerTool('listar_nos_chatbot', {
+      title: 'Conhecer nós de chatbot',
+      description: 'Retorna o catálogo canônico dos nós, campos, comportamento, regras de conexão, provedores compatíveis e validações do grafo. Use antes de criar ou editar um fluxo.',
+      inputSchema: z.object({ nodeType: chatbotNodeType.optional() }),
+      annotations: readAnnotations,
+    }, safeTool(async ({ nodeType }) => ({
+      ...chatbotCatalog,
+      nodeTypes: nodeType ? chatbotNodeCatalog.filter((node) => node.type === nodeType) : chatbotNodeCatalog,
+    }))));
+  }
+
+  if (can('workflows', 'write')) {
+    add('criar_chatbot', () => server.registerTool('criar_chatbot', {
+      title: 'Criar chatbot',
+      description: 'Cria um chatbot de Regras (RULES) ou OpenAI (OPENAI). Se graph não for informado, a API cria um rascunho inicial. O nó ai_conversation só pode ser publicado com OPENAI; use obter_metadados_chatbots para confirmar a disponibilidade.',
+      inputSchema: z.object({
+        name: z.string().min(2).max(120),
+        description: z.string().max(500).optional(),
+        instanceId: uuid.describe('UUID do número de WhatsApp retornado por obter_metadados_chatbots.'),
+        responseProvider: z.enum(['RULES', 'OPENAI']).default('RULES'),
+        graph: chatbotGraph.optional(),
+        idempotencyKey,
+      }),
+      annotations: createAnnotations,
+    }, safeTool(({ idempotencyKey: key, ...body }) => api.post('/chatbots', body, key))));
+
+    add('editar_chatbot', () => server.registerTool('editar_chatbot', {
+      title: 'Editar chatbot',
+      description: 'Salva o grafo informado como rascunho do chatbot. Isso permite criar, editar e remover nós/arestas, alterar regras de chatbot RULES ou configurar o fluxo de IA. A validação estrutural ocorre ao salvar e a validação completa ocorre ao publicar.',
+      inputSchema: z.object({ id: uuid, graph: chatbotGraph }),
+      annotations: updateAnnotations,
+    }, safeTool(({ id, graph }) => api.patch(`/chatbots/${id}/draft`, { graph }))));
+
+    add('publicar_chatbot', () => server.registerTool('publicar_chatbot', {
+      title: 'Publicar chatbot',
+      description: 'Valida e publica o último rascunho. Exige um trigger, um nó final, todas as conexões válidas, todos os nós alcançáveis e, para IA, ai_conversation ligado a handoff ou assign_queue seguido de handoff.',
+      inputSchema: z.object({ id: uuid }),
+      annotations: updateAnnotations,
+    }, safeTool(({ id }) => api.post(`/chatbots/${id}/publish`, {}))));
+
+    add('alterar_status_chatbot', () => server.registerTool('alterar_status_chatbot', {
+      title: 'Alterar status do chatbot',
+      description: 'Pausa ou reativa um chatbot já publicado. Ao pausar, sessões ativas e em espera são interrompidas; ao publicar, os demais chatbots publicados no mesmo número são pausados.',
+      inputSchema: z.object({ id: uuid, status: z.enum(['PAUSED', 'PUBLISHED']) }),
+      annotations: updateAnnotations,
+    }, safeTool(({ id, status }) => api.patch(`/chatbots/${id}/status`, { status }))));
+
+    add('excluir_chatbot', () => server.registerTool('excluir_chatbot', {
+      title: 'Excluir chatbot',
+      description: 'Exclui logicamente um chatbot. Interrompe sessões ativas, arquiva o chatbot e preserva versões, histórico e auditoria; não há exclusão física.',
+      inputSchema: z.object({ id: uuid }),
+      annotations: destructiveAnnotations,
+    }, safeTool(({ id }) => api.delete(`/chatbots/${id}`))));
   }
 
   return registered;

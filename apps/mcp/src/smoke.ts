@@ -23,10 +23,15 @@ try {
   await client.connect(transport);
   const { tools } = await client.listTools();
   const destructive = tools.filter((tool) =>
-    tool.annotations?.destructiveHint !== false
+    tool.annotations?.destructiveHint === true
     || /(excluir|apagar|arquivar|cancelar|delete|remove)/i.test(tool.name));
-  if (destructive.length) {
-    throw new Error(`Ferramentas destrutivas encontradas: ${destructive.map((tool) => tool.name).join(', ')}`);
+  const unexpectedDestructive = destructive.filter((tool) => tool.name !== 'excluir_chatbot');
+  if (unexpectedDestructive.length) {
+    throw new Error(`Ferramentas destrutivas não autorizadas encontradas: ${unexpectedDestructive.map((tool) => tool.name).join(', ')}`);
+  }
+  const chatbotDeleteTool = tools.find((tool) => tool.name === 'excluir_chatbot');
+  if (chatbotDeleteTool && chatbotDeleteTool.annotations?.destructiveHint !== true) {
+    throw new Error('A ferramenta excluir_chatbot precisa ser marcada como destrutiva');
   }
 
   if (companyCnpj) {
