@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { useNavigate, useSearchParams } from 'react-router-dom';
 import { formatCnpj, isValidCnpj, normalizeCnpj } from '@prospecta/contracts';
+import { useAuth } from '../App';
 import { api, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import type { Company } from '../lib/types';
 import { Button, Empty, Field, Modal, PageLoading, SelectField } from '../components/ui';
@@ -189,6 +190,7 @@ function cnpjLookupHint(lookup: {
 }
 
 export function CompaniesPage() {
+  const { user } = useAuth();
   const client = useQueryClient();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedSearch = searchParams.get('search') || '';
@@ -204,6 +206,9 @@ export function CompaniesPage() {
   const [filterOpen, setFilterOpen] = useState(false);
   const [appliedFilters, setAppliedFilters] = useState<CompanyListFilters>({ ...EMPTY_COMPANY_FILTERS });
   const [draftFilters, setDraftFilters] = useState<CompanyListFilters>({ ...EMPTY_COMPANY_FILTERS });
+  const canWrite = Boolean(user?.permissions.some((permission) =>
+    (permission.resource === '*' || permission.resource === 'companies')
+    && (permission.action === '*' || permission.action === 'write')));
 
   useEffect(() => setSearch(requestedSearch), [requestedSearch]);
   useEffect(() => {
@@ -263,7 +268,7 @@ export function CompaniesPage() {
   const openMenu = (event: React.MouseEvent<HTMLButtonElement>, company: Company) => {
     event.stopPropagation();
     const rect = event.currentTarget.getBoundingClientRect();
-    const menuHeight = 194;
+    const menuHeight = canWrite ? 194 : 98;
     const top = rect.bottom + menuHeight + 10 > window.innerHeight
       ? rect.top - menuHeight - 6
       : rect.bottom + 6;
@@ -331,7 +336,7 @@ export function CompaniesPage() {
       </div>
       <div className="toolbar-actions">
         <a className="button button-secondary" href="/api/v1/reports/companies.csv" download><Download size={15} />Exportar</a>
-        <Button onClick={() => setCreating(true)}><Plus size={15} />Nova empresa</Button>
+        {canWrite && <Button onClick={() => setCreating(true)}><Plus size={15} />Nova empresa</Button>}
       </div>
     </div>
 
@@ -362,19 +367,21 @@ export function CompaniesPage() {
       : <Empty
         icon={<Building2 />}
         title="Nenhuma empresa encontrada"
-        description={activeFilters ? 'Ajuste ou limpe os filtros aplicados.' : 'Cadastre a primeira empresa ou ajuste a busca.'}
+        description={activeFilters
+          ? 'Ajuste ou limpe os filtros aplicados.'
+          : canWrite ? 'Cadastre a primeira empresa ou ajuste a busca.' : 'Você não tem permissão para cadastrar empresas.'}
         action={activeFilters
           ? <Button variant="secondary" onClick={clearFilters}>Limpar filtros</Button>
-          : <Button onClick={() => setCreating(true)}>Adicionar empresa</Button>}
+          : canWrite ? <Button onClick={() => setCreating(true)}>Adicionar empresa</Button> : undefined}
       />}
 
     {menu && <>
       <button type="button" className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />
       <div className="contact-action-menu company-action-menu" role="menu" style={{ top: menu.top, right: menu.right }}>
         <button type="button" role="menuitem" onClick={() => { setViewingContacts(menu.company); setMenu(null); }}><Users size={16} />Ver contatos atribuídos</button>
-        <button type="button" role="menuitem" onClick={() => { setEditing(menu.company); setMenu(null); }}><Pencil size={16} />Editar</button>
+        {canWrite && <button type="button" role="menuitem" onClick={() => { setEditing(menu.company); setMenu(null); }}><Pencil size={16} />Editar</button>}
         <button type="button" role="menuitem" onClick={() => { setViewing(menu.company); setMenu(null); }}><Eye size={16} />Ver empresa</button>
-        <button type="button" className="danger" role="menuitem" onClick={() => { setDeleting(menu.company); setMenu(null); }}><Trash2 size={16} />Excluir</button>
+        {canWrite && <button type="button" className="danger" role="menuitem" onClick={() => { setDeleting(menu.company); setMenu(null); }}><Trash2 size={16} />Excluir</button>}
       </div>
     </>}
 
