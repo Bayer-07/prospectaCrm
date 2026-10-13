@@ -349,7 +349,12 @@ function authorizationPageScript() {
   const error = document.getElementById('oauth-error');
   if (!form || !button || !error) return;
 
-  form.addEventListener('submit', async (event) => {
+  const submitWithBrowserNavigation = () => {
+    form.removeEventListener('submit', handleSubmit);
+    HTMLFormElement.prototype.submit.call(form);
+  };
+
+  async function handleSubmit(event) {
     event.preventDefault();
     button.disabled = true;
     button.textContent = 'Conectando…';
@@ -371,12 +376,18 @@ function authorizationPageScript() {
       }
       window.location.assign(payload.redirect_uri);
     } catch (requestError) {
+      if (requestError instanceof TypeError) {
+        submitWithBrowserNavigation();
+        return;
+      }
       error.textContent = requestError instanceof Error ? requestError.message : 'Não foi possível concluir a autorização agora.';
       error.hidden = false;
       button.disabled = false;
       button.textContent = 'Autorizar acesso';
     }
-  });
+  }
+
+  form.addEventListener('submit', handleSubmit);
 })();`;
 }
 
