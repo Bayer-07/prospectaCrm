@@ -212,8 +212,8 @@ export function CompaniesPage() {
 
   useEffect(() => setSearch(requestedSearch), [requestedSearch]);
   useEffect(() => {
-    if (requestedCreate) setCreating(true);
-  }, [requestedCreate]);
+    if (requestedCreate && canWrite) setCreating(true);
+  }, [canWrite, requestedCreate]);
   useEffect(() => {
     if (requestedCompanyId) setViewing({ id: requestedCompanyId, name: 'Empresa', updatedAt: '' });
   }, [requestedCompanyId]);
