@@ -621,6 +621,7 @@ function McpSettings() {
           'contacts:read', 'contacts:write',
           'opportunities:read', 'opportunities:write',
           'tasks:read', 'tasks:write',
+          'workflows:read', 'workflows:write',
         ],
       }),
     }),
