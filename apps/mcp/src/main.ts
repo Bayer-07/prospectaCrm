@@ -259,12 +259,12 @@ function renderAuthorizationPage(request: OAuthAuthorizationRequest, error?: str
       <h1>Conectar ao BZS One</h1>
       <p>Autorize o ChatGPT a consultar e atualizar os dados do seu BZS One.</p>
       ${errorMarkup}
-      <form id="oauth-form" method="post" action="/oauth/authorize" autocomplete="on">
+      <form id="oauth-form" method="post" action="/oauth/authorize" autocomplete="off" data-bwignore="true">
         ${fields}
         <label for="email">E-mail</label>
-        <input id="email" name="email" type="email" autocomplete="username" required autofocus>
+        <input id="email" name="email" type="email" autocomplete="off" data-bwignore="true" data-1p-ignore="true" data-lpignore="true" required autofocus>
         <label for="password">Senha</label>
-        <input id="password" name="password" type="password" autocomplete="current-password" required>
+        <input id="password" name="password" type="password" autocomplete="off" data-bwignore="true" data-1p-ignore="true" data-lpignore="true" required>
         <button id="oauth-submit" type="submit">Autorizar acesso</button>
       </form>
       <small>Suas credenciais são usadas apenas para criar uma sessão segura do BZS One e não são armazenadas pelo servidor MCP.</small>
