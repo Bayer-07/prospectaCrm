@@ -157,6 +157,7 @@ export type CreateCampaignInput = {
   sendingWindowEnd?: string;
   sendingDays?: number[];
   skipRemainingMessagesOnReply?: boolean;
+  chatbotId?: string;
 };
 
 @Injectable()
@@ -172,6 +173,7 @@ export class CampaignsService {
       where: { organizationId: auth.organizationId, archivedAt: null, ...this.scope(auth) },
       include: {
         instance: { select: { id: true, name: true, status: true, phone: true } }, segment: true,
+        chatbot: { select: { id: true, name: true, status: true, responseProvider: true } },
         bubbles: { orderBy: { position: 'asc' } },
         _count: { select: { recipients: true } },
       }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], take: 100,
@@ -191,6 +193,7 @@ export class CampaignsService {
       where: { id, organizationId: auth.organizationId, archivedAt: null, ...this.scope(auth) },
       include: {
         instance: { include: { warmupProfile: true } }, segment: true,
+        chatbot: { select: { id: true, name: true, status: true, responseProvider: true } },
         bubbles: { orderBy: { position: 'asc' } },
         recipients: {
           include: {
@@ -276,6 +279,25 @@ export class CampaignsService {
     };
   }
 
+  async availableChatbots(auth: AuthContext, instanceId?: string) {
+    return this.db.chatbot.findMany({
+      where: {
+        organizationId: auth.organizationId,
+        status: 'PUBLISHED',
+        publishedVersion: { not: null },
+        ...(instanceId ? { instanceId } : {}),
+      },
+      select: {
+        id: true,
+        name: true,
+        status: true,
+        responseProvider: true,
+        instance: { select: { id: true, name: true, status: true } },
+      },
+      orderBy: [{ name: 'asc' }, { id: 'asc' }],
+    });
+  }
+
   async archive(auth: AuthContext, id: string) {
     const campaign = await this.db.campaign.findFirst({
       where: {
@@ -326,7 +348,7 @@ export class CampaignsService {
 
       const created = await tx.campaign.create({ data: {
         organizationId: auth.organizationId, createdById: userId, name: input.name.trim(),
-        channel, instanceId: input.instanceId, segmentId: input.segmentId,
+        channel, instanceId: input.instanceId, segmentId: input.segmentId, chatbotId: input.chatbotId,
         emailSubject: channel === 'EMAIL' ? input.emailSubject!.trim() : undefined,
         bubbleDelayMinSeconds: cadence.bubbleDelayMinSeconds, bubbleDelayMaxSeconds: cadence.bubbleDelayMaxSeconds,
         contactDelayMinSeconds: cadence.contactDelayMinSeconds, contactDelayMaxSeconds: cadence.contactDelayMaxSeconds,
@@ -797,6 +819,21 @@ export class CampaignsService {
         select: { id: true },
       });
       if (!instance) throw new BadRequestException('Selecione um número de WhatsApp conectado');
+      if (input.chatbotId) {
+        const chatbot = await this.db.chatbot.findFirst({
+          where: {
+            id: input.chatbotId,
+            organizationId: auth.organizationId,
+            instanceId: input.instanceId,
+            status: 'PUBLISHED',
+            publishedVersion: { not: null },
+          },
+          select: { id: true },
+        });
+        if (!chatbot) throw new BadRequestException('Selecione um chatbot publicado nesta conexão');
+      }
+    } else if (input.chatbotId) {
+      throw new BadRequestException('O chatbot de resposta só pode ser usado em campanhas de WhatsApp');
     }
     const mediaKeys = bubbles.map((bubble) => bubble.mediaKey).filter((key): key is string => Boolean(key));
     if (!mediaKeys.length) return;

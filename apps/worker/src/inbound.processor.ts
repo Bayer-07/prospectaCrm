@@ -554,8 +554,21 @@ type CampaignReplyCandidate = {
   id: string;
   campaignId: string;
   status: MessageStatus;
-  campaign: { skipRemainingMessagesOnReply: boolean };
+  campaign: {
+    skipRemainingMessagesOnReply: boolean;
+    instanceId?: string | null;
+    chatbotId?: string | null;
+    createdAt?: Date;
+  };
 };
+
+export function campaignChatbotForReply(recipients: CampaignReplyCandidate[]) {
+  return [...recipients]
+    .filter((recipient) => ['SENT', 'DELIVERED', 'READ'].includes(recipient.status) && Boolean(recipient.campaign.chatbotId))
+    .sort((left, right) => (right.campaign.createdAt?.getTime() || 0) - (left.campaign.createdAt?.getTime() || 0))
+    .map((recipient) => recipient.campaign.chatbotId || null)
+    .find(Boolean) || null;
+}
 
 export function campaignReplyActions(recipients: CampaignReplyCandidate[], optOut: boolean) {
   const stopRecipientIds: string[] = [];
@@ -1206,16 +1219,18 @@ export class InboundProcessor {
         where: {
           contactId: contact.id,
           status: { in: ['PENDING', 'QUEUED', 'SENT', 'DELIVERED', 'READ'] },
-          campaign: { channel: 'WHATSAPP' },
+          repliedAt: null,
+          campaign: { channel: 'WHATSAPP', instanceId: instance.id, archivedAt: null },
         },
         select: {
           id: true,
           campaignId: true,
           status: true,
-          campaign: { select: { skipRemainingMessagesOnReply: true } },
+          campaign: { select: { skipRemainingMessagesOnReply: true, instanceId: true, chatbotId: true, createdAt: true } },
         },
       });
       const campaignReply = campaignReplyActions(campaignRecipients, optOut);
+      const campaignChatbotId = campaignChatbotForReply(campaignRecipients);
       if (campaignReply.stopRecipientIds.length) await tx.campaignRecipient.updateMany({
         where: { id: { in: campaignReply.stopRecipientIds } },
         data: {
@@ -1264,6 +1279,7 @@ export class InboundProcessor {
         alertId: followUp?.emailResponsible ? followUp.id : null,
         changed: Boolean(followUp),
         taskId: followUp?.taskId || null,
+        campaignChatbotId,
       };
     });
     if (followUpResult.taskId) await projectTaskActivity(this.db, followUpResult.taskId, 'AUTOMATION');
@@ -1277,7 +1293,10 @@ export class InboundProcessor {
       });
     }
     if (!optOut && !conversation.assigneeId) {
-      await this.chatbotQueue?.add('process-chatbot-message', { messageId }, {
+      await this.chatbotQueue?.add('process-chatbot-message', {
+        messageId,
+        ...(followUpResult.campaignChatbotId ? { chatbotId: followUpResult.campaignChatbotId } : {}),
+      }, {
         jobId: `chatbot-inbound-${messageId}`,
         attempts: 5,
         backoff: { type: 'exponential', delay: 2000 },

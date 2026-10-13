@@ -34,6 +34,7 @@ function csvCampaignInput(query: Record<string, unknown>, csv: string): CreateCa
   return {
     name: query.name,
     instanceId: query.instanceId,
+    chatbotId: typeof query.chatbotId === 'string' && query.chatbotId.trim() ? query.chatbotId : undefined,
     skipRemainingMessagesOnReply: booleanQuery(query.skipRemainingMessagesOnReply),
     audience: { source: 'csv', csv },
     bubbles: [],
@@ -77,6 +78,12 @@ export class CampaignsController {
   ) {
     const csv = await requestText(request);
     return { data: await this.campaigns.create(auth, csvCampaignInput(query, csv)) };
+  }
+
+  @RequirePermission('campaigns', 'read')
+  @Get('available-chatbots')
+  async availableChatbots(@CurrentUser() auth: AuthContext, @Query('instanceId') instanceId?: string) {
+    return { data: await this.campaigns.availableChatbots(auth, instanceId) };
   }
 
   @RequirePermission('campaigns', 'read')

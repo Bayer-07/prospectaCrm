@@ -7,7 +7,7 @@ vi.mock('@prospecta/database', () => ({
   projectTaskActivity: vi.fn().mockResolvedValue(null),
   projectWhatsappMessageActivity: vi.fn().mockResolvedValue(null),
 }));
-import { advanceEvolutionMessageStatus, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageJids, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, incomingMessagePreview, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
+import { advanceEvolutionMessageStatus, campaignChatbotForReply, campaignReplyActions, decodeWhatsappSecretEdit, decryptEvolutionSecretEdit, deletedMessagePayload, editedMessagePayload, evolutionCaptionRelation, evolutionEditedMessage, evolutionMediaCaptionCandidate, evolutionMessageDate, evolutionMessageJids, evolutionMessageNeedsReconciliation, evolutionMessagesFingerprint, evolutionMessageText, evolutionMessageType, evolutionMessageUpdateId, evolutionMessageUpdateStatus, evolutionReaction, evolutionReplyProviderMessageId, evolutionSecretEditEnvelope, incomingConversationRoute, incomingConversationStatus, incomingMessagePreview, isSynchronizableEvolutionMessage, nextEvolutionSyncDelay, normalizeEvolutionEventType } from './inbound.processor.js';
 
 describe('normalização dos eventos da Evolution', () => {
   it.each([
@@ -294,6 +294,51 @@ describe('notificações de mensagens recebidas', () => {
     ] });
     expect(tx.notification.create).not.toHaveBeenCalled();
   });
+
+  it('inicia o chatbot configurado na campanha quando a primeira resposta chega', async () => {
+    const chatbotAdd = vi.fn().mockResolvedValue({});
+    const tx = {
+      campaignRecipient: {
+        findMany: vi.fn().mockResolvedValue([{
+          id: 'recipient-1',
+          campaignId: 'campaign-1',
+          status: 'DELIVERED',
+          campaign: {
+            skipRemainingMessagesOnReply: true,
+            instanceId: 'instance-1',
+            chatbotId: 'chatbot-campaign',
+            createdAt: new Date('2026-01-02'),
+          },
+        }]),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+      },
+      conversationAiGeneration: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      workflowEnrollment: { updateMany: vi.fn().mockResolvedValue({ count: 0 }) },
+      conversationFollowUp: { findFirst: vi.fn().mockResolvedValue(null) },
+    };
+    const db = { $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)) };
+    const processor = new InboundProcessor(db as never, { add: chatbotAdd } as never, {} as never);
+
+    await (processor as unknown as { handleInboundEffects(
+      instance: object,
+      conversation: object,
+      contact: object,
+      messageId: string,
+      text: string,
+    ): Promise<boolean> }).handleInboundEffects(
+      { id: 'instance-1', organizationId: 'organization-1', instanceKey: 'axiom-forge', teams: [] },
+      { id: 'conversation-1', assigneeId: null, teamId: null },
+      { id: 'contact-1', name: 'Maria' },
+      'message-1',
+      'Tenho interesse',
+    );
+
+    expect(chatbotAdd).toHaveBeenCalledWith(
+      'process-chatbot-message',
+      { messageId: 'message-1', chatbotId: 'chatbot-campaign' },
+      expect.objectContaining({ jobId: 'chatbot-inbound-message-1' }),
+    );
+  });
 });
 
 describe('reações da Evolution', () => {
@@ -328,6 +373,29 @@ describe('respostas recebidas pela Evolution', () => {
       stopRecipientIds: ['skip', 'continue'],
       continueRecipientIds: [],
     });
+  });
+
+  it('seleciona o chatbot da campanha enviada mais recente e ignora campanhas ainda não enviadas', () => {
+    expect(campaignChatbotForReply([
+      {
+        id: 'queued',
+        campaignId: 'campaign-queued',
+        status: 'QUEUED',
+        campaign: { skipRemainingMessagesOnReply: true, chatbotId: 'chatbot-queued', createdAt: new Date('2026-01-03') },
+      },
+      {
+        id: 'old',
+        campaignId: 'campaign-old',
+        status: 'SENT',
+        campaign: { skipRemainingMessagesOnReply: true, chatbotId: 'chatbot-old', createdAt: new Date('2026-01-01') },
+      },
+      {
+        id: 'new',
+        campaignId: 'campaign-new',
+        status: 'DELIVERED',
+        campaign: { skipRemainingMessagesOnReply: true, chatbotId: 'chatbot-new', createdAt: new Date('2026-01-02') },
+      },
+    ])).toBe('chatbot-new');
   });
 
   it('extrai o ID da mensagem citada no contextInfo do evento', () => {

@@ -16,7 +16,7 @@ type Edge = { source: string; target: string; sourceHandle?: string | null };
 type Graph = { nodes: Node[]; edges: Edge[] };
 type SessionContext = ChatbotRuleContext & { previousMessage?: string; variables: Record<string, unknown> };
 type NodeExecution = { nextNodeId: string | null; shouldStop: boolean };
-type ChatbotInboundJob = { messageId: string; audioWaitCount?: number };
+type ChatbotInboundJob = { messageId: string; audioWaitCount?: number; chatbotId?: string };
 type ChatbotDelayJob = { sessionId: string; nodeId: string; inboundMessageId: string; wakeAt: string };
 type ChatbotAiResumeJob = { sessionId: string; generationId: string; nextNodeId: string };
 type ChatbotJob = ChatbotInboundJob | ChatbotDelayJob | ChatbotAiResumeJob;
@@ -72,7 +72,7 @@ export class ChatbotProcessor {
   async process(job: Job<ChatbotJob>) {
     if ('generationId' in job.data) return this.resumeAi(job.data);
     if ('sessionId' in job.data) return this.resumeDelay(job.data);
-    return this.processInbound(job.data.messageId, job.data.audioWaitCount);
+    return this.processInbound(job.data.messageId, job.data.audioWaitCount, job.data.chatbotId);
   }
 
   async reconcileDelays(reference = new Date()) {
@@ -98,7 +98,7 @@ export class ChatbotProcessor {
     return { scheduled: sessions.length };
   }
 
-  private async processInbound(messageId: string, audioWaitCount = 0) {
+  private async processInbound(messageId: string, audioWaitCount = 0, requestedChatbotId?: string) {
     const inbound = await this.db.message.findUnique({
       where: { id: messageId },
       select: {
@@ -148,9 +148,20 @@ export class ChatbotProcessor {
       if (latestInbound?.id !== inbound.id) return;
     }
 
+    const activeSessionChatbotId = conversation.chatbotSession
+      && ['ACTIVE', 'WAITING'].includes(conversation.chatbotSession.status)
+      ? conversation.chatbotSession.chatbotId
+      : undefined;
+    const selectedChatbotId = requestedChatbotId || activeSessionChatbotId;
     const chatbot = await this.db.chatbot.findFirst({
-      where: { instanceId: conversation.instanceId, organizationId: conversation.organizationId, status: 'PUBLISHED', publishedVersion: { not: null } },
-      orderBy: { updatedAt: 'desc' },
+      where: {
+        instanceId: conversation.instanceId,
+        organizationId: conversation.organizationId,
+        status: 'PUBLISHED',
+        publishedVersion: { not: null },
+        ...(selectedChatbotId ? { id: selectedChatbotId } : {}),
+      },
+      ...(selectedChatbotId ? {} : { orderBy: { updatedAt: 'desc' as const } }),
       select: { id: true, publishedVersion: true, responseProvider: true },
     });
     if (!chatbot?.publishedVersion) return;
@@ -163,7 +174,7 @@ export class ChatbotProcessor {
     if (!provider) return;
     if (inbound.type === 'audio'
       && !inbound.transcriptionText
-      && await this.waitForAudioTranscription(inbound, audioWaitCount)) return;
+      && await this.waitForAudioTranscription(inbound, audioWaitCount, requestedChatbotId)) return;
     const graph = version.graph as unknown as Graph;
     const trigger = graph.nodes.find((node) => node.type === 'trigger');
     if (!trigger) return;
@@ -209,6 +220,7 @@ export class ChatbotProcessor {
       transcriptionError: string | null;
     },
     waitCount: number,
+    requestedChatbotId?: string,
   ) {
     if (inbound.transcriptionStatus === 'FAILED' || !this.transcriptionQueue) return false;
     const configuredWaitMs = Number(process.env.AI_AUDIO_TRANSCRIPTION_WAIT_TIMEOUT_MS);
@@ -261,6 +273,7 @@ export class ChatbotProcessor {
     await this.chatbotQueue.add('process-chatbot-message', {
       messageId: inbound.id,
       audioWaitCount: waitCount + 1,
+      ...(requestedChatbotId ? { chatbotId: requestedChatbotId } : {}),
     }, {
       jobId: `chatbot-audio-wait-${inbound.id}-${waitCount + 1}`,
       delay: AUDIO_TRANSCRIPTION_POLL_MS,

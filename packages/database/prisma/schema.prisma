@@ -1074,6 +1074,7 @@ model Campaign {
   sendingWindowEnd       String              @default("23:59")
   sendingDays            Json                @default("[0,1,2,3,4,5,6]")
   skipRemainingMessagesOnReply Boolean       @default(true)
+  chatbotId              String?             @db.Uuid
   sentRecipientCount     Int                 @default(0)
   stats                  Json                @default("{}")
   archivedAt             DateTime?
@@ -1081,6 +1082,7 @@ model Campaign {
   updatedAt              DateTime            @updatedAt
   organization           Organization        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   instance               WhatsappInstance?   @relation(fields: [instanceId], references: [id], onDelete: SetNull)
+  chatbot                Chatbot?            @relation(fields: [chatbotId], references: [id], onDelete: SetNull)
   segment                Segment?            @relation(fields: [segmentId], references: [id], onDelete: SetNull)
   createdBy              User                @relation(fields: [createdById], references: [id])
   bubbles                CampaignBubble[]
@@ -1296,6 +1298,7 @@ model Chatbot {
   createdBy        User             @relation(fields: [createdById], references: [id])
   versions         ChatbotVersion[]
   sessions         ChatbotSession[]
+  campaigns        Campaign[]
 
   @@index([organizationId, status, updatedAt])
   @@index([instanceId, status])

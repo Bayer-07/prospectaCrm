@@ -52,12 +52,14 @@ type Campaign = {
   stats: Record<string, any>;
   progress?: CampaignProgress;
   instance?: { id: string; name: string; status: string };
+  chatbot?: { id: string; name: string; status: string; responseProvider: string } | null;
   bubbles: Array<{ content: string }>;
   recipients?: CampaignRecipient[];
   recipientsTruncated?: boolean;
   _count?: { recipients: number };
 };
 type Instance = { id: string; name: string; status: string; phone?: string; warmupProfile?: { currentDailyCap: number; sentToday: number } };
+type CampaignChatbot = { id: string; name: string; status: string; responseProvider: string; instance: { id: string; name: string; status: string } };
 type CampaignContact = { id: string; name: string; phone?: string; email?: string };
 type DraftMessage = { id: string; content: string };
 type CsvPreview = {
@@ -572,6 +574,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
   const [form, setForm] = useState({
     name: '',
     instanceId: instances[0]?.id || '',
+    chatbotId: '',
     bubbleMin: 3,
     bubbleMax: 7,
     contactMin: 15,
@@ -580,6 +583,11 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
     pauseMin: 120,
     pauseMax: 300,
     skipRemainingMessagesOnReply: true,
+  });
+  const chatbots = useQuery({
+    queryKey: ['campaign-chatbots', form.instanceId],
+    queryFn: () => api<Envelope<CampaignChatbot[]>>(`/campaigns/available-chatbots?instanceId=${encodeURIComponent(form.instanceId)}`),
+    enabled: Boolean(form.instanceId),
   });
   const contacts = useQuery({
     queryKey: ['campaign-contacts', debouncedSearch, contactTagFilter],
@@ -625,6 +633,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
           skipRemainingMessagesOnReply: String(form.skipRemainingMessagesOnReply),
           ...Object.fromEntries(Object.entries(cadence).map(([key, value]) => [key, String(value)])),
         });
+        if (form.chatbotId) query.set('chatbotId', form.chatbotId);
         return api(`/campaigns/csv?${query}`, {
           method: 'POST',
           headers: { 'Content-Type': 'text/csv; charset=utf-8' },
@@ -636,6 +645,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
         body: JSON.stringify({
           name: form.name,
           instanceId: form.instanceId,
+          ...(form.chatbotId ? { chatbotId: form.chatbotId } : {}),
           audience: {
             source,
             contactIds: selectedContacts.map((contact) => contact.id),
@@ -675,6 +685,12 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
   useEffect(() => {
     if (csvFile && form.instanceId) preview.mutate({ file: csvFile, instanceId: form.instanceId });
   }, [csvFile, form.instanceId]);
+
+  useEffect(() => {
+    if (form.chatbotId && !chatbots.data?.data.some((chatbot) => chatbot.id === form.chatbotId)) {
+      setForm((current) => ({ ...current, chatbotId: '' }));
+    }
+  }, [chatbots.data, form.chatbotId]);
 
   useEffect(() => {
     const containsFiles = (event: globalThis.DragEvent) => Array.from(event.dataTransfer?.types || []).includes('Files');
@@ -798,6 +814,18 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
         <div className="form-grid">
           <Field label="Título" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Prospecção — Energia SP" required />
           <label className="field"><span>Número de envio</span><ConnectionPicker options={instances} value={form.instanceId} onChange={(value) => setForm({ ...form, instanceId: value })} ariaLabel="Número de envio" /></label>
+          <label className="field" style={{ gridColumn: '1 / -1' }}>
+            <span>Chatbot ao receber uma resposta <small>(opcional)</small></span>
+            <select
+              value={form.chatbotId}
+              onChange={(event) => setForm({ ...form, chatbotId: event.target.value })}
+              disabled={chatbots.isLoading || !form.instanceId}
+            >
+              <option value="">Não iniciar um chatbot específico</option>
+              {(chatbots.data?.data || []).map((chatbot) => <option key={chatbot.id} value={chatbot.id}>{chatbot.name} · {chatbot.responseProvider === 'OPENAI' ? 'IA' : 'Regras'}</option>)}
+            </select>
+            <small className="form-hint">O fluxo escolhido começa quando o contato responder à mensagem enviada pela campanha.</small>
+          </label>
         </div>
       </section>
 
@@ -940,6 +968,7 @@ function CampaignDetailContent({
     <div className="detail-status">
       <Status value={campaign.status} />
       <span>{campaign.instance?.name || 'Sem número de envio'}</span>
+      <span>{campaign.chatbot ? `Chatbot na resposta: ${campaign.chatbot.name}` : 'Sem chatbot específico na resposta'}</span>
       <span>Agendada em {dateTime(campaign.scheduledAt)}</span>
       <span>{campaign.skipRemainingMessagesOnReply ? 'Interrompe sequência após resposta' : 'Mantém sequência após resposta'}</span>
       <div className="campaign-detail-actions">
