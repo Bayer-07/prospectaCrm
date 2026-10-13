@@ -279,9 +279,14 @@ export class ChatbotsService {
   }
 
   async create(auth: AuthContext, input: { name: string; description?: string; instanceId: string; responseProvider?: 'RULES' | 'OPENAI'; graph?: ChatbotGraph }) {
-    if (!auth.userId) throw new BadRequestException('Chatbot exige usuário');
     const name = input.name?.trim();
     if (!name || name.length < 2 || name.length > 120) throw new BadRequestException('Informe um nome válido para o chatbot');
+    const createdById = auth.userId || (await this.db.user.findFirst({
+      where: { organizationId: auth.organizationId, status: 'ACTIVE' },
+      orderBy: { createdAt: 'asc' },
+      select: { id: true },
+    }))?.id;
+    if (!createdById) throw new BadRequestException('A organização precisa ter um usuário ativo para criar o chatbot');
     await this.assertInstance(auth, input.instanceId);
     const graph = input.graph || this.defaultGraph();
     const responseProvider = input.responseProvider || 'RULES';
@@ -292,7 +297,7 @@ export class ChatbotsService {
       data: {
         organizationId: auth.organizationId,
         instanceId: input.instanceId,
-        createdById: auth.userId,
+        createdById,
         name,
         description: input.description?.trim() || null,
         responseProvider,

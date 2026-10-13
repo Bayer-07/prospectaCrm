@@ -245,3 +245,35 @@ describe('exclusão de chatbot', () => {
     }) });
   });
 });
+
+describe('criação de chatbot via API Key', () => {
+  it('usa um usuário ativo da organização como autor técnico', async () => {
+    const create = vi.fn().mockResolvedValue({ id: 'chatbot-1' });
+    const service = new ChatbotsService({
+      user: { findFirst: vi.fn().mockResolvedValue({ id: 'user-1' }) },
+      whatsappInstance: { findFirst: vi.fn().mockResolvedValue({ id: 'instance-1' }) },
+      chatbot: { create },
+    } as never);
+    const auth = {
+      type: 'apiKey' as const,
+      organizationId: 'organization-1',
+      name: 'MCP',
+      permissions: [
+        { resource: 'workflows', action: 'read', scope: 'ALL' as const },
+        { resource: 'workflows', action: 'write', scope: 'ALL' as const },
+      ],
+      apiScopes: ['workflows:read', 'workflows:write'],
+    };
+
+    await service.create(auth, {
+      name: 'Atendimento',
+      instanceId: 'instance-1',
+      responseProvider: 'RULES',
+      graph: { nodes: [{ id: 'start', type: 'trigger' }], edges: [] },
+    });
+
+    expect(create).toHaveBeenCalledWith(expect.objectContaining({
+      data: expect.objectContaining({ createdById: 'user-1' }),
+    }));
+  });
+});
