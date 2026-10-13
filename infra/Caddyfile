@@ -15,6 +15,18 @@
     }
   }
 
+  handle /oauth/* {
+    reverse_proxy mcp:3100 {
+      header_up Host mcp
+    }
+  }
+
+  handle /.well-known/* {
+    reverse_proxy mcp:3100 {
+      header_up Host mcp
+    }
+  }
+
   handle /socket.io/* {
     reverse_proxy api:3000
   }

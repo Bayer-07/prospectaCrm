@@ -12,11 +12,13 @@ export class McpController {
 
   @Get('context')
   context(@CurrentUser() auth: AuthContext) {
-    this.assertApiKey(auth);
+    this.assertMcpAuth(auth);
     return {
       data: {
         name: auth.name,
-        scopes: auth.apiScopes ?? [],
+        userId: auth.userId ?? null,
+        email: auth.email ?? null,
+        scopes: auth.apiScopes ?? this.scopesFromPermissions(auth),
       },
     };
   }
@@ -24,7 +26,7 @@ export class McpController {
   @RequirePermission('tasks', 'read')
   @Get('directory')
   async directory(@CurrentUser() auth: AuthContext) {
-    this.assertApiKey(auth);
+    this.assertMcpAuth(auth);
     const [users, teams] = await Promise.all([
       this.db.user.findMany({
         where: { organizationId: auth.organizationId, status: 'ACTIVE' },
@@ -40,9 +42,13 @@ export class McpController {
     return { data: { users, teams } };
   }
 
-  private assertApiKey(auth: AuthContext) {
-    if (auth.type !== 'apiKey') {
-      throw new ForbiddenException('Este endpoint exige uma chave de API');
+  private assertMcpAuth(auth: AuthContext) {
+    if (auth.type !== 'apiKey' && auth.type !== 'session') {
+      throw new ForbiddenException('Autenticação MCP inválida');
     }
+  }
+
+  private scopesFromPermissions(auth: AuthContext) {
+    return [...new Set(auth.permissions.map((permission) => `${permission.resource}:${permission.action}`))];
   }
 }

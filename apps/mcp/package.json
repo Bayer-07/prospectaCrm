@@ -16,6 +16,7 @@
     "@modelcontextprotocol/node": "2.0.0",
     "@modelcontextprotocol/server": "2.0.0",
     "hono": "^4.11.4",
+    "jose": "6.2.4",
     "zod": "^4.2.0"
   },
   "devDependencies": {

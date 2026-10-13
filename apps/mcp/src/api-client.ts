@@ -5,6 +5,8 @@ type ApiMethod = 'GET' | 'POST' | 'PATCH' | 'DELETE';
 export type ApiKeyContext = {
   name: string;
   scopes: string[];
+  userId?: string | null;
+  email?: string | null;
 };
 
 export class BzsApiError extends Error {
@@ -31,6 +33,49 @@ export class BzsApiClient {
   getContext() {
     return this.request<{ data: ApiKeyContext }>('/mcp/context', { method: 'GET' })
       .then((response) => response.data);
+  }
+
+  async login(email: string, password: string) {
+    let response: Response;
+    try {
+      response = await fetch(`${this.baseUrl}/auth/login`, {
+        method: 'POST',
+        signal: AbortSignal.timeout(15_000),
+        headers: {
+          Accept: 'application/json',
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ email, password }),
+      });
+    } catch (error) {
+      const message = error instanceof Error && error.name === 'TimeoutError'
+        ? 'A API do BZS One demorou para responder'
+        : 'Não foi possível acessar a API do BZS One';
+      throw new BzsApiError(message, 502);
+    }
+
+    const text = await response.text();
+    let data: unknown = null;
+    try {
+      data = text ? JSON.parse(text) : null;
+    } catch {
+      data = text;
+    }
+    if (!response.ok) {
+      const apiMessage = objectMessage(data);
+      throw new BzsApiError(apiMessage || 'E-mail ou senha inválidos', response.status, data);
+    }
+
+    const headers = response.headers as Headers & { getSetCookie?: () => string[] };
+    const cookies = headers.getSetCookie?.() || [headers.get('set-cookie') || ''];
+    const sessionCookie = cookies.find((cookie) => /(?:^|;)\s*prospecta_session=/u.test(cookie));
+    const token = sessionCookie?.match(/(?:^|;)\s*prospecta_session=([^;]+)/u)?.[1];
+    if (!token) throw new BzsApiError('A API não retornou uma sessão válida', 502);
+
+    const expiresAt = data && typeof data === 'object' && 'data' in data && data.data && typeof data.data === 'object' && 'expiresAt' in data.data
+      ? typeof data.data.expiresAt === 'string' ? data.data.expiresAt : undefined
+      : undefined;
+    return { token, expiresAt };
   }
 
   get(path: string) {
