@@ -83,9 +83,6 @@ async function handleOAuthRequest(request: IncomingMessage, response: ServerResp
   if (request.method === 'POST' && url.pathname === '/oauth/register') {
     return handleOAuthRegistration(request, response);
   }
-  if (request.method === 'GET' && url.pathname === '/oauth/authorize.js') {
-    return javascript(response, authorizationPageScript());
-  }
   if ((request.method === 'GET' || request.method === 'POST') && url.pathname === '/oauth/authorize') {
     return handleOAuthAuthorization(request, response, url);
   }
@@ -269,7 +266,6 @@ function renderAuthorizationPage(request: OAuthAuthorizationRequest, error?: str
       </form>
       <small>Suas credenciais são usadas apenas para criar uma sessão segura do BZS One e não são armazenadas pelo servidor MCP.</small>
     </main>
-    <script src="/oauth/authorize.js" defer></script>
   </body>
 </html>`;
 }
@@ -329,30 +325,8 @@ function html(response: ServerResponse, status: number, body: string) {
   response.end(body);
 }
 
-function javascript(response: ServerResponse, body: string) {
-  response.writeHead(200, {
-    'Cache-Control': 'no-store',
-    'Content-Type': 'application/javascript; charset=utf-8',
-    'Content-Security-Policy': "default-src 'none'",
-  });
-  response.end(body);
-}
-
 function acceptsJson(request: IncomingMessage) {
   return request.headers.accept?.includes('application/json') === true;
-}
-
-function authorizationPageScript() {
-  return `(() => {
-  const form = document.getElementById('oauth-form');
-  const button = document.getElementById('oauth-submit');
-  if (!form || !button) return;
-
-  form.addEventListener('submit', () => {
-    button.disabled = true;
-    button.textContent = 'Conectando…';
-  });
-})();`;
 }
 
 function escapeHtml(value: string) {
