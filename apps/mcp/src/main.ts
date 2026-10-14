@@ -346,53 +346,12 @@ function authorizationPageScript() {
   return `(() => {
   const form = document.getElementById('oauth-form');
   const button = document.getElementById('oauth-submit');
-  const error = document.getElementById('oauth-error');
-  if (!form || !button || !error) return;
+  if (!form || !button) return;
 
-  const submitWithBrowserNavigation = () => {
-    form.removeEventListener('submit', handleSubmit);
-    HTMLFormElement.prototype.submit.call(form);
-  };
-
-  async function handleSubmit(event) {
-    event.preventDefault();
+  form.addEventListener('submit', () => {
     button.disabled = true;
     button.textContent = 'Conectando…';
-    error.hidden = true;
-    const controller = new AbortController();
-    const timeout = window.setTimeout(() => controller.abort(), 10_000);
-
-    try {
-      const response = await fetch(form.action, {
-        method: 'POST',
-        body: new URLSearchParams(new FormData(form)),
-        headers: { Accept: 'application/json' },
-        credentials: 'same-origin',
-        signal: controller.signal,
-      });
-      const payload = await response.json();
-      if (!response.ok || typeof payload.error === 'string') {
-        throw new Error(typeof payload.error === 'string' ? payload.error : 'Não foi possível concluir a autorização agora.');
-      }
-      if (typeof payload.redirect_uri !== 'string') {
-        throw new Error('O servidor não retornou o endereço de conclusão da autorização.');
-      }
-      window.location.assign(payload.redirect_uri);
-    } catch (requestError) {
-      if (requestError instanceof TypeError || (requestError instanceof DOMException && requestError.name === 'AbortError')) {
-        submitWithBrowserNavigation();
-        return;
-      }
-      error.textContent = requestError instanceof Error ? requestError.message : 'Não foi possível concluir a autorização agora.';
-      error.hidden = false;
-      button.disabled = false;
-      button.textContent = 'Autorizar acesso';
-    } finally {
-      window.clearTimeout(timeout);
-    }
-  }
-
-  form.addEventListener('submit', handleSubmit);
+  });
 })();`;
 }
 
