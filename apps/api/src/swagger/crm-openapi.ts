@@ -25,8 +25,8 @@ const COMPANY_UUID_EXAMPLE = 'a45ff0de-0818-4fc8-9908-ea9c24ac5b5c';
 const CONTACT_UUID_EXAMPLE = '0bf51b4e-b29f-4734-ab75-34eed8d1d025';
 
 export class CompanyCreateRequest {
-  @ApiProperty({ description: 'Nome fantasia da empresa.', minLength: 2, maxLength: 180, example: 'BZS Tecnologia' })
-  name: string;
+  @ApiPropertyOptional({ description: 'Nome fantasia da empresa. Se omitido, será preenchido pela consulta do CNPJ.', minLength: 2, maxLength: 180, example: 'BZS Tecnologia' })
+  name?: string;
 
   @ApiPropertyOptional({ description: 'Razão social.', maxLength: 180, example: 'BZS Tecnologia Ltda.' })
   legalName?: string;

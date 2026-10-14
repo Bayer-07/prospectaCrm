@@ -80,6 +80,7 @@ type CompanyCnpjLookup = {
   legalName: string;
   sector?: string;
   size?: string;
+  email?: string;
   phone?: string;
   registrationStatus?: string;
   address?: Record<string, string>;
@@ -493,6 +494,7 @@ function CompanyModal({ company, onClose, onSaved }: Readonly<{
       legalName: companyData.legalName,
       sector: companyData.sector || '',
       size: companyData.size || '',
+      email: companyData.email || '',
       phone: companyData.phone ? formatPhone(companyData.phone) : '',
       address: companyAddressText(companyData.address),
     };

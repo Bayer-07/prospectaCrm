@@ -12,6 +12,7 @@ import { EXTERNAL_WEBHOOK_QUEUE } from '../queue/queue.module.js';
 import { MediaService } from '../media/media.service.js';
 import { FollowUpsService } from '../follow-ups/follow-ups.service.js';
 import { ActivitiesService } from '../activities/activities.service.js';
+import { CompanyCnpjLookupService } from './company-cnpj-lookup.service.js';
 
 function csvSeparatorCount(line: string, separator: string) {
   let quoted = false;
@@ -140,6 +141,7 @@ export class CrmService {
     private readonly media?: MediaService,
     private readonly followUps?: FollowUpsService,
     private readonly activities?: ActivitiesService,
+    private readonly companyCnpjLookup?: CompanyCnpjLookupService,
   ) {}
 
   async dashboard(auth: AuthContext, query: { from?: string; to?: string; timeZone?: string } = {}) {
@@ -292,7 +294,27 @@ export class CrmService {
   }
 
   async createCompany(auth: AuthContext, raw: unknown) {
-    const input = this.parse(companyInputSchema, raw);
+    const candidate = this.parse(companyInputSchema.partial(), raw);
+    let enriched = candidate;
+    if (candidate.cnpj && this.companyCnpjLookup) {
+      try {
+        const lookup = await this.companyCnpjLookup.lookup(this.normalizeCnpj(candidate.cnpj));
+        const hasAddress = Boolean(candidate.address && Object.keys(candidate.address).length);
+        enriched = {
+          ...candidate,
+          name: candidate.name || lookup.name,
+          legalName: candidate.legalName || lookup.legalName,
+          sector: candidate.sector || lookup.sector,
+          size: candidate.size || lookup.size,
+          email: candidate.email || lookup.email,
+          phone: candidate.phone || lookup.phone,
+          address: hasAddress ? candidate.address : lookup.address,
+        };
+      } catch (error) {
+        if (!candidate.name) throw error;
+      }
+    }
+    const input = this.parse(companyInputSchema, enriched);
     if (auth.type === 'apiKey' && input.externalId) {
       const existing = await this.db.company.findUnique({ where: { organizationId_externalId: { organizationId: auth.organizationId, externalId: input.externalId } }, select: { id: true } });
       if (existing) return this.updateCompany(auth, existing.id, input);

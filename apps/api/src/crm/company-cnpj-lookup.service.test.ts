@@ -61,6 +61,63 @@ describe('CompanyCnpjLookupService', () => {
     );
   });
 
+  it('aceita respostas aninhadas e campos numéricos de outras fontes públicas', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: vi.fn().mockResolvedValue({
+        razao_social: 'ACME TECNOLOGIA LTDA.',
+        porte: { id: '05', descricao: 'Demais' },
+        estabelecimento: {
+          nome_fantasia: 'ACME TECNOLOGIA',
+          situacao_cadastral: 'Ativa',
+          tipo_logradouro: 'RUA',
+          logradouro: 'DAS FLORES',
+          numero: 7,
+          cep: 85800000,
+          bairro: 'CENTRO',
+          cidade: { nome: 'CASCAVEL' },
+          estado: { sigla: 'PR' },
+          ddd1: 45,
+          telefone1: 30301234,
+          email: 'CONTATO@ACME.COM.BR',
+          atividade_principal: { descricao: 'Desenvolvimento de software' },
+        },
+      }),
+    }));
+
+    const result = await new CompanyCnpjLookupService().lookup('04.252.011/0001-10');
+
+    expect(result).toMatchObject({
+      name: 'ACME TECNOLOGIA',
+      legalName: 'ACME TECNOLOGIA LTDA.',
+      sector: 'Desenvolvimento de software',
+      email: 'contato@acme.com.br',
+      phone: '+554530301234',
+      registrationStatus: 'Ativa',
+      address: {
+        formatted: 'RUA DAS FLORES, 7 · CENTRO · CASCAVEL - PR · CEP 85800000',
+      },
+    });
+  });
+
+  it('tenta a próxima fonte quando a primeira está indisponível', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce({ ok: false, status: 503 })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: vi.fn().mockResolvedValue({ razao_social: 'ACME FALLBACK LTDA.' }),
+      });
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(new CompanyCnpjLookupService().lookup('04.252.011/0001-10')).resolves.toMatchObject({
+      name: 'ACME FALLBACK LTDA.',
+      legalName: 'ACME FALLBACK LTDA.',
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
   it('reutiliza a consulta em cache para o mesmo CNPJ', async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,
@@ -88,8 +145,10 @@ describe('CompanyCnpjLookupService', () => {
   });
 
   it('informa quando o CNPJ não existe na base pública', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue({ ok: false, status: 404 }));
+    const fetchMock = vi.fn().mockResolvedValue({ ok: false, status: 404 });
+    vi.stubGlobal('fetch', fetchMock);
 
     await expect(new CompanyCnpjLookupService().lookup('04.252.011/0001-10')).rejects.toBeInstanceOf(NotFoundException);
+    expect(fetchMock).toHaveBeenCalledTimes(2);
   });
 });

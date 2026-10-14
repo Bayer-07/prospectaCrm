@@ -112,6 +112,41 @@ describe('dados visuais e sociais da empresa', () => {
     });
   });
 
+  it('preenche a empresa pelo CNPJ antes de salvar, inclusive quando o nome não foi informado', async () => {
+    const create = vi.fn().mockImplementation(({ data }) => ({ id: 'company-1', ...data }));
+    const lookup = vi.fn().mockResolvedValue({
+      cnpj: '04252011000110',
+      name: 'ACME TECNOLOGIA',
+      legalName: 'ACME TECNOLOGIA LTDA.',
+      sector: 'Desenvolvimento de software',
+      size: 'Demais',
+      email: 'contato@acme.com.br',
+      phone: '+554530301234',
+      address: { formatted: 'Rua das Flores, 7 · Cascavel - PR', country: 'Brasil' },
+    });
+    const service = new CrmService({
+      company: { findFirst: vi.fn().mockResolvedValue(null), create },
+      team: { findFirst: vi.fn().mockResolvedValue({ id: 'team-geral' }) },
+      activity: { create: vi.fn().mockResolvedValue({ id: 'activity-1' }) },
+      auditLog: { create: vi.fn().mockResolvedValue({ id: 'audit-1' }) },
+      outboundWebhook: { findMany: vi.fn().mockResolvedValue([]) },
+    } as never, { add: vi.fn() } as never, undefined, undefined, undefined, { lookup } as never);
+
+    await service.createCompany(auth, { cnpj: '04.252.011/0001-10' });
+
+    expect(lookup).toHaveBeenCalledWith('04252011000110');
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({
+        name: 'ACME TECNOLOGIA',
+        legalName: 'ACME TECNOLOGIA LTDA.',
+        cnpj: '04252011000110',
+        sector: 'Desenvolvimento de software',
+        email: 'contato@acme.com.br',
+        phone: '+554530301234',
+      }),
+    });
+  });
+
   it('confirma e vincula a logo enviada à empresa', async () => {
     const logoId = '14ee3455-a854-40ab-92dc-01d71c3dbef8';
     const update = vi.fn().mockResolvedValue({ id: 'company-1', logoId });
