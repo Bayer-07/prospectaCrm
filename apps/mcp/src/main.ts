@@ -102,7 +102,6 @@ async function handleOAuthRegistration(request: IncomingMessage, response: Serve
 }
 
 async function handleOAuthAuthorization(request: IncomingMessage, response: ServerResponse, initialUrl: URL) {
-  console.log(`[oauth] ${request.method} ${initialUrl.pathname}`);
   const params = request.method === 'GET'
     ? initialUrl.searchParams
     : new URLSearchParams(await readBody(request));
@@ -120,14 +119,12 @@ async function handleOAuthAuthorization(request: IncomingMessage, response: Serv
 
   const email = params.get('email')?.trim() || '';
   const password = params.get('password') || '';
-  console.log(`[oauth] authorization form received (email=${Boolean(email)}, password=${Boolean(password)})`);
   if (!email || !password) {
     return html(response, 400, renderAuthorizationPage(authorizationRequest, 'Informe seu e-mail e sua senha para continuar.'));
   }
 
   try {
     const session = await authenticateOAuthUser(email, password);
-    console.log('[oauth] credentials accepted; issuing authorization code');
     const code = oauth.createAuthorizationCode(authorizationRequest, session);
     const redirect = new URL(authorizationRequest.redirectUri);
     redirect.searchParams.set('code', code);
@@ -321,7 +318,7 @@ function json(response: ServerResponse, status: number, body: unknown) {
 function html(response: ServerResponse, status: number, body: string) {
   response.writeHead(status, {
     'Cache-Control': 'no-store',
-    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'none'",
+    'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; base-uri 'none'",
     'Content-Type': 'text/html; charset=utf-8',
     'Referrer-Policy': 'no-referrer',
   });
