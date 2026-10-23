@@ -6,6 +6,11 @@ const HTTP_METHODS = new Set(['get', 'post', 'put', 'patch', 'delete', 'options'
 
 const PUBLIC_RESOURCES = [
   {
+    tag: 'Mensagens',
+    description: 'Envio de mensagens pelo WhatsApp com cadastro automático de contatos e atribuição de atendimento.',
+    pattern: /^\/api\/v1\/messages\/(?:send|users|teams|connections)$/,
+  },
+  {
     tag: 'Empresas',
     description: 'Cadastro e manutenção das empresas do CRM.',
     pattern: /^\/api\/v1\/companies(?:\/\{id\})?$/,

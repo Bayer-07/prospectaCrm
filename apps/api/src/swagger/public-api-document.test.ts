@@ -17,6 +17,11 @@ describe('filterPublicApiDocument', () => {
         '/api/v1/tags': { get: operation },
         '/api/v1/custom-fields/{id}': { patch: operation },
         '/api/v1/segments': { post: operation },
+        '/api/v1/messages/send': { post: operation },
+        '/api/v1/messages/users': { get: operation },
+        '/api/v1/messages/teams': { get: operation },
+        '/api/v1/messages/connections': { get: operation },
+        '/api/v1/messages/private': { get: operation },
         '/api/v1/dashboard': { get: operation },
         '/api/v1/conversations': { get: operation },
         '/api/v1/opportunities/{id}/stage': { patch: operation },
@@ -34,9 +39,15 @@ describe('filterPublicApiDocument', () => {
       '/api/v1/tags',
       '/api/v1/custom-fields/{id}',
       '/api/v1/segments',
+      '/api/v1/messages/send',
+      '/api/v1/messages/users',
+      '/api/v1/messages/teams',
+      '/api/v1/messages/connections',
     ]);
     expect(result.paths['/api/v1/companies']?.get?.tags).toEqual(['Empresas']);
     expect(result.paths['/api/v1/companies']?.get?.security).toEqual([{ 'api-key': [] }]);
+    expect(result.paths['/api/v1/messages/send']?.post?.tags).toEqual(['Mensagens']);
+    expect(result.paths['/api/v1/messages/send']?.post?.security).toEqual([{ 'api-key': [] }]);
   });
 
   it('não altera o documento original', () => {

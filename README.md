@@ -171,6 +171,64 @@ Teste também a saúde do servidor MCP:
 Invoke-RestMethod http://localhost:3100/health
 ```
 
+## API de envio de mensagens
+
+Use `Authorization: Bearer SUA_CHAVE_API`. O envio exige os escopos
+`conversations:write` e `contacts:write`. Novas chaves geradas em
+**Integrações → API** já incluem esses escopos; para uma chave antiga sem
+`conversations:write`, gere uma nova chave.
+
+| Método | Rota | Uso |
+| --- | --- | --- |
+| GET | `/api/v1/messages/users` | Usuários ativos e seus `teamIds` |
+| GET | `/api/v1/messages/teams` | Equipes e identificação da equipe Geral |
+| GET | `/api/v1/messages/connections` | Conexões conectadas disponíveis para envio |
+| POST | `/api/v1/messages/send` | Enviar texto, cadastrar o contato e atribuir o atendimento |
+
+As consultas exigem `conversations:write` e retornam `{ "data": [...] }`.
+Use os IDs retornados para preencher `instanceId`, `teamId` e `assigneeId`:
+
+```bash
+curl -X POST http://localhost:3000/api/v1/messages/send \
+  -H 'Authorization: Bearer SUA_CHAVE_API' \
+  -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: pedido-1024-mensagem-1' \
+  -d '{
+    "phone": "+5545999990000",
+    "text": "Olá! Podemos conversar?",
+    "contactName": "Maria Silva",
+    "instanceId": "UUID_DA_CONEXAO",
+    "teamId": "UUID_DA_EQUIPE",
+    "assigneeId": "UUID_DO_USUARIO"
+  }'
+```
+
+`phone`, `text` e `instanceId` são obrigatórios. Informe o telefone com código
+do país e DDD; máscaras são aceitas. Números brasileiros com e sem o nono
+dígito são reconhecidos como o mesmo contato. `contactName` é usado apenas no
+cadastro inicial; quando omitido, o nome será o telefone. O cadastro mantém o
+consentimento como desconhecido.
+
+O contato e a conversa da conexão escolhida são reutilizados. Se `teamId` ou
+`assigneeId` forem informados, atualizam a atribuição no CRM e no atendimento.
+O usuário precisa estar ativo e pertencer à equipe selecionada. Quando
+omitidos, os campos preservam as atribuições existentes; para uma nova
+conversa, a equipe vem do contato ou da equipe Geral, e a API Key deixa o
+atendimento sem atendente (`WAITING`). `assigneeId: null` remove o responsável.
+Em chamadas com sessão, um novo atendimento é atribuído ao usuário da sessão.
+
+A resposta **202** contém `data.contactId`, `contactCreated`, `conversationId`,
+`messageId`, `instanceId`, `teamId`, `assigneeId` e `status: "QUEUED"`. O worker
+faz o envio pela Evolution API; a resposta confirma o enfileiramento. O status
+e eventuais falhas de entrega aparecem no atendimento do CRM.
+
+`Idempotency-Key` é obrigatório (8 a 160 caracteres). Repita a mesma chave e
+corpo para recuperar os mesmos IDs sem criar outra mensagem. Uma chave com
+outro conteúdo retorna **409**. As chaves são retidas por 24 horas. Se a fila
+estiver indisponível depois do registro, a API retorna **503** e a mesma chave
+permite recuperar o enfileiramento. Dados inválidos retornam **400** e
+permissões insuficientes retornam **403**. A documentação está em `/docs`.
+
 ## Servidor MCP para LLMs
 
 O BZS One disponibiliza um servidor MCP remoto por **Streamable HTTP**. Ele
@@ -421,6 +479,13 @@ pnpm test        # executa os testes
 pnpm db:generate # atualiza o Prisma Client
 pnpm db:seed     # cria os dados iniciais configuráveis
 ```
+
+Para executar também os testes de integração da API de mensagens, defina
+`PUBLIC_MESSAGES_TEST_DATABASE_URL` com a URL de um PostgreSQL de testes com
+as migrações aplicadas e execute `pnpm --filter @prospecta/api test`. Esses
+testes usam dados próprios, limpam os registros criados e simulam o provedor
+e a fila; nenhum envio real é realizado. Sem essa variável, os testes que
+dependem de PostgreSQL são ignorados.
 
 ## Estrutura do projeto
 

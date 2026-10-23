@@ -602,7 +602,7 @@ function QrModal({ value, onClose }: Readonly<{ value: string; onClose(): void }
 
 function ApiSettings() {
   const [key, setKey] = useState('');
-  const createKey = useMutation({ mutationFn: () => api<Envelope<{ token: string }>>('/users/api-keys', { method: 'POST', body: JSON.stringify({ name: 'Integração principal', scopes: ['companies:read', 'companies:write', 'contacts:read', 'contacts:write', 'opportunities:read', 'opportunities:write'] }) }), onSuccess: (result) => { toast.success('Chave de API criada. Copie e guarde em local seguro.'); setKey(result.data.token); } });
+  const createKey = useMutation({ mutationFn: () => api<Envelope<{ token: string }>>('/users/api-keys', { method: 'POST', body: JSON.stringify({ name: 'Integração principal', scopes: ['companies:read', 'companies:write', 'contacts:read', 'contacts:write', 'opportunities:read', 'opportunities:write', 'conversations:write'] }) }), onSuccess: (result) => { toast.success('Chave de API criada. Copie e guarde em local seguro.'); setKey(result.data.token); } });
   return <><div className="settings-heading"><div><h2>API</h2><p>Gerencie as credenciais usadas por sistemas externos para acessar o BZS One.</p></div></div><div className="settings-card"><div className="settings-card-icon"><KeyRound /></div><div><h3>Chaves de API</h3><p>Chaves são exibidas uma única vez. Revogue imediatamente se houver exposição.</p>{key && <code className="secret-output">{key}</code>}</div><Button variant="secondary" onClick={() => createKey.mutate()} loading={createKey.isPending}>Gerar chave</Button></div></>;
 }
 
