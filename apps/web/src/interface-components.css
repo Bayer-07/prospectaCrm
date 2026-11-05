@@ -123,6 +123,9 @@ td { font-size: var(--font-body); }
 .settings-card h3, .instance-info strong { font-size: var(--font-emphasis); }
 .settings-card p, .instance-info p, .instance-info small,
 .warmup-meter span, .warmup-meter small, .qr-content p { font-size: var(--font-secondary); }
+.qr-content img { transition: opacity .2s ease, filter .2s ease; }
+.qr-content.expired img { opacity: .35; filter: grayscale(1); }
+.qr-content > .button { margin: 12px auto 0; }
 .secret-output, .api-doc-link strong, .api-doc-link p, .link-result code, .link-result p { font-size: var(--font-secondary); }
 
 /* Servidor MCP */

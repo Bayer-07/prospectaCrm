@@ -45,6 +45,11 @@ const EVOLUTION_WEBHOOK_EVENTS = Object.freeze([
 ]);
 const PROVIDER_RECREATE_ATTEMPTS = 3;
 const PROVIDER_RECREATE_DELAY_MS = 500;
+// A Evolution devolve o QR em cache enquanto a sessão está "connecting". Ao pedir
+// um novo QR, o socket de pareamento é reiniciado e aguardamos um código diferente.
+const FRESH_QR_POLL_INTERVAL_MS = 1_000;
+const FRESH_QR_TIMEOUT_MS = 15_000;
+const FRESH_QR_RECONNECT_GRACE_MS = 3_000;
 
 function primitiveText(value: unknown) {
   return typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean' ? String(value) : '';
@@ -186,6 +191,7 @@ export class EvolutionService {
   private readonly baseUrl = (process.env.EVOLUTION_API_URL || 'http://localhost:8080').replace(/\/$/, '');
   private readonly apiKey = process.env.EVOLUTION_API_KEY || '';
   private readonly profilePictureCache = new Map<string, ProfilePictureCacheEntry>();
+  private readonly lastServedQrCodes = new Map<string, string>();
   private readonly pendingProfilePictures = new Map<string, Promise<ProfilePictureCacheEntry['picture']>>();
   private profilePictureCacheBytes = 0;
 
@@ -325,7 +331,7 @@ export class EvolutionService {
 
   async connect(auth: AuthContext, id: string) {
     const instance = await this.getInstance(auth, id);
-    const result = await this.connectProviderInstance(instance.instanceKey);
+    const result = await this.requestFreshProviderQrCode(instance.instanceKey);
     await this.ensureProviderWebhook(instance.instanceKey);
     const qrcode = this.extractQrCode(result);
     if (!qrcode) {
@@ -340,6 +346,7 @@ export class EvolutionService {
       if (providerStatus === 'CONNECTED') throw new BadRequestException('Este número já está conectado');
       throw new BadGatewayException('A Evolution API não retornou um QR Code válido');
     }
+    this.lastServedQrCodes.set(instance.instanceKey, this.qrCodeToken(result) || qrcode);
     await this.db.whatsappInstance.update({ where: { id }, data: { status: 'CONNECTING', qrExpiresAt: new Date(Date.now() + 30_000) } });
     this.realtime.notifyOrganization(auth.organizationId, 'whatsapp.updated', { instanceId: id });
     return { qrcode, expiresInSeconds: 30 };
@@ -1978,6 +1985,87 @@ export class EvolutionService {
     }
     if (!this.providerReportsMissingInstance(result)) return result;
     return this.recreateMissingProviderInstance(instanceKey);
+  }
+
+  private async requestFreshProviderQrCode(instanceKey: string) {
+    const staleCodes = new Set<string>();
+    const lastServed = this.lastServedQrCodes.get(instanceKey);
+    if (lastServed) staleCodes.add(lastServed);
+
+    const deadline = Date.now() + FRESH_QR_TIMEOUT_MS;
+    let pairingStarted = false;
+    let lastPairingStartAt = Number.NEGATIVE_INFINITY;
+    let result: Record<string, any> = {};
+    for (;;) {
+      const state = await this.providerConnectionState(instanceKey);
+      if (state === 'CONNECTED') return { instance: { instanceName: instanceKey, state: 'open' } };
+      if (state === 'CONNECTING') {
+        // Em "connecting" o /instance/connect apenas devolve o QR guardado, sem efeitos colaterais.
+        result = await this.connectProviderInstance(instanceKey);
+        if (!pairingStarted) {
+          // O QR guardado pode já ter expirado. O restart encerra só o socket de pareamento:
+          // não remove credenciais nem desconecta uma sessão que esteja apenas se reconectando.
+          const cachedCode = this.qrCodeToken(result);
+          if (cachedCode) staleCodes.add(cachedCode);
+          await this.restartProviderPairing(instanceKey);
+          pairingStarted = true;
+          lastPairingStartAt = Date.now();
+        } else if (!this.awaitingFreshQrCode(result, staleCodes)) {
+          return result;
+        }
+      } else if (Date.now() - lastPairingStartAt >= FRESH_QR_RECONNECT_GRACE_MS) {
+        // Sessão fechada (ou ausente) sem reconexão em andamento: abre um novo pareamento.
+        // A espera evita abrir um segundo socket enquanto a Evolution reconecta após o restart.
+        result = await this.connectProviderInstance(instanceKey);
+        pairingStarted = true;
+        lastPairingStartAt = Date.now();
+        if (!this.awaitingFreshQrCode(result, staleCodes)) return result;
+      }
+      if (Date.now() >= deadline) break;
+      await this.wait(FRESH_QR_POLL_INTERVAL_MS);
+    }
+    const code = this.qrCodeToken(result);
+    if (code && staleCodes.has(code) && !this.providerFailureMessage(result)) {
+      throw new BadGatewayException('A Evolution API não gerou um novo QR Code a tempo. Tente conectar novamente.');
+    }
+    return result;
+  }
+
+  private async providerConnectionState(instanceKey: string): Promise<EvolutionInstanceStatus | null> {
+    try {
+      const result = await this.request(`/instance/connectionState/${encodeURIComponent(instanceKey)}`, { method: 'GET' });
+      if (this.providerFailureMessage(result)) return null;
+      return normalizeEvolutionInstanceStatus(result.instance?.state || result.state);
+    } catch (error) {
+      if (this.isProviderNotFound(error)) return null;
+      throw error;
+    }
+  }
+
+  private async restartProviderPairing(instanceKey: string) {
+    try {
+      const result = await this.request(`/instance/restart/${encodeURIComponent(instanceKey)}`, { method: 'PUT' });
+      const providerError = this.providerFailureMessage(result);
+      if (providerError) console.warn('[evolution:fresh-qr] A Evolution recusou reiniciar o pareamento.', { instanceKey, error: providerError });
+    } catch (error) {
+      // A sessão pode ter fechado entre a consulta e o restart; o connect seguinte reabre o pareamento.
+      console.warn('[evolution:fresh-qr] Não foi possível reiniciar o pareamento antes de gerar o QR.', {
+        instanceKey,
+        error: this.errorMessage(error),
+      });
+    }
+  }
+
+  private awaitingFreshQrCode(result: Record<string, any>, staleCodes: Set<string>) {
+    if (this.providerFailureMessage(result)) return false;
+    if (normalizeEvolutionInstanceStatus(result.instance?.state || result.state) === 'CONNECTED') return false;
+    const code = this.qrCodeToken(result);
+    return !code || staleCodes.has(code);
+  }
+
+  private qrCodeToken(payload: Record<string, any>) {
+    const code = [payload.code, payload.qrcode?.code].find((value) => typeof value === 'string' && value.trim());
+    return (code as string | undefined)?.trim() || this.extractQrCode(payload);
   }
 
   private async recreateMissingProviderInstance(instanceKey: string) {

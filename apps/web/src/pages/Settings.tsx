@@ -27,6 +27,12 @@ type OutboundWebhook = {
   updatedAt: string;
 };
 
+type QrState = { value: string; instanceId?: string; expiresAt: number };
+
+function qrState(value: string, instanceId?: string, expiresInSeconds = 30): QrState {
+  return { value, instanceId, expiresAt: Date.now() + expiresInSeconds * 1_000 };
+}
+
 function qrImageValue(value: unknown) {
   if (typeof value !== 'string') return '';
   const normalized = value.trim();
@@ -524,20 +530,20 @@ function DeleteUserModal({ user, onClose, onDeleted }: Readonly<{ user: User; on
 function WhatsappSettings() {
   const client = useQueryClient();
   const [modal, setModal] = useState(false);
-  const [qr, setQr] = useState('');
+  const [qr, setQr] = useState<QrState | null>(null);
   const [disconnecting, setDisconnecting] = useState<Instance | null>(null);
   const [deleting, setDeleting] = useState<Instance | null>(null);
   const instances = useQuery({ queryKey: ['instances'], queryFn: () => api<Envelope<Instance[]>>('/whatsapp/instances') });
   const metadata = useQuery({ queryKey: ['user-metadata'], queryFn: () => api<Envelope<Metadata>>('/users/metadata') });
   const connect = useMutation({
-    mutationFn: (id: string) => api<Envelope<{ qrcode: unknown }>>(`/whatsapp/instances/${id}/connect`, { method: 'POST' }),
-    onSuccess: (result) => {
+    mutationFn: (id: string) => api<Envelope<{ qrcode: unknown; expiresInSeconds?: number }>>(`/whatsapp/instances/${id}/connect`, { method: 'POST' }),
+    onSuccess: (result, id) => {
       const value = qrImageValue(result.data.qrcode);
       if (!value) {
         toast.error('A Evolution não retornou uma imagem válida para o QR Code.');
         return;
       }
-      setQr(value);
+      setQr(qrState(value, id, result.data.expiresInSeconds));
       toast.success('QR Code gerado.');
       void client.invalidateQueries({ queryKey: ['instances'] });
     },
@@ -573,12 +579,12 @@ function WhatsappSettings() {
         <button type="button" className="icon-button danger-icon" onClick={() => setDeleting(instance)} aria-label={`Excluir conexão ${instance.name}`} title="Excluir conexão"><Trash2 size={18} /></button>
       </div>
     </article>) : <Empty icon={<Smartphone />} title="Nenhum número conectado" description="Adicione uma instância Baileys e escaneie o QR Code pelo WhatsApp." />}</div>
-    {modal && <InstanceModal teams={metadata.data!.data.teams} onClose={() => setModal(false)} onCreated={(qrcode) => {
+    {modal && <InstanceModal teams={metadata.data!.data.teams} onClose={() => setModal(false)} onCreated={(qrcode, instanceId) => {
       setModal(false);
-      if (qrcode) setQr(qrcode);
+      if (qrcode) setQr(qrState(qrcode, instanceId));
       void client.invalidateQueries({ queryKey: ['instances'] });
     }} />}
-    {qr && <QrModal value={qr} onClose={() => setQr('')} />}
+    {qr && <QrModal qr={qr} loading={connect.isPending} onRefresh={qr.instanceId ? () => connect.mutate(qr.instanceId!) : undefined} onClose={() => setQr(null)} />}
     {disconnecting && <DisconnectInstanceModal instance={disconnecting} loading={disconnect.isPending} onClose={() => setDisconnecting(null)} onConfirm={() => disconnect.mutate(disconnecting.id)} />}
     {deleting && <DeleteInstanceModal instance={deleting} loading={remove.isPending} onClose={() => setDeleting(null)} onConfirm={() => remove.mutate(deleting.id)} />}
   </>;
@@ -592,13 +598,28 @@ function DeleteInstanceModal({ instance, loading, onClose, onConfirm }: Readonly
   return <Modal title="Excluir conexão do WhatsApp" onClose={onClose}><div className="delete-confirm"><div className="delete-confirm-icon"><Trash2 size={22} /></div><div><h3>Excluir “{instance.name}”?</h3><p>A sessão será removida da Evolution API e deixará de aparecer nas conexões. Conversas já registradas serão preservadas no histórico.</p>{instance._count?.conversations ? <small>{instance._count.conversations} conversa(s) permanecerão no CRM.</small> : null}</div></div><div className="modal-actions delete-actions"><Button variant="secondary" onClick={onClose}>Cancelar</Button><Button variant="danger" loading={loading} onClick={onConfirm}><Trash2 size={16} />Excluir conexão</Button></div></Modal>;
 }
 
-function InstanceModal({ teams, onClose, onCreated }: Readonly<{ teams: Metadata['teams']; onClose(): void; onCreated(qr?: string): void }>) {
+function InstanceModal({ teams, onClose, onCreated }: Readonly<{ teams: Metadata['teams']; onClose(): void; onCreated(qr?: string, instanceId?: string): void }>) {
   const [form, setForm] = useState({ name: '', instanceKey: '', teamId: teams[0]?.id || '' });
-  const mutation = useMutation({ mutationFn: () => api<Envelope<any>>('/whatsapp/instances', { method: 'POST', body: JSON.stringify({ name: form.name, instanceKey: form.instanceKey, teamIds: [form.teamId] }) }), onSuccess: (result) => { toast.success('Conexão criada. Escaneie o QR Code.'); onCreated(qrImageValue(result.data.qrcode)); } });
+  const mutation = useMutation({ mutationFn: () => api<Envelope<any>>('/whatsapp/instances', { method: 'POST', body: JSON.stringify({ name: form.name, instanceKey: form.instanceKey, teamIds: [form.teamId] }) }), onSuccess: (result) => { toast.success('Conexão criada. Escaneie o QR Code.'); onCreated(qrImageValue(result.data.qrcode), result.data.instance?.id); } });
   return <Modal title="Adicionar número" onClose={onClose}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}><Field label="Nome da caixa" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} placeholder="Ex.: Comercial SP" required /><Field label="Identificador da instância" value={form.instanceKey} onChange={(event) => setForm({ ...form, instanceKey: event.target.value.replace(/[^a-zA-Z0-9_-]/g, '') })} placeholder="comercial-sp" required /><SelectField label="Equipe principal" value={form.teamId} onChange={(event) => setForm({ ...form, teamId: event.target.value })}>{teams.map((team) => <option value={team.id} key={team.id}>{team.name}</option>)}</SelectField><div className="risk-note"><AlertTriangle size={16} /><span>A conexão por QR pode sofrer restrições do WhatsApp. Use consentimento e aquecimento.</span></div><div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Criar e conectar</Button></div></form></Modal>;
 }
 
-function QrModal({ value, onClose }: Readonly<{ value: string; onClose(): void }>) { return <Modal title="Conectar WhatsApp" onClose={onClose}><div className="qr-content"><img src={value} alt="QR Code de conexão" /><h3>Escaneie pelo WhatsApp</h3><p>Abra Aparelhos conectados → Conectar um aparelho. O código expira em aproximadamente 30 segundos.</p></div></Modal>; }
+function QrModal({ qr, loading, onRefresh, onClose }: Readonly<{ qr: QrState; loading: boolean; onRefresh?(): void; onClose(): void }>) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    setNow(Date.now());
+    const timer = window.setInterval(() => setNow(Date.now()), 1_000);
+    return () => window.clearInterval(timer);
+  }, [qr.expiresAt]);
+  const secondsLeft = Math.max(0, Math.ceil((qr.expiresAt - now) / 1_000));
+  const expired = secondsLeft === 0;
+  return <Modal title="Conectar WhatsApp" onClose={onClose}><div className={`qr-content${expired ? ' expired' : ''}`}>
+    <img src={qr.value} alt="QR Code de conexão" />
+    <h3>{expired ? 'QR Code expirado' : 'Escaneie pelo WhatsApp'}</h3>
+    <p>{expired ? 'Gere um novo código para conectar o aparelho.' : `Abra Aparelhos conectados → Conectar um aparelho. O código expira em ${secondsLeft} segundo${secondsLeft === 1 ? '' : 's'}.`}</p>
+    {onRefresh && <Button variant={expired ? 'primary' : 'secondary'} loading={loading} onClick={onRefresh}><RefreshCw size={16} />Gerar novo QR Code</Button>}
+  </div></Modal>;
+}
 
 function ApiSettings() {
   const [key, setKey] = useState('');

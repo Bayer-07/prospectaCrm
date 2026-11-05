@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { timeBasedGreeting } from '@prospecta/contracts';
 import type { AuthContext } from '../auth/types.js';
 import { EvolutionService } from './evolution.service.js';
@@ -142,7 +142,12 @@ describe('conexões do WhatsApp', () => {
         instanceId: instance.id,
       });
       expect(fetchMock).toHaveBeenNthCalledWith(
-        2,
+        1,
+        'http://localhost:8080/instance/connectionState/comercial',
+        expect.objectContaining({ method: 'GET' }),
+      );
+      expect(fetchMock).toHaveBeenNthCalledWith(
+        3,
         'http://localhost:8080/webhook/set/comercial',
         expect.objectContaining({
           method: 'POST',
@@ -163,6 +168,7 @@ describe('conexões do WhatsApp', () => {
     const update = vi.fn().mockResolvedValue({});
     const notifyOrganization = vi.fn();
     const responses = [
+      { instance: { instanceName: 'financeiro' } },
       { error: true, message: 'Error: The "financeiro" instance does not exist' },
       {},
       { base64: 'data:image/png;base64,REVG' },
@@ -189,19 +195,19 @@ describe('conexões do WhatsApp', () => {
         qrcode: 'data:image/png;base64,REVG',
         expiresInSeconds: 30,
       });
-      expect(fetchMock).toHaveBeenCalledTimes(4);
+      expect(fetchMock).toHaveBeenCalledTimes(5);
       expect(fetchMock).toHaveBeenNthCalledWith(
-        1,
+        2,
         'http://localhost:8080/instance/connect/financeiro',
         expect.objectContaining({ method: 'GET' }),
       );
       expect(fetchMock).toHaveBeenNthCalledWith(
-        2,
+        3,
         'http://localhost:8080/instance/delete/financeiro',
         expect.objectContaining({ method: 'DELETE' }),
       );
       expect(fetchMock).toHaveBeenNthCalledWith(
-        3,
+        4,
         'http://localhost:8080/instance/create',
         expect.objectContaining({
           method: 'POST',
@@ -209,7 +215,7 @@ describe('conexões do WhatsApp', () => {
         }),
       );
       expect(fetchMock).toHaveBeenNthCalledWith(
-        4,
+        5,
         'http://localhost:8080/webhook/set/financeiro',
         expect.objectContaining({ method: 'POST' }),
       );
@@ -220,6 +226,127 @@ describe('conexões do WhatsApp', () => {
       else process.env.API_INTERNAL_URL = previousInternalUrl;
       vi.unstubAllGlobals();
     }
+  });
+
+  describe('QR Code renovado a cada pedido de conexão', () => {
+    type Route = (url: string, init: RequestInit) => unknown;
+
+    function setupProvider(route: Route) {
+      const update = vi.fn().mockResolvedValue({});
+      const notifyOrganization = vi.fn();
+      const fetchMock = vi.fn().mockImplementation((url: string, init: RequestInit) => Promise.resolve({
+        ok: true,
+        text: vi.fn().mockResolvedValue(JSON.stringify(route(url, init) ?? {})),
+      }));
+      process.env.EVOLUTION_API_KEY = 'test-api-key';
+      process.env.API_INTERNAL_URL = 'http://api:3000/api/v1';
+      vi.stubGlobal('fetch', fetchMock);
+      const service = new EvolutionService({
+        whatsappInstance: {
+          findFirst: vi.fn().mockResolvedValue({ id: 'instance-fixo', instanceKey: 'fixo' }),
+          update,
+        },
+      } as never, {} as never, {} as never, { notifyOrganization } as never);
+      const wait = vi.spyOn(service as never as { wait(ms: number): Promise<void> }, 'wait').mockResolvedValue();
+      const calls = (path: string) => fetchMock.mock.calls.filter(([url]) => String(url).endsWith(path));
+      return { service, fetchMock, update, wait, calls };
+    }
+
+    const qr = (code: string) => ({ code, base64: `data:image/png;base64,${code}`, count: 1 });
+    const previousApiKey = process.env.EVOLUTION_API_KEY;
+    const previousInternalUrl = process.env.API_INTERNAL_URL;
+
+    afterEach(() => {
+      if (previousApiKey === undefined) delete process.env.EVOLUTION_API_KEY;
+      else process.env.EVOLUTION_API_KEY = previousApiKey;
+      if (previousInternalUrl === undefined) delete process.env.API_INTERNAL_URL;
+      else process.env.API_INTERNAL_URL = previousInternalUrl;
+      vi.unstubAllGlobals();
+      vi.restoreAllMocks();
+    });
+
+    it('reinicia o pareamento em andamento e devolve um QR diferente do que estava em cache', async () => {
+      let restarted = false;
+      let pollsAfterRestart = 0;
+      const { service, calls } = setupProvider((url) => {
+        if (url.includes('/instance/connectionState/')) return { instance: { instanceName: 'fixo', state: 'connecting' } };
+        if (url.includes('/instance/restart/')) { restarted = true; return { instance: { instanceName: 'fixo', status: 'connecting' } }; }
+        if (url.includes('/instance/connect/')) {
+          if (!restarted) return qr('expirado');
+          pollsAfterRestart += 1;
+          return pollsAfterRestart < 2 ? qr('expirado') : qr('novo');
+        }
+        return {};
+      });
+
+      await expect(service.connect(auth, 'instance-fixo')).resolves.toEqual({
+        qrcode: 'data:image/png;base64,novo',
+        expiresInSeconds: 30,
+      });
+      expect(calls('/instance/restart/fixo')).toHaveLength(1);
+      expect(calls('/instance/restart/fixo')[0][1]).toEqual(expect.objectContaining({ method: 'PUT' }));
+      expect(calls('/instance/logout/fixo')).toHaveLength(0);
+      expect(calls('/instance/delete/fixo')).toHaveLength(0);
+    });
+
+    it('não repete o último QR entregue ao clicar em conectar novamente', async () => {
+      let connects = 0;
+      let restarted = false;
+      const { service, calls } = setupProvider((url) => {
+        if (url.includes('/instance/connectionState/')) return { instance: { instanceName: 'fixo', state: connects ? 'connecting' : 'close' } };
+        if (url.includes('/instance/restart/')) { restarted = true; return {}; }
+        if (url.includes('/instance/connect/')) {
+          connects += 1;
+          return restarted ? qr('segundo') : qr('primeiro');
+        }
+        return {};
+      });
+
+      await expect(service.connect(auth, 'instance-fixo')).resolves.toMatchObject({ qrcode: 'data:image/png;base64,primeiro' });
+      await expect(service.connect(auth, 'instance-fixo')).resolves.toMatchObject({ qrcode: 'data:image/png;base64,segundo' });
+      expect(calls('/instance/restart/fixo')).toHaveLength(1);
+    });
+
+    it('aguarda a reconexão da Evolution após o restart antes de abrir outro pareamento', async () => {
+      const states = ['connecting', 'close', 'close', 'connecting'];
+      let restarted = false;
+      const { service, calls } = setupProvider((url) => {
+        if (url.includes('/instance/connectionState/')) return { instance: { instanceName: 'fixo', state: states.shift() || 'connecting' } };
+        if (url.includes('/instance/restart/')) { restarted = true; return {}; }
+        if (url.includes('/instance/connect/')) return restarted ? qr('novo') : qr('expirado');
+        return {};
+      });
+
+      await expect(service.connect(auth, 'instance-fixo')).resolves.toMatchObject({ qrcode: 'data:image/png;base64,novo' });
+      // Apenas a leitura do cache antes do restart e a leitura do QR novo: nenhum socket extra durante o "close".
+      expect(calls('/instance/connect/fixo')).toHaveLength(2);
+    });
+
+    it('não desconecta uma sessão que volta a ficar aberta após o restart', async () => {
+      let restarted = false;
+      const { service, calls } = setupProvider((url) => {
+        if (url.includes('/instance/connectionState/')) return { instance: { instanceName: 'fixo', state: restarted ? 'open' : 'connecting' } };
+        if (url.includes('/instance/restart/')) { restarted = true; return {}; }
+        if (url.includes('/instance/connect/')) return qr('expirado');
+        return {};
+      });
+
+      await expect(service.connect(auth, 'instance-fixo')).rejects.toThrow('Este número já está conectado');
+      expect(calls('/instance/logout/fixo')).toHaveLength(0);
+    });
+
+    it('recusa entregar o QR expirado quando a Evolution não gera outro a tempo', async () => {
+      const { service, update } = setupProvider((url) => {
+        if (url.includes('/instance/connectionState/')) return { instance: { instanceName: 'fixo', state: 'connecting' } };
+        if (url.includes('/instance/connect/')) return qr('expirado');
+        return {};
+      });
+      let now = 0;
+      vi.spyOn(Date, 'now').mockImplementation(() => (now += 1_000));
+
+      await expect(service.connect(auth, 'instance-fixo')).rejects.toThrow('não gerou um novo QR Code a tempo');
+      expect(update).not.toHaveBeenCalled();
+    });
   });
 
   it('arquiva a conexão local mesmo se a sessão remota já estiver quebrada', async () => {
