@@ -18,6 +18,18 @@ const OPENAI_MODELS = Object.freeze([
 ]);
 const OPENAI_MODEL_IDS = new Set(OPENAI_MODELS.map((model) => model.id));
 
+const MAX_FOLLOW_UP_SUGGESTIONS = 5;
+const CONVERSATION_GENERATION_TYPES = new Set(['SUMMARY', 'REPLY_SUGGESTION', 'MESSAGE_IMPROVEMENT', 'FOLLOW_UP_SUGGESTION']);
+
+export type GenerationRequest = {
+  type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'MESSAGE_IMPROVEMENT' | 'FOLLOW_UP_SUGGESTION';
+  scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION';
+  message?: string;
+  messageCount?: number;
+  instructions?: string;
+  scheduledAt?: string;
+};
+
 function jsonObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
@@ -41,7 +53,7 @@ function contactUpdates(fields: string[], changes: Record<string, unknown>) {
 }
 
 function generationPriority(type: AiGenerationType) {
-  const priorities: Record<AiGenerationType, number> = { CHATBOT_REPLY: 1, REPLY_SUGGESTION: 2, MESSAGE_IMPROVEMENT: 2, SUMMARY: 3, CONFIG_TEST: 4 };
+  const priorities: Record<AiGenerationType, number> = { CHATBOT_REPLY: 1, REPLY_SUGGESTION: 2, MESSAGE_IMPROVEMENT: 2, FOLLOW_UP_SUGGESTION: 2, SUMMARY: 3, CONFIG_TEST: 4 };
   return priorities[type];
 }
 
@@ -270,11 +282,11 @@ export class AiService {
   async createGeneration(
     auth: AuthContext,
     conversationId: string,
-    input: { type: 'SUMMARY' | 'REPLY_SUGGESTION' | 'MESSAGE_IMPROVEMENT'; scope?: 'CURRENT_ATTENDANCE' | 'FULL_CONVERSATION'; message?: string },
+    input: GenerationRequest,
   ) {
     this.assertFeatureEnabled();
     await this.assertOrganizationEnabled(auth.organizationId);
-    if (!['SUMMARY', 'REPLY_SUGGESTION', 'MESSAGE_IMPROVEMENT'].includes(input.type)) throw new BadRequestException('Tipo de geração não suportado');
+    if (!CONVERSATION_GENERATION_TYPES.has(input.type)) throw new BadRequestException('Tipo de geração não suportado');
     if (input.scope !== undefined && !['CURRENT_ATTENDANCE', 'FULL_CONVERSATION'].includes(input.scope)) {
       throw new BadRequestException('Escopo de resumo não suportado');
     }
@@ -302,6 +314,7 @@ export class AiService {
       }
       return generation;
     }
+    if (input.type === 'FOLLOW_UP_SUGGESTION') return this.createFollowUpSuggestion(auth, conversation, input);
     const scope: AiSummaryScope | null = input.type === 'SUMMARY' ? (input.scope || 'CURRENT_ATTENDANCE') : null;
     const boundary = scope === 'CURRENT_ATTENDANCE' ? await this.currentAttendanceStart(conversationId) : null;
     const messageWhere = { conversationId, ...(boundary ? { createdAt: { gte: boundary } } : {}) };
@@ -330,6 +343,46 @@ export class AiService {
     if (['PENDING', 'WAITING_INPUT'].includes(generation.status)) {
       await this.enqueue(generation.id, generation.type, generation.updatedAt);
     }
+    return generation;
+  }
+
+  private async createFollowUpSuggestion(
+    auth: AuthContext,
+    conversation: { id: string; assigneeId: string | null },
+    input: GenerationRequest,
+  ) {
+    const messageCount = input.messageCount === undefined ? 1 : input.messageCount;
+    if (!Number.isInteger(messageCount) || messageCount < 1 || messageCount > MAX_FOLLOW_UP_SUGGESTIONS) {
+      throw new BadRequestException(`Escolha entre 1 e ${MAX_FOLLOW_UP_SUGGESTIONS} mensagens de follow-up`);
+    }
+    if (input.instructions !== undefined && typeof input.instructions !== 'string') throw new BadRequestException('As orientações para a IA são inválidas');
+    const instructions = input.instructions?.trim() || '';
+    if (instructions.length > 1_000) throw new BadRequestException('As orientações para a IA podem ter no máximo 1.000 caracteres');
+    let scheduledAt: string | undefined;
+    if (input.scheduledAt !== undefined) {
+      const parsed = typeof input.scheduledAt === 'string' ? new Date(input.scheduledAt) : null;
+      if (!parsed || Number.isNaN(parsed.getTime())) throw new BadRequestException('A data do follow-up é inválida');
+      scheduledAt = parsed.toISOString();
+    }
+    const [first, last] = await Promise.all([
+      this.db.message.findFirst({ where: { conversationId: conversation.id }, orderBy: [{ createdAt: 'asc' }, { id: 'asc' }], select: { id: true } }),
+      this.db.message.findFirst({ where: { conversationId: conversation.id }, orderBy: [{ createdAt: 'desc' }, { id: 'desc' }], select: { id: true } }),
+    ]);
+    if (!last) throw new BadRequestException('A conversa ainda não possui mensagens para analisar');
+    // Each request is a fresh draft: users regenerate to get a different wording, so no deduplication by content.
+    const generation = await this.db.conversationAiGeneration.create({
+      data: {
+        organizationId: auth.organizationId,
+        conversationId: conversation.id,
+        requestedById: auth.userId,
+        type: 'FOLLOW_UP_SUGGESTION',
+        deduplicationKey: `follow-up-suggestion:${conversation.id}:${randomUUID()}`,
+        sourceFirstMessageId: first?.id,
+        sourceLastMessageId: last.id,
+        input: { messageCount, instructions, assigneeId: conversation.assigneeId, ...(scheduledAt ? { scheduledAt } : {}) },
+      },
+    });
+    await this.enqueue(generation.id, generation.type, generation.updatedAt);
     return generation;
   }
 

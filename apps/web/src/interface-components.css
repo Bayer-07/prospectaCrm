@@ -324,6 +324,30 @@ td { font-size: var(--font-body); }
 .follow-up-file > div button { border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; }
 .follow-up-add-message { min-height: 40px; border: 1px dashed var(--line); border-radius: 10px; background: transparent; color: var(--blue); display: flex; align-items: center; justify-content: center; gap: 7px; font-weight: 750; }
 .follow-up-add-message:hover { border-color: var(--blue); background: var(--blue-soft); }
+.follow-up-ai-toggle { width: 100%; margin-bottom: 12px; padding: 11px 14px; border: 1px dashed color-mix(in srgb, var(--blue) 45%, var(--line)); border-radius: 12px; background: transparent; color: var(--ink); display: flex; align-items: center; gap: 10px; text-align: left; }
+.follow-up-ai-toggle > svg { flex: none; color: var(--blue); }
+.follow-up-ai-toggle span { display: flex; flex-direction: column; gap: 2px; }
+.follow-up-ai-toggle small { color: var(--muted); font-size: var(--font-caption); }
+.follow-up-ai-toggle:hover { border-color: var(--blue); background: var(--blue-soft); }
+.follow-up-ai-panel { margin-bottom: 12px; padding: 12px; border: 1px solid color-mix(in srgb, var(--blue) 35%, var(--line)); border-radius: 12px; background: color-mix(in srgb, var(--blue-soft) 45%, var(--surface)); }
+.follow-up-ai-panel > header { margin-bottom: 10px; display: flex; align-items: flex-start; justify-content: space-between; gap: 10px; }
+.follow-up-ai-panel > header > div { display: flex; align-items: flex-start; gap: 9px; }
+.follow-up-ai-panel > header > div > svg { flex: none; margin-top: 2px; color: var(--blue); }
+.follow-up-ai-panel > header > div > div { display: flex; flex-direction: column; gap: 2px; }
+.follow-up-ai-panel > header span { color: var(--muted); font-size: var(--font-caption); }
+.follow-up-ai-panel > header button { width: 28px; height: 28px; flex: none; border: 0; border-radius: 7px; background: transparent; color: var(--muted); display: grid; place-items: center; }
+.follow-up-ai-panel > header button:hover { background: var(--surface); color: var(--ink); }
+.follow-up-ai-form { display: grid; grid-template-columns: 150px minmax(0, 1fr) auto; align-items: end; gap: 9px; }
+.follow-up-ai-form label { min-width: 0; display: flex; flex-direction: column; gap: 5px; }
+.follow-up-ai-form label > span { color: var(--muted); font-size: var(--font-caption); font-weight: 700; }
+.follow-up-ai-note { margin-top: 10px; color: var(--muted); font-size: var(--font-secondary); }
+.follow-up-ai-note.error { color: var(--red); }
+.follow-up-ai-result { margin-top: 12px; }
+.follow-up-ai-result ol { max-height: 220px; margin: 0; padding: 0 4px 0 0; overflow-y: auto; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.follow-up-ai-result li { padding: 10px; border: 1px solid var(--line); border-radius: 10px; background: var(--surface); display: grid; grid-template-columns: 23px minmax(0, 1fr); gap: 9px; }
+.follow-up-ai-result li b { width: 23px; height: 23px; border-radius: 7px; background: var(--blue-soft); color: var(--blue); display: grid; place-items: center; font-size: var(--font-caption); }
+.follow-up-ai-result li p { margin: 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--font-secondary); line-height: 1.45; }
+.follow-up-ai-result footer { margin-top: 10px; display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 8px; }
 .follow-up-actions { margin-top: 14px; border-top: 1px solid var(--line); }
 .follow-up-actions > span { flex: 1; }
 .follow-up-load-error { padding: 36px 24px; text-align: center; }
@@ -331,7 +355,7 @@ td { font-size: var(--font-body); }
 .task-calendar-event.follow-up, .task-week-event.follow-up { border-color: color-mix(in srgb, var(--blue) 42%, transparent); background: color-mix(in srgb, var(--blue-soft) 88%, var(--surface)); }
 
 @media (max-width: 720px) {
-  .follow-up-mode-picker, .follow-up-message-options { grid-template-columns: 1fr; }
+  .follow-up-mode-picker, .follow-up-message-options, .follow-up-ai-form { grid-template-columns: 1fr; }
   .follow-up-stage { padding-inline: 14px; }
   .follow-up-month-nav { min-width: 190px; }
   .follow-up-progress { padding-inline: 12px; }

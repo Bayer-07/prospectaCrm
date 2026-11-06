@@ -37,6 +37,15 @@ O sistema cria uma tarefa de agenda e o registro do follow-up em uma mesma trans
 
 Cada mensagem vira uma etapa. A primeira é executada no horário agendado. A próxima só recebe seu horário depois que a anterior é enviada com sucesso; o atraso é contado a partir desse sucesso. **[CONFIRMADO]**
 
+#### Gerar mensagens com IA
+
+No modo **Enviar mensagens**, a opção **Gerar mensagens com IA** analisa as últimas 40 mensagens da conversa (mais o último resumo de IA, se houver) e sugere de 1 a 5 mensagens de follow-up. O usuário pode informar orientações opcionais (ex.: "retomar a proposta"). Quando são várias, a IA escreve uma sequência progressiva, sem repetir conteúdo, já que cada mensagem só sai se o contato não responder à anterior.
+
+- Usa o pipeline de IA existente: `POST /api/v1/conversations/:id/ai/generations` com `type: FOLLOW_UP_SUGGESTION`, `messageCount`, `instructions?` e `scheduledAt?`; o worker processa via fila e o modal consulta o resultado (`result.messages[].text`).
+- Exige IA habilitada na organização e chave da OpenAI configurada, como os demais recursos de IA.
+- As mensagens geradas são apenas rascunhos: o usuário revisa, pode **Usar/Substituir** ou **Adicionar ao final**, e nada é enviado sem salvar o follow-up.
+- A IA pode usar `{{saudacao}}` e `{{nome}}`, renderizadas no momento do envio. **[CONFIRMADO]**
+
 ### Iniciar automação
 
 No horário, o sistema cria/aciona a inscrição do contato no workflow publicado. A execução usa a versão publicada selecionada. Se o workflow estiver pausado ou arquivado, o follow-up falha com motivo. **[CONFIRMADO]**

@@ -67,6 +67,43 @@ describe('serviço de IA', () => {
     }));
   });
 
+  it('cria uma sugestão de follow-up nova a cada pedido com a quantidade escolhida', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const generation = { id: 'generation-follow-up', type: 'FOLLOW_UP_SUGGESTION', status: 'PENDING', updatedAt: new Date('2026-11-06T12:00:00.000Z') };
+    const db = {
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+      conversation: { findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', assigneeId: 'user-1', status: 'CLOSED', contactId: 'contact-1' }) },
+      message: { findFirst: vi.fn().mockResolvedValueOnce({ id: 'message-1' }).mockResolvedValueOnce({ id: 'message-9' }) },
+      conversationAiGeneration: { create: vi.fn().mockResolvedValue(generation) },
+    };
+    const queue = { add: vi.fn().mockResolvedValue({}) };
+    const service = new AiService(db as never, queue as never, {} as never, {} as never);
+
+    await expect(service.createGeneration(admin, 'conversation-1', {
+      type: 'FOLLOW_UP_SUGGESTION', messageCount: 3, instructions: '  Retomar a proposta  ', scheduledAt: '2026-11-10T12:00:00.000Z',
+    })).resolves.toBe(generation);
+    expect(db.conversationAiGeneration.create).toHaveBeenCalledWith({ data: expect.objectContaining({
+      type: 'FOLLOW_UP_SUGGESTION',
+      deduplicationKey: expect.stringMatching(/^follow-up-suggestion:conversation-1:/),
+      sourceLastMessageId: 'message-9',
+      input: { messageCount: 3, instructions: 'Retomar a proposta', assigneeId: 'user-1', scheduledAt: '2026-11-10T12:00:00.000Z' },
+    }) });
+    expect(queue.add).toHaveBeenCalledWith('generate', { generationId: 'generation-follow-up' }, expect.objectContaining({ priority: 2 }));
+  });
+
+  it.each([0, 6, 1.5])('rejeita quantidade inválida de mensagens de follow-up (%s)', async (messageCount) => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    vi.stubEnv('OPENAI_API_KEY', 'test-key');
+    const db = {
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true }) },
+      conversation: { findFirst: vi.fn().mockResolvedValue({ id: 'conversation-1', assigneeId: 'user-1', status: 'OPEN', contactId: 'contact-1' }) },
+    };
+    const service = new AiService(db as never, {} as never, {} as never, {} as never);
+    await expect(service.createGeneration(admin, 'conversation-1', { type: 'FOLLOW_UP_SUGGESTION', messageCount }))
+      .rejects.toThrow(/entre 1 e 5 mensagens/);
+  });
+
   it('cria uma melhoria a partir do texto do composer sem exigir mensagens anteriores', async () => {
     vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
     vi.stubEnv('OPENAI_API_KEY', 'test-key');

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowDown, ArrowUp, CalendarDays, Check, Clock3, FileText, Image, MessageSquareText, Plus, Trash2, Workflow, X } from 'lucide-react';
+import { ArrowDown, ArrowUp, CalendarDays, Check, Clock3, FileText, Image, MessageSquareText, Plus, RefreshCw, Sparkles, Trash2, Workflow, X } from 'lucide-react';
 import { api, ApiError, apiErrorMessage, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Modal, PageLoading } from './ui';
@@ -31,6 +31,18 @@ export type ConversationFollowUp = {
   workflowVersion?: { id: string; version: number; workflow: { id: string; name: string; status: string } } | null;
   steps: FollowUpStep[];
 };
+
+type FollowUpAiGeneration = {
+  id: string;
+  type: string;
+  status: 'PENDING' | 'WAITING_INPUT' | 'RUNNING' | 'COMPLETED' | 'FAILED' | 'CANCELLED' | 'STALE';
+  result?: { messages?: Array<{ text?: string }> } | null;
+  error?: string | null;
+};
+
+const MAX_FOLLOW_UP_MESSAGES = 20;
+const MAX_AI_FOLLOW_UP_MESSAGES = 5;
+const AI_TERMINAL_STATUSES = ['COMPLETED', 'FAILED', 'CANCELLED', 'STALE'];
 
 type DraftMessage = {
   key: string;
@@ -184,6 +196,8 @@ export function FollowUpModal({ conversationId, contactName, followUpId, onClose
       {stage === 1 && <DateStage month={calendarMonth} selected={dateKey} onMonthChange={setCalendarMonth} onSelect={setDateKey} />}
       {stage === 2 && <TimeStage dateKey={dateKey} value={time} onChange={setTime} />}
       {stage === 3 && <ActionStage
+        conversationId={conversationId}
+        scheduledAt={scheduledAt}
         mode={mode}
         messages={messages}
         workflows={publishedWorkflows}
@@ -241,6 +255,8 @@ function TimeStage({ dateKey, value, onChange }: Readonly<{ dateKey: string; val
 }
 
 type ActionStageProps = Readonly<{
+  conversationId: string;
+  scheduledAt: Date | null;
   mode: FollowUpMode;
   messages: DraftMessage[];
   workflows: WorkflowOption[];
@@ -265,7 +281,7 @@ function ActionStage(props: ActionStageProps) {
   return <section className="follow-up-stage follow-up-action-stage"><header><div><MessageSquareText size={20} /><div><strong>O que deve acontecer?</strong><span>Escolha mensagens editáveis ou uma automação publicada.</span></div></div></header><div className="follow-up-mode-picker"><button type="button" className={props.mode === 'message_sequence' ? 'selected' : ''} aria-pressed={props.mode === 'message_sequence'} disabled={!props.editable} onClick={() => props.onModeChange('message_sequence')}><MessageSquareText size={20} /><strong>Enviar mensagens</strong><span>Texto, imagem ou documento em sequência.</span></button><button type="button" className={props.mode === 'workflow' ? 'selected' : ''} aria-pressed={props.mode === 'workflow'} disabled={!props.editable || !props.canUseWorkflows} title={!props.canUseWorkflows ? 'Você não possui permissão para iniciar automações' : undefined} onClick={() => props.onModeChange('workflow')}><Workflow size={20} /><strong>Iniciar automação</strong><span>Executa a versão publicada selecionada.</span></button></div>
     {props.mode === 'workflow'
       ? <label className="field"><span>Automação publicada</span><select value={props.workflowId} disabled={!props.editable} onChange={(event) => props.onWorkflowChange(event.target.value)} required><option value="">Selecione uma automação</option>{props.workflows.map((workflow) => <option key={workflow.id} value={workflow.id}>{workflow.name} · versão {workflow.publishedVersion}</option>)}</select>{!props.workflows.length && <small>Nenhuma automação publicada está disponível.</small>}</label>
-      : <div className="follow-up-message-list">{props.messages.map((message, index) => <FollowUpMessageCard
+      : <>{props.editable && <FollowUpAiGenerator conversationId={props.conversationId} scheduledAt={props.scheduledAt} messages={props.messages} onMessagesChange={props.onMessagesChange} />}<div className="follow-up-message-list">{props.messages.map((message, index) => <FollowUpMessageCard
         key={message.key}
         message={message}
         index={index}
@@ -274,7 +290,97 @@ function ActionStage(props: ActionStageProps) {
         onChange={(patch) => updateMessage(index, patch)}
         onMove={(direction) => moveMessage(index, direction)}
         onRemove={() => removeMessage(index)}
-      />)}{props.editable && props.messages.length < 20 && <button type="button" className="follow-up-add-message" onClick={() => props.onMessagesChange([...props.messages, emptyMessage()])}><Plus size={17} />Adicionar outra mensagem</button>}</div>}
+      />)}{props.editable && props.messages.length < MAX_FOLLOW_UP_MESSAGES && <button type="button" className="follow-up-add-message" onClick={() => props.onMessagesChange([...props.messages, emptyMessage()])}><Plus size={17} />Adicionar outra mensagem</button>}</div></>}
+  </section>;
+}
+
+type FollowUpAiGeneratorProps = Readonly<{
+  conversationId: string;
+  scheduledAt: Date | null;
+  messages: DraftMessage[];
+  onMessagesChange(value: DraftMessage[]): void;
+}>;
+
+function FollowUpAiGenerator({ conversationId, scheduledAt, messages, onMessagesChange }: FollowUpAiGeneratorProps) {
+  const [open, setOpen] = useState(false);
+  const [count, setCount] = useState(1);
+  const [instructions, setInstructions] = useState('');
+  const [generationId, setGenerationId] = useState<string | null>(null);
+  const [dismissedId, setDismissedId] = useState<string | null>(null);
+  const create = useMutation({
+    mutationFn: () => api<Envelope<FollowUpAiGeneration>>(`/conversations/${conversationId}/ai/generations`, {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'FOLLOW_UP_SUGGESTION',
+        messageCount: count,
+        instructions: instructions.trim() || undefined,
+        scheduledAt: scheduledAt?.toISOString(),
+      }),
+    }),
+    onSuccess: (response) => setGenerationId(response.data.id),
+    onError: (error) => toast.error(apiErrorMessage(error, 'Não foi possível iniciar a geração com IA.')),
+  });
+  const generation = useQuery({
+    queryKey: ['ai-generation', conversationId, generationId],
+    queryFn: () => api<Envelope<FollowUpAiGeneration>>(`/conversations/${conversationId}/ai/generations/${generationId}`),
+    enabled: Boolean(generationId),
+    refetchInterval: (query) => {
+      const status = query.state.data?.data.status;
+      return status && AI_TERMINAL_STATUSES.includes(status) ? false : 2_000;
+    },
+  });
+  const current = generation.data?.data;
+  const running = create.isPending || Boolean(generationId && (!current || !AI_TERMINAL_STATUSES.includes(current.status)));
+  const suggestions = current?.status === 'COMPLETED' && current.id !== dismissedId
+    ? (current.result?.messages || []).map((item) => item.text?.trim() || '').filter(Boolean)
+    : [];
+  const failure = current && current.id !== dismissedId && current.status !== 'COMPLETED' && AI_TERMINAL_STATUSES.includes(current.status)
+    ? current.error || 'A IA não conseguiu gerar as mensagens. Tente novamente.'
+    : '';
+  const draftsAreEmpty = messages.every((message) => !message.text.trim() && !message.file && !message.mediaKey);
+  const appendRoom = MAX_FOLLOW_UP_MESSAGES - messages.length;
+  const generate = () => {
+    if (running) return;
+    setDismissedId(null);
+    create.mutate();
+  };
+  const replace = () => {
+    onMessagesChange(suggestions.map((text, index) => ({
+      ...emptyMessage(),
+      ...(messages[index] ? { delayValue: messages[index].delayValue, delayUnit: messages[index].delayUnit } : {}),
+      text,
+    })));
+    setDismissedId(current?.id || null);
+    toast.success(suggestions.length === 1 ? 'Mensagem gerada aplicada.' : 'Mensagens geradas aplicadas.');
+  };
+  const append = () => {
+    onMessagesChange([...messages, ...suggestions.slice(0, appendRoom).map((text) => ({ ...emptyMessage(), text }))]);
+    setDismissedId(current?.id || null);
+    toast.success('Mensagens geradas adicionadas ao final.');
+  };
+  if (!open) {
+    return <button type="button" className="follow-up-ai-toggle" onClick={() => setOpen(true)}><Sparkles size={17} /><span><strong>Gerar mensagens com IA</strong><small>A IA analisa a conversa e sugere o follow-up para você revisar.</small></span></button>;
+  }
+  return <section className="follow-up-ai-panel" aria-label="Gerar mensagens com IA">
+    <header>
+      <div><Sparkles size={17} /><div><strong>Gerar mensagens com IA</strong><span>Analisa as mensagens anteriores desta conversa. Revise antes de agendar.</span></div></div>
+      <button type="button" onClick={() => setOpen(false)} aria-label="Fechar geração com IA"><X size={16} /></button>
+    </header>
+    <div className="follow-up-ai-form">
+      <label><span>Quantidade</span><select value={count} disabled={running} onChange={(event) => setCount(Number(event.target.value))}>{Array.from({ length: MAX_AI_FOLLOW_UP_MESSAGES }, (_, index) => index + 1).map((value) => <option key={value} value={value}>{value === 1 ? '1 mensagem' : `${value} mensagens`}</option>)}</select></label>
+      <label><span>Orientações (opcional)</span><input value={instructions} maxLength={1000} disabled={running} placeholder="Ex.: retomar a proposta enviada e perguntar se ficou alguma dúvida" onChange={(event) => setInstructions(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') { event.preventDefault(); generate(); } }} /></label>
+      <Button type="button" variant="secondary" loading={running} onClick={generate}>{suggestions.length || failure ? <RefreshCw size={15} /> : <Sparkles size={15} />}{suggestions.length || failure ? 'Gerar novamente' : 'Gerar'}</Button>
+    </div>
+    {running && <p className="follow-up-ai-note" role="status">Analisando a conversa e escrevendo as mensagens…</p>}
+    {failure && !running && <p className="follow-up-ai-note error" role="alert">{failure}</p>}
+    {suggestions.length > 0 && !running && <div className="follow-up-ai-result">
+      <ol>{suggestions.map((text, index) => <li key={`${current?.id}-${index}`}><b>{index + 1}</b><p>{text}</p></li>)}</ol>
+      <footer>
+        <Button type="button" variant="ghost" onClick={() => setDismissedId(current?.id || null)}>Descartar</Button>
+        {!draftsAreEmpty && appendRoom > 0 && <Button type="button" variant="secondary" onClick={append}>Adicionar ao final</Button>}
+        <Button type="button" onClick={replace}>{draftsAreEmpty ? 'Usar mensagens' : 'Substituir mensagens atuais'}</Button>
+      </footer>
+    </div>}
   </section>;
 }
 

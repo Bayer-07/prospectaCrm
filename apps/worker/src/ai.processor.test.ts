@@ -6,6 +6,7 @@ import {
   isProbablyEnglishText,
   splitTranscript,
   validateChatbotDecision,
+  validateFollowUpSuggestion,
   validateImprovedMessage,
   validateSuggestedReply,
   validateSummary,
@@ -92,6 +93,61 @@ describe('processamento estruturado da IA', () => {
       data: expect.objectContaining({ status: 'COMPLETED', result: { reply: 'Olá, tudo bem? Você consegue me enviar a proposta?' } }),
     }));
     expect(db).not.toHaveProperty('message');
+  });
+
+  it('normaliza as mensagens de follow-up e respeita a quantidade pedida', () => {
+    expect(validateFollowUpSuggestion({ messages: [{ text: ' Oi {{nome}} ' }, { text: '  ' }, { text: 'Segunda' }, { text: 'Terceira' }] }, 2))
+      .toEqual({ messages: [{ text: 'Oi {{nome}}' }, { text: 'Segunda' }] });
+    expect(() => validateFollowUpSuggestion({ messages: [{ text: ' ' }] }, 1)).toThrow(/nenhuma mensagem/);
+    expect(() => validateFollowUpSuggestion({ reply: 'x' }, 1)).toThrow(/lista de mensagens/);
+  });
+
+  it('gera mensagens de follow-up a partir do histórico da conversa', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    const generation = {
+      id: 'generation-follow-up', organizationId: 'org-1', conversationId: 'conversation-1', chatbotSessionId: null,
+      type: 'FOLLOW_UP_SUGGESTION', status: 'PENDING', sourceLastMessageId: 'message-2',
+      input: { messageCount: 2, instructions: 'Retomar a proposta', scheduledAt: '2026-11-10T12:00:00.000Z', assigneeId: 'user-1' },
+    };
+    const update = vi.fn().mockResolvedValue({});
+    const findMany = vi.fn().mockResolvedValue([
+      { id: 'message-2', direction: 'OUTBOUND', type: 'text', text: 'Segue a proposta em anexo.', transcriptionText: null, createdAt: new Date('2026-11-05T10:01:00.000Z'), media: [] },
+      { id: 'message-1', direction: 'INBOUND', type: 'text', text: 'Pode me mandar a proposta?', transcriptionText: null, createdAt: new Date('2026-11-05T10:00:00.000Z'), media: [] },
+    ]);
+    const db = {
+      conversationAiGeneration: {
+        findUnique: vi.fn().mockResolvedValue(generation),
+        findFirst: vi.fn().mockResolvedValue(null),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update,
+      },
+      conversation: { findUnique: vi.fn().mockResolvedValue({ assigneeId: 'user-1', contact: { id: 'contact-1', name: 'Maria', companies: [] }, chatbotSession: null }) },
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, globalInstructions: '' }) },
+      aiKnowledgeDocument: { findFirst: vi.fn().mockResolvedValue(null) },
+      message: { findMany },
+    };
+    const ai = { generate: vi.fn().mockResolvedValue({
+      data: { messages: [{ text: '{{saudacao}}, {{nome}}! Conseguiu ver a proposta?' }, { text: 'Fico à disposição caso tenha dúvidas.' }] },
+      model: 'gpt-5.6-luna', metrics: {}, sources: [],
+    }) };
+    const processor = new AiGenerationProcessor(db as never, {} as never, {} as never, {} as never, {} as never, ai as never);
+
+    await expect(processor.process({ data: { generationId: 'generation-follow-up' } } as never)).resolves.toMatchObject({
+      payload: { generationId: 'generation-follow-up', status: 'COMPLETED' },
+    });
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({ take: 40 }));
+    const options = ai.generate.mock.calls[0][0];
+    expect(options.prompt).toMatch(/Cliente: Pode me mandar a proposta\?[\s\S]*BZS: Segue a proposta em anexo\./);
+    expect(options.prompt).toContain('Gere exatamente 2 mensagens');
+    expect(options.prompt).toContain('Retomar a proposta');
+    expect(options.validate({ messages: [{ text: 'a' }, { text: 'b' }, { text: 'c' }] })).toEqual({ messages: [{ text: 'a' }, { text: 'b' }] });
+    expect(update).toHaveBeenCalledWith(expect.objectContaining({
+      where: { id: 'generation-follow-up' },
+      data: expect.objectContaining({
+        status: 'COMPLETED',
+        result: { messages: [{ text: '{{saudacao}}, {{nome}}! Conseguiu ver a proposta?' }, { text: 'Fico à disposição caso tenha dúvidas.' }], knowledgeSources: [] },
+      }),
+    }));
   });
 
   it('mantém somente propostas textuais declaradas pelo modelo', () => {
