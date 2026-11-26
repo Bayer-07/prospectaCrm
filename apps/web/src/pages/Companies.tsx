@@ -349,7 +349,7 @@ export function CompaniesPage() {
           <td data-label="Setor"><span className="neutral-pill">{company.sector || 'Não informado'}</span></td>
           <td data-label="Responsável">{company.owner?.name || 'Sem responsável'}</td>
           <td data-label="Equipe">{company.team ? <span className="team-label"><i style={{ background: company.team.color }} />{company.team.name}</span> : 'Sem equipe'}</td>
-          <td data-label="Relacionamentos"><span className="relation-count"><Users size={14} />{company._count?.contacts || 0} contatos</span></td>
+          <td data-label="Relacionamentos"><span className="relation-count"><Users size={14} />{company._count?.contacts || 0} {company._count?.contacts === 1 ? 'contato' : 'contatos'}</span></td>
           <td data-label="Atualizada">{dateTime(company.updatedAt)}</td>
           <td className="company-actions-cell">
             <button

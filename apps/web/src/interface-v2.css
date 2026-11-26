@@ -211,7 +211,7 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 @media (max-width: 680px) {
   .auth-page-simple { display: grid; padding: 16px; }.auth-panel-simple { width: 100%; min-height: 0; padding: 32px 24px; }.auth-logo { width: 66px; height: 66px; margin-bottom: 22px; }.auth-theme-toggle { top: 13px; right: 13px; }
   .page-heading h1 { font-size: 20px; }.page-heading p { font-size: 12px; }
-  .kanban-column { width: 82vw; min-width: 82vw; }.pipeline-page { margin-right: -12px; }.kanban-board { padding-right: 12px; }
+  .kanban-column { width: 82vw; min-width: 82vw; }.kanban-board { margin-right: -12px; padding-right: 12px; }
   .opportunity-drawer { top: 0; left: 0; right: 0; width: auto; }.drawer-scrim { inset: 0; }.opportunity-drawer > header { min-height: 76px; padding: 16px; }.drawer-content { padding: 16px; }.drawer-summary { grid-template-columns: 1fr 1fr; }.drawer-summary > div:first-child { grid-column: 1 / -1; }.drawer-grid { grid-template-columns: 1fr; gap: 14px; }
   .instance-list article { grid-template-columns: 38px 1fr; }.warmup-meter { grid-column: 2; }.instance-actions { grid-column: 1 / -1; justify-content: flex-end; }.instance-actions .button { flex: 1; }
   .delete-confirm { padding: 20px 17px 12px; }.delete-actions { padding: 10px 17px 18px; }
@@ -300,7 +300,7 @@ th { height: 43px; font-size: 11px; } td { height: 66px; font-size: 13px; }
 .task-modal-context span { display: flex; align-items: center; gap: 6px; font-size: 12px; }
 .task-modal-actions > span { flex: 1; }
 
-@media (max-width: 1450px) {
+@media (max-width: 1240px) {
   .task-calendar-toolbar { align-items: flex-start; flex-direction: column; }
   .task-calendar-actions { width: 100%; overflow-x: auto; padding-bottom: 2px; }
 }
