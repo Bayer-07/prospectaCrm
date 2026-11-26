@@ -1,6 +1,7 @@
 import { useMemo, useState, type FormEvent } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
-import { CalendarDays, FileText, Phone, PhoneCall } from 'lucide-react';
+import { Phone } from 'lucide-react';
+import { CallIcon, MeetingIcon, NoteIcon } from '../icons';
 import { api, type Envelope } from '../lib/api';
 import type { Activity } from '../lib/activity';
 import type { Company, Contact, Opportunity } from '../lib/types';
@@ -128,9 +129,9 @@ export function ActivityModal({
   return <Modal title={title} onClose={onClose} width={660}>
     <form className="modal-form activity-form" onSubmit={submit}>
       {!activity && <div className="activity-kind-picker" aria-label="Tipo de atividade">
-        <button type="button" className={category === 'call' ? 'active' : ''} onClick={() => setCategory('call')}><PhoneCall size={17} />Ligação</button>
-        <button type="button" className={category === 'meeting' ? 'active' : ''} onClick={() => setCategory('meeting')}><CalendarDays size={17} />Reunião</button>
-        <button type="button" className={category === 'note' ? 'active' : ''} onClick={() => setCategory('note')}><FileText size={17} />Nota</button>
+        <button type="button" className={category === 'call' ? 'active' : ''} onClick={() => setCategory('call')}><CallIcon size={17} />Ligação</button>
+        <button type="button" className={category === 'meeting' ? 'active' : ''} onClick={() => setCategory('meeting')}><MeetingIcon size={17} />Reunião</button>
+        <button type="button" className={category === 'note' ? 'active' : ''} onClick={() => setCategory('note')}><NoteIcon size={17} />Nota</button>
       </div>}
       {category === 'call' && phone && <a className="activity-call-link" href={`tel:${phone}`}><Phone size={17} />Abrir ligação para {phone}</a>}
       <Field label="Título" value={form.title} onChange={(event) => setForm({ ...form, title: event.target.value })} required />

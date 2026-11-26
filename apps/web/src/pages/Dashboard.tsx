@@ -1,23 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import {
-  ArrowDownRight,
-  ArrowUpRight,
-  Building2,
-  CalendarDays,
-  CheckCircle2,
-  CheckSquare,
-  CircleDollarSign,
-  Clock3,
-  Mail,
-  MessageCircleMore,
-  MoveRight,
-  PhoneCall,
-  Sparkles,
-  Target,
-  Users,
-} from 'lucide-react';
+import { ArrowDownRight, ArrowUpRight, MoveRight, Sparkles } from 'lucide-react';
+import { CallIcon, CompaniesIcon, EmailIcon, MeetingIcon, OverdueIcon, PeopleIcon, RevenueIcon, TargetIcon, TasksIcon, WhatsappIcon } from '../icons';
 import { Link } from 'react-router-dom';
 import { api, dateTime, money, type Envelope } from '../lib/api';
 import { activityRequestRange, buildActivityChartSeries, localDateKey, type ActivityGranularity, type ActivityPeriodMode } from '../lib/dashboard-activity';
@@ -64,14 +49,14 @@ type Dashboard = {
 };
 
 function activityVisual(type: string) {
-  if (type === 'CALL') return { icon: PhoneCall, tone: 'amber' };
-  if (type === 'MEETING') return { icon: CalendarDays, tone: 'violet' };
-  if (type === 'EMAIL') return { icon: Mail, tone: 'blue' };
-  if (type === 'TASK') return { icon: CheckSquare, tone: 'green' };
+  if (type === 'CALL') return { icon: CallIcon, tone: 'amber' };
+  if (type === 'MEETING') return { icon: MeetingIcon, tone: 'violet' };
+  if (type === 'EMAIL') return { icon: EmailIcon, tone: 'blue' };
+  if (type === 'TASK') return { icon: TasksIcon, tone: 'green' };
   if (type.includes('stage')) return { icon: MoveRight, tone: 'blue' };
-  if (type.includes('task')) return { icon: CheckCircle2, tone: 'green' };
-  if (type.includes('company')) return { icon: Building2, tone: 'amber' };
-  return { icon: MessageCircleMore, tone: 'violet' };
+  if (type.includes('task')) return { icon: TasksIcon, tone: 'green' };
+  if (type.includes('company')) return { icon: CompaniesIcon, tone: 'amber' };
+  return { icon: WhatsappIcon, tone: 'violet' };
 }
 
 function activityDestination(item: Dashboard['recentActivities'][number]) {
@@ -158,25 +143,25 @@ export function DashboardPage() {
   return <div className="dashboard-grid">
     <section className="metric-grid">
       <Link className="metric-card dashboard-link-card" to="/pipeline" aria-label="Abrir pipeline">
-        <div className="metric-icon violet"><CircleDollarSign size={19} /></div>
+        <div className="metric-icon violet"><RevenueIcon size={19} /></div>
         <div className="metric-label"><span>Pipeline aberto</span><MoveRight size={16} /></div>
         <strong>{money(data.pipelineValueCents)}</strong>
         <p><em className="positive"><ArrowUpRight size={13} /> {data.openOpportunities}</em> negócios em andamento</p>
       </Link>
       <Link className="metric-card dashboard-link-card" to="/pipeline" aria-label="Abrir oportunidades">
-        <div className="metric-icon blue"><Target size={19} /></div>
+        <div className="metric-icon blue"><TargetIcon size={19} /></div>
         <div className="metric-label"><span>Oportunidades</span><MoveRight size={16} /></div>
         <strong>{data.openOpportunities}</strong>
         <p><em className="positive"><ArrowUpRight size={13} /> {data.wonLast30Days}</em> ganhas nos últimos 30 dias</p>
       </Link>
       <Link className="metric-card dashboard-link-card" to="/contatos" aria-label="Abrir contatos">
-        <div className="metric-icon green"><Users size={19} /></div>
+        <div className="metric-icon green"><PeopleIcon size={19} /></div>
         <div className="metric-label"><span>Contatos ativos</span><MoveRight size={16} /></div>
         <strong>{data.totalContacts.toLocaleString('pt-BR')}</strong>
         <p><em className="positive"><ArrowUpRight size={13} /> Base</em> disponível no CRM</p>
       </Link>
       <Link className="metric-card dashboard-link-card" to="/tarefas" aria-label="Abrir calendário de tarefas">
-        <div className="metric-icon amber"><Clock3 size={19} /></div>
+        <div className="metric-icon amber"><OverdueIcon size={19} /></div>
         <div className="metric-label"><span>Tarefas vencidas</span><MoveRight size={16} /></div>
         <strong>{data.overdueTasks}</strong>
         <p><em className={data.overdueTasks ? 'negative' : 'positive'}><ArrowDownRight size={13} /> {data.overdueTasks ? 'Atenção' : 'Em dia'}</em> na operação</p>
@@ -199,11 +184,11 @@ export function DashboardPage() {
         </div>
       </header>
       <div className="commercial-activity-kpis">
-        <Link to="/atividades?category=CALL"><span><PhoneCall size={16} />Ligações</span><strong>{data.activitySummary.totals.calls}</strong><small>{data.activitySummary.totals.connectionRate}% atendidas</small></Link>
-        <Link to="/atividades?category=WHATSAPP"><span><MessageCircleMore size={16} />WhatsApp</span><strong>{data.activitySummary.totals.whatsapp}</strong><small>mensagens enviadas</small></Link>
-        <Link to="/atividades?category=EMAIL"><span><Mail size={16} />E-mails</span><strong>{data.activitySummary.totals.emails}</strong><small>envios registrados</small></Link>
-        <Link to="/atividades?category=MEETING"><span><CalendarDays size={16} />Reuniões</span><strong>{data.activitySummary.totals.meetings}</strong><small>realizadas</small></Link>
-        <Link to="/atividades?category=TASK"><span><CheckSquare size={16} />Tarefas</span><strong>{data.activitySummary.totals.completedTasks}</strong><small>concluídas</small></Link>
+        <Link to="/atividades?category=CALL"><span><CallIcon size={16} />Ligações</span><strong>{data.activitySummary.totals.calls}</strong><small>{data.activitySummary.totals.connectionRate}% atendidas</small></Link>
+        <Link to="/atividades?category=WHATSAPP"><span><WhatsappIcon size={16} />WhatsApp</span><strong>{data.activitySummary.totals.whatsapp}</strong><small>mensagens enviadas</small></Link>
+        <Link to="/atividades?category=EMAIL"><span><EmailIcon size={16} />E-mails</span><strong>{data.activitySummary.totals.emails}</strong><small>envios registrados</small></Link>
+        <Link to="/atividades?category=MEETING"><span><MeetingIcon size={16} />Reuniões</span><strong>{data.activitySummary.totals.meetings}</strong><small>realizadas</small></Link>
+        <Link to="/atividades?category=TASK"><span><TasksIcon size={16} />Tarefas</span><strong>{data.activitySummary.totals.completedTasks}</strong><small>concluídas</small></Link>
       </div>
       <div className="commercial-activity-content">
         <div className="commercial-activity-chart">

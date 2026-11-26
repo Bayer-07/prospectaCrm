@@ -2,11 +2,8 @@ import { type FormEvent, useEffect, useMemo, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { io } from 'socket.io-client';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
-import {
-  Bell, Blocks, BookOpen, Bot, BrainCircuit, Building2, Cable, Camera, CheckCheck, CheckSquare, ChevronDown, ContactRound, Eye, Gauge,
-  Inbox, KanbanSquare, KeyRound, ListChecks, LogOut, Mail, Menu, MessageSquareReply, MessageSquareText, Moon, Network, Plug, Plus,
-  Settings, Sun, Tag, Trash2, UserRound, Users, Webhook, X,
-} from 'lucide-react';
+import { Bell, Camera, CheckCheck, ChevronDown, Eye, LogOut, Menu, Moon, Plus, Sun, Trash2, UserRound, Users, X } from 'lucide-react';
+import { ActivitiesIcon, AiIcon, ApiIcon, AutomationsIcon, CampaignsIcon, ChatbotIcon, CompaniesIcon, ConnectionsIcon, ContactsIcon, DocsIcon, EmailIcon, InboxIcon, IntegrationsIcon, McpIcon, OverviewIcon, PipelineIcon, QuickRepliesIcon, ReportsIcon, SettingsIcon, TagsIcon, TasksIcon, WebhooksIcon, WhatsappIcon, type IconComponent } from '../icons';
 import { api, apiUrl, dateTime, type Envelope } from '../lib/api';
 import { Button, Field, Modal } from './ui';
 import { useTheme } from '../lib/theme';
@@ -42,46 +39,46 @@ function currentBrowserNotificationPermission(): BrowserNotificationPermission {
 type NavItem = {
   to: string;
   label: string;
-  icon: typeof Gauge;
+  icon: IconComponent;
   resource?: string;
-  children?: Array<{ to: string; label: string; icon: typeof Gauge; resource?: string; adminOnly?: boolean }>;
+  children?: Array<{ to: string; label: string; icon: IconComponent; resource?: string; adminOnly?: boolean }>;
 };
 
 const nav: Array<{ section: string; items: NavItem[] }> = [
   { section: 'Trabalho', items: [
-    { to: '/', label: 'Visão geral', icon: Gauge }, { to: '/pipeline', label: 'Pipeline', icon: KanbanSquare, resource: 'opportunities' },
-    { to: '/empresas', label: 'Empresas', icon: Building2, resource: 'companies' }, { to: '/contatos', label: 'Contatos', icon: ContactRound, resource: 'contacts' }, { to: '/tags', label: 'Tags', icon: Tag, resource: 'contacts' },
-    { to: '/tarefas', label: 'Tarefas', icon: CheckSquare, resource: 'tasks' },
-    { to: '/atividades', label: 'Atividades', icon: ListChecks, resource: 'activities' },
+    { to: '/', label: 'Visão geral', icon: OverviewIcon }, { to: '/pipeline', label: 'Pipeline', icon: PipelineIcon, resource: 'opportunities' },
+    { to: '/empresas', label: 'Empresas', icon: CompaniesIcon, resource: 'companies' }, { to: '/contatos', label: 'Contatos', icon: ContactsIcon, resource: 'contacts' }, { to: '/tags', label: 'Tags', icon: TagsIcon, resource: 'contacts' },
+    { to: '/tarefas', label: 'Tarefas', icon: TasksIcon, resource: 'tasks' },
+    { to: '/atividades', label: 'Atividades', icon: ActivitiesIcon, resource: 'activities' },
   ] },
   { section: 'Conversas', items: [
-    { to: '/inbox', label: 'Inbox', icon: Inbox, resource: 'conversations' }, { to: '/respostas-rapidas', label: 'Respostas rápidas', icon: MessageSquareReply, resource: 'conversations' }, { to: '/chatbots', label: 'Chatbots', icon: Bot, resource: 'workflows' },
+    { to: '/inbox', label: 'Inbox', icon: InboxIcon, resource: 'conversations' }, { to: '/respostas-rapidas', label: 'Respostas rápidas', icon: QuickRepliesIcon, resource: 'conversations' }, { to: '/chatbots', label: 'Chatbots', icon: ChatbotIcon, resource: 'workflows' },
     {
       to: '/campanhas',
       label: 'Campanhas',
-      icon: MessageSquareText,
+      icon: CampaignsIcon,
       resource: 'campaigns',
       children: [
-        { to: '/campanhas', label: 'WhatsApp', icon: MessageSquareText, resource: 'campaigns' },
-        { to: '/email', label: 'E-mail', icon: Mail, resource: 'campaigns' },
+        { to: '/campanhas', label: 'WhatsApp', icon: WhatsappIcon, resource: 'campaigns' },
+        { to: '/email', label: 'E-mail', icon: EmailIcon, resource: 'campaigns' },
       ],
     },
-    { to: '/automacoes', label: 'Automações', icon: Bot, resource: 'workflows' },
+    { to: '/automacoes', label: 'Automações', icon: AutomationsIcon, resource: 'workflows' },
   ] },
   { section: 'Gestão', items: [
-    { to: '/relatorios', label: 'Relatórios', icon: Blocks, resource: 'reports' },
-    { to: '/conexoes', label: 'Conexões', icon: Cable, resource: 'integrations' },
-    { to: '/configuracoes', label: 'Configurações', icon: Settings, resource: 'users' },
+    { to: '/relatorios', label: 'Relatórios', icon: ReportsIcon, resource: 'reports' },
+    { to: '/conexoes', label: 'Conexões', icon: ConnectionsIcon, resource: 'integrations' },
+    { to: '/configuracoes', label: 'Configurações', icon: SettingsIcon, resource: 'users' },
     {
       to: '/integracoes',
       label: 'Integrações',
-      icon: Plug,
+      icon: IntegrationsIcon,
       children: [
-        { to: '/integracoes/api', label: 'API', icon: KeyRound, resource: 'api_keys' },
-        { to: '/integracoes/mcp', label: 'Servidor MCP', icon: Network, resource: 'api_keys' },
-        { to: '/integracoes/webhooks', label: 'Webhooks', icon: Webhook, resource: 'webhooks' },
-        { to: '/integracoes/swagger', label: 'Swagger', icon: BookOpen, resource: 'integrations' },
-        { to: '/integracoes/ai', label: 'Inteligência artificial', icon: BrainCircuit, resource: 'integrations', adminOnly: true },
+        { to: '/integracoes/api', label: 'API', icon: ApiIcon, resource: 'api_keys' },
+        { to: '/integracoes/mcp', label: 'Servidor MCP', icon: McpIcon, resource: 'api_keys' },
+        { to: '/integracoes/webhooks', label: 'Webhooks', icon: WebhooksIcon, resource: 'webhooks' },
+        { to: '/integracoes/swagger', label: 'Swagger', icon: DocsIcon, resource: 'integrations' },
+        { to: '/integracoes/ai', label: 'Inteligência artificial', icon: AiIcon, resource: 'integrations', adminOnly: true },
       ],
     },
   ] },
@@ -126,7 +123,7 @@ function SidebarChildLink({ child, onNavigate }: Readonly<{
     onClick={onNavigate}
     className={({ isActive }) => `nav-subitem ${isActive ? 'active' : ''}`}
   >
-    <child.icon size={14} strokeWidth={1.9} />
+    <child.icon size={14} />
     <span>{child.label}</span>
   </NavLink>;
 }
@@ -143,7 +140,7 @@ function SidebarNavItem({ item, canRead, currentPath, isAdmin, submenuOpen, onTo
         onClick={onToggleSubmenu}
         aria-expanded={submenuOpen}
       >
-        <item.icon size={17} strokeWidth={1.9} />
+        <item.icon size={17} />
         <span>{item.label}</span>
         <ChevronDown className="nav-parent-chevron" size={14} />
       </button>
@@ -159,7 +156,7 @@ function SidebarNavItem({ item, canRead, currentPath, isAdmin, submenuOpen, onTo
     onClick={onNavigate}
     className={({ isActive }) => `nav-item ${isActive ? 'active' : ''}`}
   >
-    <item.icon size={17} strokeWidth={1.9} />
+    <item.icon size={17} />
     <span>{item.label}</span>
   </NavLink>;
 }
@@ -242,9 +239,9 @@ export function Shell() {
   const canRead = (resource?: string) => !resource || user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === resource) && (permission.action === '*' || permission.action === 'read'));
   const canWrite = (resource: string) => user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === resource) && (permission.action === '*' || permission.action === 'write'));
   const quickAddItems = [
-    { label: 'Contato', description: 'Cadastrar uma nova pessoa', icon: ContactRound, resource: 'contacts', target: '/contatos?new=1' },
-    { label: 'Empresa', description: 'Cadastrar uma nova organização', icon: Building2, resource: 'companies', target: '/empresas?new=1' },
-    { label: 'Oportunidade', description: 'Adicionar uma negociação ao funil', icon: KanbanSquare, resource: 'opportunities', target: '/pipeline?new=1' },
+    { label: 'Contato', description: 'Cadastrar uma nova pessoa', icon: ContactsIcon, resource: 'contacts', target: '/contatos?new=1' },
+    { label: 'Empresa', description: 'Cadastrar uma nova organização', icon: CompaniesIcon, resource: 'companies', target: '/empresas?new=1' },
+    { label: 'Oportunidade', description: 'Adicionar uma negociação ao funil', icon: PipelineIcon, resource: 'opportunities', target: '/pipeline?new=1' },
   ].filter((item) => canWrite(item.resource));
   const openQuickAdd = (target: string) => {
     setQuickAddOpen(false);

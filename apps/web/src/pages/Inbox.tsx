@@ -4,7 +4,8 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
 import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
-import { AlertCircle, Archive, ArrowLeft, ArrowRightLeft, BriefcaseBusiness, Bot, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MailOpen, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
+import { AlertCircle, Archive, ArrowLeft, ArrowRightLeft, BriefcaseBusiness, Building2, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Link2, LoaderCircle, Mail, MailOpen, MapPin, MessageCircle, MessageCirclePlus, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, X } from 'lucide-react';
+import { AiIcon, AutomationsIcon, ConnectionsIcon, InboxIcon, QuickRepliesIcon } from '../icons';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { aiMessageImprovementDisposition, aiSuggestionDisposition } from '../lib/ai-suggestion';
@@ -658,7 +659,7 @@ export function InboxPage() {
   };
   let conversationContent: ReactNode;
   if (!selectedId) {
-    conversationContent = <div className="conversation-empty"><Empty icon={<Inbox />} title="Nenhum atendimento selecionado" description="Selecione uma conversa para conseguir enviar mensagens." /></div>;
+    conversationContent = <div className="conversation-empty"><Empty icon={<InboxIcon />} title="Nenhum atendimento selecionado" description="Selecione uma conversa para conseguir enviar mensagens." /></div>;
   } else if (conversation.isLoading || history.isLoading) {
     conversationContent = <PageLoading />;
   } else if (selectedConversation) {
@@ -675,7 +676,7 @@ export function InboxPage() {
       onClose={toggleConversationStatus}
     />;
   } else {
-    conversationContent = <div className="conversation-empty"><Empty icon={<Inbox />} title={emptyText[0]} description={emptyText[1]} /></div>;
+    conversationContent = <div className="conversation-empty"><Empty icon={<InboxIcon />} title={emptyText[0]} description={emptyText[1]} /></div>;
   }
   return <div className="inbox-layout">
     <InboxSidebar
@@ -2046,9 +2047,9 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     setAttachmentError('');
     window.setTimeout(() => textRef.current?.focus(), 0);
   }, [canReply, editingMessage]);
-  let instanceOptionContent: ReactNode = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Nenhuma conexão ativa disponível</strong><span>Conecte outro número para conseguir continuar esta conversa.</span></div>;
+  let instanceOptionContent: ReactNode = <div className="conversation-transfer-empty"><ConnectionsIcon size={22} /><strong>Nenhuma conexão ativa disponível</strong><span>Conecte outro número para conseguir continuar esta conversa.</span></div>;
   if (availableInstances.isLoading) instanceOptionContent = <PageLoading />;
-  else if (availableInstances.isError) instanceOptionContent = <div className="conversation-transfer-empty"><Cable size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>;
+  else if (availableInstances.isError) instanceOptionContent = <div className="conversation-transfer-empty"><ConnectionsIcon size={22} /><strong>Não foi possível carregar as conexões</strong><span>Tente fechar esta janela e abrir novamente.</span></div>;
   else if (instanceOptions.length) {
     instanceOptionContent = <label className="field"><span>Nova conexão</span><ConnectionPicker options={instanceOptions} value={instanceTarget} onChange={(value) => {
       setInstanceTarget(value);
@@ -2191,7 +2192,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
       ><i /><span>{conversation.team?.name || 'Sem fila'}</span><ChevronDown size={12} /></button>
     </div>
     <div className="conversation-actions">
-      {connectionUnavailable && <button type="button" className="button button-secondary conversation-change-instance-button" onClick={() => { setInstanceTarget(''); changeInstance.reset(); setInstanceChangeOpen(true); }} title="Escolher outra conexão para as próximas mensagens"><Cable size={15} /><span>Trocar conexão</span></button>}
+      {connectionUnavailable && <button type="button" className="button button-secondary conversation-change-instance-button" onClick={() => { setInstanceTarget(''); changeInstance.reset(); setInstanceChangeOpen(true); }} title="Escolher outra conexão para as próximas mensagens"><ConnectionsIcon size={15} /><span>Trocar conexão</span></button>}
       <button type="button" className="button button-secondary" onClick={onAssign} disabled={conversation.status === 'CLOSED'} title={conversation.status === 'CLOSED' ? 'Reabra a conversa para alterar o responsável' : undefined}>{conversation.assignee ? <><UserCheck size={15} />{conversation.assignee.name}</> : <><UserPlus size={15} />Assumir</>}</button>
       <button type="button" className={`conversation-status-button ${currentStatusAction.className}`} onClick={onClose} disabled={statusChanging} aria-busy={statusChanging} title={currentStatusAction.title} aria-label={currentStatusAction.label}>{currentStatusAction.icon}<span>{currentStatusAction.shortLabel}</span></button>
       <button type="button" className="icon-button" onClick={openConversationMenu} aria-label="Mais ações da conversa" aria-expanded={Boolean(conversationMenu)} title="Mais ações"><MoreHorizontal size={18} /></button>
@@ -2342,7 +2343,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
         </div>
         {instanceOptionContent}
         {selectedInstanceTarget && <div className="conversation-instance-confirmation">
-          <Cable size={18} />
+          <ConnectionsIcon size={18} />
           <span>As próximas mensagens serão enviadas por <strong>{selectedInstanceTarget.name}</strong>{selectedInstanceTarget.phone ? ` (${formatPhone(selectedInstanceTarget.phone)})` : ''}.</span>
         </div>}
       </div>
@@ -2439,8 +2440,8 @@ function statusAction(statusChanging: boolean, status: string) {
 
 function sendAction(editing: boolean, quickReplyOpen: boolean, automationOpen: boolean) {
   if (editing) return { label: 'Salvar edição', icon: <Check size={18} /> };
-  if (quickReplyOpen) return { label: 'Inserir resposta rápida', icon: <MessageSquareReply size={18} /> };
-  if (automationOpen) return { label: 'Iniciar automação', icon: <Workflow size={18} /> };
+  if (quickReplyOpen) return { label: 'Inserir resposta rápida', icon: <QuickRepliesIcon size={18} /> };
+  if (automationOpen) return { label: 'Iniciar automação', icon: <AutomationsIcon size={18} /> };
   return { label: 'Enviar mensagem', icon: <Send size={19} /> };
 }
 
@@ -2505,14 +2506,14 @@ function QuickReplyCommandMenu({ loading, failed, options, selectedIndex, search
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(reply)}
         disabled={pending}
-      ><span><MessageSquareReply size={16} /></span><div><strong>/{reply.shortcut} · {reply.title}</strong><small>{quickReplyDescription(reply)}</small></div>{trailing}</button>;
+      ><span><QuickRepliesIcon size={16} /></span><div><strong>/{reply.shortcut} · {reply.title}</strong><small>{quickReplyDescription(reply)}</small></div>{trailing}</button>;
     });
   } else {
     const emptyText = search ? 'Nenhuma resposta corresponde à busca.' : 'Nenhuma resposta rápida cadastrada.';
-    content = <div className="automation-command-empty"><MessageSquareReply size={17} /><span>{emptyText}</span></div>;
+    content = <div className="automation-command-empty"><QuickRepliesIcon size={17} /><span>{emptyText}</span></div>;
   }
   return <section className="automation-command-menu quick-reply-command-menu" aria-label="Respostas rápidas disponíveis">
-    <div className="automation-command-heading"><span><MessageSquareReply size={17} /></span><div><strong>Inserir resposta rápida</strong><small>O conteúdo ficará disponível para edição</small></div><kbd>Esc</kbd></div>
+    <div className="automation-command-heading"><span><QuickRepliesIcon size={17} /></span><div><strong>Inserir resposta rápida</strong><small>O conteúdo ficará disponível para edição</small></div><kbd>Esc</kbd></div>
     <div className="automation-command-options">{content}</div>
     <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> inserir</span></div>
   </section>;
@@ -2545,14 +2546,14 @@ function WorkflowCommandMenu({ allowed, loading, failed, options, selectedIndex,
         onMouseEnter={() => onHover(index)}
         onClick={() => onSelect(workflow)}
         disabled={pending}
-      ><span><Workflow size={16} /></span><div><strong>{workflow.name}</strong><small>{workflow.description || `Versão ${workflow.publishedVersion}`}</small></div>{trailing}</button>;
+      ><span><AutomationsIcon size={16} /></span><div><strong>{workflow.name}</strong><small>{workflow.description || `Versão ${workflow.publishedVersion}`}</small></div>{trailing}</button>;
     });
   } else if (!failed) {
     const emptyText = search ? 'Nenhuma automação corresponde à busca.' : 'Nenhuma automação publicada disponível.';
-    content = <div className="automation-command-empty"><Workflow size={17} /><span>{emptyText}</span></div>;
+    content = <div className="automation-command-empty"><AutomationsIcon size={17} /><span>{emptyText}</span></div>;
   }
   return <section className="automation-command-menu" aria-label="Automações disponíveis">
-    <div className="automation-command-heading"><span><Workflow size={17} /></span><div><strong>Iniciar automação</strong><small>Continue digitando para filtrar</small></div><kbd>Esc</kbd></div>
+    <div className="automation-command-heading"><span><AutomationsIcon size={17} /></span><div><strong>Iniciar automação</strong><small>Continue digitando para filtrar</small></div><kbd>Esc</kbd></div>
     <div className="automation-command-options">{content}</div>
     <div className="automation-command-footer"><span><kbd>↑</kbd><kbd>↓</kbd> navegar</span><span><kbd>Enter</kbd> iniciar</span></div>
   </section>;
@@ -3097,7 +3098,7 @@ type MessageBubbleContentProps = Pick<MessageBubbleProps,
 function MessageBubbleContent(props: MessageBubbleContentProps) {
   const { message, replyTo, replyFallback, contactName, originalType, sticker, deleted, messageText, messageLink, interactive, sharedContacts, location, failure, reactions, edited, outbound, aiGenerated } = props;
   return <>
-    {aiGenerated && <span className="message-ai-badge" title="Mensagem enviada automaticamente pela IA"><Bot size={12} />Resposta da IA</span>}
+    {aiGenerated && <span className="message-ai-badge" title="Mensagem enviada automaticamente pela IA"><AiIcon size={12} />Resposta da IA</span>}
     {deleted && <div className="message-deleted-notice" role="note" title="Esta mensagem foi apagada"><Trash2 size={13} /><strong>Mensagem apagada</strong></div>}
     {replyTo && <button type="button" className="message-reply-quote" onClick={() => props.onJumpToReply(replyTo.id)} aria-label={`Ir para a mensagem: ${messagePreview(replyTo)}`}><strong>{replyTo.direction === 'OUTBOUND' ? 'Você' : contactName}</strong><span>{messagePreview(replyTo)}</span></button>}
     {!replyTo && replyFallback && <div className="message-reply-quote message-reply-static" role="note"><strong>Mensagem respondida</strong><span>{replyFallback}</span></div>}

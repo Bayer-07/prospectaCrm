@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useInfiniteQuery, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, CheckSquare, ExternalLink, FileText, Filter, Mail, MessageCircle, PhoneCall, Plus, Search } from 'lucide-react';
+import { CalendarDays, ExternalLink, Filter, Plus, Search } from 'lucide-react';
+import { CallIcon, EmailIcon, MeetingIcon, NoteIcon, TasksIcon, WhatsappIcon, type IconComponent } from '../icons';
 import { Link, useSearchParams } from 'react-router-dom';
 import { api, dateTime, type Envelope } from '../lib/api';
 import { activityCategoryLabels, activityDuration, activityOriginLabels, activityOutcomeLabels, activitySourceUrl, activityStatusLabels, type Activity, type ActivityCategory } from '../lib/activity';
@@ -12,7 +13,7 @@ import type { Company, Contact, Opportunity } from '../lib/types';
 import { useAuth } from '../App';
 
 type Metadata = { users: Array<{ id: string; name: string }>; teams: Array<{ id: string; name: string }> };
-const icons: Record<ActivityCategory, typeof PhoneCall> = { CALL: PhoneCall, NOTE: FileText, MEETING: CalendarDays, TASK: CheckSquare, WHATSAPP: MessageCircle, EMAIL: Mail, SYSTEM: Filter };
+const icons: Record<ActivityCategory, IconComponent> = { CALL: CallIcon, NOTE: NoteIcon, MEETING: MeetingIcon, TASK: TasksIcon, WHATSAPP: WhatsappIcon, EMAIL: EmailIcon, SYSTEM: Filter };
 
 function rangeForDays(days: number) {
   const to = new Date();

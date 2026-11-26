@@ -1,5 +1,6 @@
 import { useId, useMemo, useRef, useState, type KeyboardEvent } from 'react';
-import { Cable, Check, ChevronDown, Search } from 'lucide-react';
+import { Check, ChevronDown, Search } from 'lucide-react';
+import { ConnectionsIcon } from '../icons';
 import { formatPhone } from '../lib/api';
 import { FloatingMenu } from './FloatingMenu';
 
@@ -157,7 +158,7 @@ export function ConnectionPicker({
             onMouseEnter={() => setActiveIndex(index)}
             onClick={() => selectConnection(option.id)}
           >
-            <span className="connection-picker-option-icon"><Cable size={15} aria-hidden="true" /></span>
+            <span className="connection-picker-option-icon"><ConnectionsIcon size={15} aria-hidden="true" /></span>
             <span className="connection-picker-option-copy"><strong>{option.name}</strong>{details && <small>{details}</small>}</span>
             {selected && <Check size={16} aria-hidden="true" />}
           </button>;

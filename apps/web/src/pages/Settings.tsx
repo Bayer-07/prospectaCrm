@@ -1,7 +1,8 @@
 import { FormEvent, useEffect, useRef, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { Navigate, useParams, useSearchParams } from 'react-router-dom';
-import { AlertTriangle, BookOpen, BrainCircuit, Check, Copy, ExternalLink, FileText, KeyRound, LockKeyhole, Mail, MoreHorizontal, Network, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, ShieldCheck, Smartphone, Trash2, Unplug, UploadCloud, UserPlus, Users } from 'lucide-react';
+import { AlertTriangle, BookOpen, Check, Copy, ExternalLink, FileText, KeyRound, LockKeyhole, Mail, MoreHorizontal, Pencil, Play, Plus, QrCode, RefreshCw, RotateCcw, ShieldCheck, Smartphone, Trash2, Unplug, UploadCloud, UserPlus, Users } from 'lucide-react';
+import { AiIcon, McpIcon, PeopleIcon } from '../icons';
 import { api, dateTime, formatPhone, type Envelope } from '../lib/api';
 import { Button, Empty, Field, Modal, PageLoading, SelectField, Status } from '../components/ui';
 import { useAuth } from '../App';
@@ -52,7 +53,7 @@ export function SettingsPage() {
   if (requestedTab === 'whatsapp') return <Navigate to="/conexoes" replace />;
   const tab = requestedTab && ['users', 'teams', 'roles'].includes(requestedTab) ? requestedTab : 'users';
   const selectTab = (next: string) => setSearchParams({ tab: next }, { replace: true });
-  return <div className="settings-layout"><aside className="settings-nav"><button type="button" className={tab === 'users' ? 'active' : ''} onClick={() => selectTab('users')}><Users size={16} />Usuários</button><button type="button" className={tab === 'teams' ? 'active' : ''} onClick={() => selectTab('teams')}><Network size={16} />Equipes e filas</button><button type="button" className={tab === 'roles' ? 'active' : ''} onClick={() => selectTab('roles')}><ShieldCheck size={16} />Papéis e permissões</button></aside><section className="settings-content">{tab === 'users' && <UsersSettings />}{tab === 'teams' && <TeamsSettings />}{tab === 'roles' && <RolesSettings />}</section></div>;
+  return <div className="settings-layout"><aside className="settings-nav"><button type="button" className={tab === 'users' ? 'active' : ''} onClick={() => selectTab('users')}><Users size={16} />Usuários</button><button type="button" className={tab === 'teams' ? 'active' : ''} onClick={() => selectTab('teams')}><PeopleIcon size={16} />Equipes e filas</button><button type="button" className={tab === 'roles' ? 'active' : ''} onClick={() => selectTab('roles')}><ShieldCheck size={16} />Papéis e permissões</button></aside><section className="settings-content">{tab === 'users' && <UsersSettings />}{tab === 'teams' && <TeamsSettings />}{tab === 'roles' && <RolesSettings />}</section></div>;
 }
 
 export function ConnectionsPage() {
@@ -179,7 +180,7 @@ function AiSettings() {
     </div>
     <div className="ai-settings-grid">
       <article className="ai-status-card">
-        <div className="ai-status-icon"><BrainCircuit size={22} /></div>
+        <div className="ai-status-icon"><AiIcon size={22} /></div>
         <div><span>Modelo configurado</span><strong>{settings.data!.data.models.find((model) => model.id === current.model)?.name || current.model}</strong><small>Processamento em nuvem pela API da OpenAI.</small></div>
       </article>
       <label className="ai-enable-card">
@@ -215,7 +216,7 @@ function AiSettings() {
     <AiKnowledgeBase enabled={current.enabled} apiKeyConfigured={settings.data!.data.apiKeyConfigured && !current.removeApiKey} />
     <label className="field ai-textarea-field"><span>Instruções gerais da BZS</span><textarea rows={8} maxLength={10_000} value={current.globalInstructions} onChange={(event) => update({ globalInstructions: event.target.value })} placeholder="Tom de voz, produtos, limites comerciais e informações que a IA deve respeitar." /><small>{current.globalInstructions.length.toLocaleString('pt-BR')} / 10.000 caracteres</small></label>
     <label className="field ai-textarea-field"><span>Mensagem de indisponibilidade</span><textarea rows={3} maxLength={1_000} value={current.fallbackMessage} onChange={(event) => update({ fallbackMessage: event.target.value })} /><small>Enviada antes da transferência quando o pré-atendimento não puder continuar.</small></label>
-    {testGenerationId && currentTest && <div className={`ai-test-result ${currentTest.status.toLowerCase()}`}><BrainCircuit size={16} /><span>{testMessage}</span></div>}
+    {testGenerationId && currentTest && <div className={`ai-test-result ${currentTest.status.toLowerCase()}`}><AiIcon size={16} /><span>{testMessage}</span></div>}
     <div className="ai-settings-actions"><Button variant="secondary" onClick={() => test.mutate()} loading={test.isPending || Boolean(testGenerationId && !['COMPLETED', 'FAILED', 'CANCELLED'].includes(testResult.data?.data.status || ''))} disabled={!settings.data!.data.enabled || !runtime.available || Boolean(form)} title={form ? 'Salve as alterações antes de testar' : undefined}><Play size={16} />Testar geração</Button><Button onClick={() => save.mutate()} loading={save.isPending}>Salvar configurações</Button></div>
   </div>;
 }
@@ -673,7 +674,7 @@ function McpSettings() {
       <Button onClick={() => createKey.mutate()} loading={createKey.isPending}><KeyRound size={16} />Gerar chave MCP</Button>
     </div>
     <div className="settings-card mcp-endpoint-card">
-      <div className="settings-card-icon"><Network /></div>
+      <div className="settings-card-icon"><McpIcon /></div>
       <div><h3>Endpoint Streamable HTTP</h3><p>Use uma chave exclusiva para cada cliente de IA.</p><code className="secret-output">{endpoint}</code></div>
       <Button variant="secondary" onClick={() => void copy(endpoint, 'Endpoint')}><Copy size={16} />Copiar</Button>
     </div>

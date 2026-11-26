@@ -1,7 +1,8 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery } from '@tanstack/react-query';
 import { Bar, BarChart, CartesianGrid, Cell, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
-import { ArrowUpRight, CircleDollarSign, Clock3, Download, MessageCircleMore, Target } from 'lucide-react';
+import { ArrowUpRight, Clock3, Download } from 'lucide-react';
+import { RevenueIcon, TargetIcon, WhatsappIcon } from '../icons';
 import { api, apiFetch, apiErrorMessage, money, type Envelope } from '../lib/api';
 import { PageLoading } from '../components/ui';
 import { toast } from '../lib/toast';
@@ -77,9 +78,9 @@ export function ReportsPage() {
       <button type="button" className="button button-secondary" disabled={exportPdf.isPending} onClick={() => exportPdf.mutate()}><Download size={15} />{exportPdf.isPending ? 'Gerando PDF…' : 'Exportar PDF'}</button>
     </div>
     <section className="metric-grid report-metrics">
-      <article className="metric-card"><div className="metric-icon violet"><CircleDollarSign /></div><span>Receita ganha</span><strong>{money(report.sales.wonValueCents)}</strong><p className="positive"><ArrowUpRight size={13} />{report.sales.won} oportunidade(s) ganha(s)</p></article>
-      <article className="metric-card"><div className="metric-icon blue"><Target /></div><span>Conversão</span><strong>{report.sales.conversionRate}%</strong><p>{report.sales.won} ganhas · {report.sales.lost} perdidas</p></article>
-      <article className="metric-card"><div className="metric-icon green"><MessageCircleMore /></div><span>Conversas iniciadas</span><strong>{report.inbox.opened}</strong><p>{report.inbox.currentlyOpen} ainda abertas</p></article>
+      <article className="metric-card"><div className="metric-icon violet"><RevenueIcon /></div><span>Receita ganha</span><strong>{money(report.sales.wonValueCents)}</strong><p className="positive"><ArrowUpRight size={13} />{report.sales.won} oportunidade(s) ganha(s)</p></article>
+      <article className="metric-card"><div className="metric-icon blue"><TargetIcon /></div><span>Conversão</span><strong>{report.sales.conversionRate}%</strong><p>{report.sales.won} ganhas · {report.sales.lost} perdidas</p></article>
+      <article className="metric-card"><div className="metric-icon green"><WhatsappIcon /></div><span>Conversas iniciadas</span><strong>{report.inbox.opened}</strong><p>{report.inbox.currentlyOpen} ainda abertas</p></article>
       <article className="metric-card"><div className="metric-icon amber"><Clock3 /></div><span>Primeira resposta</span><strong>{report.inbox.averageFirstResponseMinutes !== null ? `${report.inbox.averageFirstResponseMinutes} min` : '—'}</strong><p>Média no período</p></article>
     </section>
     <div className="report-grid">
