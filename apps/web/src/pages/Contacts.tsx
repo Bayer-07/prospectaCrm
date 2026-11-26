@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Check, ContactRound, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Plus, Search, Tags, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { Building2, Check, Filter, LoaderCircle, Mail, MessageCircle, MoreHorizontal, Pencil, Phone, Plus, Search, Tags, Trash2, Upload, UserRound, X } from 'lucide-react';
+import { ContactsIcon } from '../icons';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { api, apiErrorMessage, apiUrl, formatPhone, type Envelope } from '../lib/api';
 import { useAuth } from '../App';
@@ -194,7 +195,7 @@ export function ContactsPage() {
         <td data-label="Tags"><div className="tag-list">{contact.tags?.slice(0, 2).map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></td>
         <td className="contact-actions-cell"><button type="button" className="icon-button" onClick={(event) => openMenu(event, contact)} aria-label={`Ações de ${contact.name}`} aria-haspopup="menu" aria-expanded={menu?.contact.id === contact.id}><MoreHorizontal size={17} /></button></td>
       </tr>)}</tbody>
-    </table></div>{(hasNextPage || isFetchingNextPage) && <div ref={loadMoreRef} className="list-infinite-loader" aria-live="polite">{isFetchingNextPage ? <><LoaderCircle size={18} className="spin" />Carregando mais 20 contatos…</> : 'Continue rolando para carregar mais contatos'}</div>}</> : <Empty icon={<ContactRound />} title="Nenhum contato encontrado" description={activeFilters ? 'Ajuste ou limpe os filtros aplicados.' : 'Cadastre um contato ou importe sua base em CSV.'} action={activeFilters ? <Button variant="secondary" onClick={clearFilters}>Limpar filtros</Button> : <Button onClick={() => setCreating(true)}>Adicionar contato</Button>} />}
+    </table></div>{(hasNextPage || isFetchingNextPage) && <div ref={loadMoreRef} className="list-infinite-loader" aria-live="polite">{isFetchingNextPage ? <><LoaderCircle size={18} className="spin" />Carregando mais 20 contatos…</> : 'Continue rolando para carregar mais contatos'}</div>}</> : <Empty icon={<ContactsIcon />} title="Nenhum contato encontrado" description={activeFilters ? 'Ajuste ou limpe os filtros aplicados.' : 'Cadastre um contato ou importe sua base em CSV.'} action={activeFilters ? <Button variant="secondary" onClick={clearFilters}>Limpar filtros</Button> : <Button onClick={() => setCreating(true)}>Adicionar contato</Button>} />}
 
     {menu && <>
       <button type="button" className="action-menu-backdrop" onClick={() => setMenu(null)} aria-label="Fechar menu de ações" />

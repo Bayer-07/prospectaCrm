@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { CalendarDays, CheckSquare, ExternalLink, FileText, Mail, MessageCircle, MoreHorizontal, PhoneCall, Plus, Trash2 } from 'lucide-react';
+import { CalendarDays, ExternalLink, MoreHorizontal, Plus, Trash2 } from 'lucide-react';
+import { CallIcon, EmailIcon, MeetingIcon, NoteIcon, TasksIcon, WhatsappIcon, type IconComponent } from '../icons';
 import { Link } from 'react-router-dom';
 import { api, dateTime, type Envelope } from '../lib/api';
 import { activityCategoryLabels, activityDuration, activityOutcomeLabels, activitySourceUrl, activityStatusLabels, type Activity, type ActivityCategory } from '../lib/activity';
@@ -9,9 +10,9 @@ import { toast } from '../lib/toast';
 import { ActivityModal, type ActivityAssociation } from './ActivityModal';
 import { Button, Empty, Modal, PageLoading } from './ui';
 
-const categoryIcons: Record<ActivityCategory, typeof PhoneCall> = {
-  CALL: PhoneCall, NOTE: FileText, MEETING: CalendarDays, TASK: CheckSquare,
-  WHATSAPP: MessageCircle, EMAIL: Mail, SYSTEM: MoreHorizontal,
+const categoryIcons: Record<ActivityCategory, IconComponent> = {
+  CALL: CallIcon, NOTE: NoteIcon, MEETING: MeetingIcon, TASK: TasksIcon,
+  WHATSAPP: WhatsappIcon, EMAIL: EmailIcon, SYSTEM: MoreHorizontal,
 };
 
 export function ActivityQuickActions({ association, compact = false }: Readonly<{ association: ActivityAssociation; compact?: boolean }>) {
@@ -22,9 +23,9 @@ export function ActivityQuickActions({ association, compact = false }: Readonly<
   if (!canWrite) return null;
   return <>
     <div className={`activity-quick-actions ${compact ? 'compact' : ''}`}>
-      <Button variant="secondary" onClick={() => setCategory('call')}><PhoneCall size={16} />Ligar</Button>
-      <Button variant="secondary" onClick={() => setCategory('meeting')}><CalendarDays size={16} />Registrar reunião</Button>
-      <Button variant="secondary" onClick={() => setCategory('note')}><FileText size={16} />Adicionar nota</Button>
+      <Button variant="secondary" onClick={() => setCategory('call')}><CallIcon size={16} />Ligar</Button>
+      <Button variant="secondary" onClick={() => setCategory('meeting')}><MeetingIcon size={16} />Registrar reunião</Button>
+      <Button variant="secondary" onClick={() => setCategory('note')}><NoteIcon size={16} />Adicionar nota</Button>
       <Link className="button button-secondary" to={`/tarefas?new=1${association.companyId ? `&company=${association.companyId}` : ''}${association.contactId ? `&contact=${association.contactId}` : ''}${association.opportunityId ? `&opportunity=${association.opportunityId}` : ''}`}><Plus size={16} />Criar tarefa</Link>
     </div>
     {category && <ActivityModal category={category} association={association} onClose={() => setCategory(null)} onSaved={() => void client.invalidateQueries({ queryKey: ['activities'] })} />}

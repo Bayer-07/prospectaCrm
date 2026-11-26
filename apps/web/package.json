@@ -9,7 +9,8 @@
     "preview": "vite preview --host 0.0.0.0",
     "typecheck": "tsc -b --pretty false",
     "test": "vitest run --passWithNoTests",
-    "lint": "tsc -b --pretty false"
+    "lint": "tsc -b --pretty false",
+    "icons": "node scripts/build-icons.mjs"
   },
   "dependencies": {
     "@dnd-kit/core": "^6.3.1",

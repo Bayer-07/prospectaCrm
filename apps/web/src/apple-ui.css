@@ -28,6 +28,10 @@ body {
   letter-spacing: -.01em;
 }
 
+/* Every icon, custom or Lucide, draws with the same stroke weight. */
+svg.lucide,
+svg.bzs-icon { stroke-width: var(--icon-stroke); }
+
 /* Figures line up in tables, counters and metrics. */
 td,
 .metric-grid,

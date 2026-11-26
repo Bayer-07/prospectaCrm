@@ -1,6 +1,7 @@
 import { type DragEvent, type FormEvent, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { FileText, Image, MessageSquareReply, Paperclip, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { FileText, Image, Paperclip, Pencil, Plus, Search, Trash2, Upload, X } from 'lucide-react';
+import { QuickRepliesIcon } from '../icons';
 import { api, apiErrorMessage, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
 import { Button, Empty, Field, Modal, PageLoading } from '../components/ui';
@@ -50,11 +51,11 @@ export function QuickRepliesPage() {
       {canWrite && <Button onClick={() => setEditing('new')}><Plus size={16} />Nova resposta</Button>}
     </div>
     {replies.length ? <div className="quick-reply-grid">{replies.map((reply) => <article className="quick-reply-card" key={reply.id}>
-      <header><span className="quick-reply-icon"><MessageSquareReply size={19} /></span><div><h3>{reply.title}</h3><code>/{reply.shortcut}</code></div>{canWrite && <div className="quick-reply-actions"><button type="button" onClick={() => setEditing(reply)} aria-label={`Editar ${reply.title}`} title="Editar"><Pencil size={16} /></button><button type="button" onClick={() => setDeleting(reply)} aria-label={`Excluir ${reply.title}`} title="Excluir"><Trash2 size={16} /></button></div>}</header>
+      <header><span className="quick-reply-icon"><QuickRepliesIcon size={19} /></span><div><h3>{reply.title}</h3><code>/{reply.shortcut}</code></div>{canWrite && <div className="quick-reply-actions"><button type="button" onClick={() => setEditing(reply)} aria-label={`Editar ${reply.title}`} title="Editar"><Pencil size={16} /></button><button type="button" onClick={() => setDeleting(reply)} aria-label={`Excluir ${reply.title}`} title="Excluir"><Trash2 size={16} /></button></div>}</header>
       <p>{reply.text || 'Resposta somente com anexo'}</p>
       {reply.mediaAsset && <div className="quick-reply-attachment">{reply.mediaAsset.contentType.startsWith('image/') ? <Image size={16} /> : <FileText size={16} />}<span><strong>{reply.mediaAsset.filename}</strong><small>{fileSize(reply.mediaAsset.sizeBytes)}</small></span></div>}
       <footer>Criada por {reply.createdBy.name}</footer>
-    </article>)}</div> : <Empty icon={<MessageSquareReply />} title={query.data?.data.length ? 'Nenhuma resposta encontrada' : 'Crie sua primeira resposta rápida'} description={query.data?.data.length ? 'Tente buscar por outro nome, atalho ou trecho do texto.' : 'Cadastre textos e anexos que a equipe poderá inserir no atendimento digitando /.'} action={canWrite && !query.data?.data.length ? <Button onClick={() => setEditing('new')}>Nova resposta</Button> : undefined} />}
+    </article>)}</div> : <Empty icon={<QuickRepliesIcon />} title={query.data?.data.length ? 'Nenhuma resposta encontrada' : 'Crie sua primeira resposta rápida'} description={query.data?.data.length ? 'Tente buscar por outro nome, atalho ou trecho do texto.' : 'Cadastre textos e anexos que a equipe poderá inserir no atendimento digitando /.'} action={canWrite && !query.data?.data.length ? <Button onClick={() => setEditing('new')}>Nova resposta</Button> : undefined} />}
     {editing && <QuickReplyModal reply={editing === 'new' ? null : editing} onClose={() => setEditing(null)} onSaved={() => { setEditing(null); void client.invalidateQueries({ queryKey: ['quick-replies'] }); }} />}
     {deleting && <DeleteQuickReplyModal reply={deleting} onClose={() => setDeleting(null)} onDeleted={() => { setDeleting(null); void client.invalidateQueries({ queryKey: ['quick-replies'] }); }} />}
   </div>;
