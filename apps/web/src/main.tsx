@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { BrowserRouter } from 'react-router-dom';
 import { App } from './App';
 import { ToastProvider } from './components/ToastProvider';
+import './tokens.css';
 import './styles.css';
 import './interface-v2.css';
 import './interface-components.css';
