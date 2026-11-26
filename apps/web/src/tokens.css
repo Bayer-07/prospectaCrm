@@ -61,6 +61,9 @@
   --series-email: #17a2c4;
   --series-note: #94a3b8;
 
+  /* Conversation wallpaper: the BZS One mark as a quiet repeating pattern. */
+  --chat-pattern: url('./assets/chat-pattern-light.svg');
+
   /* Icons: one stroke weight for BZS One icons and Lucide utilities alike. */
   --icon-stroke: 1.75;
 
@@ -110,6 +113,8 @@
   --amber-soft: rgba(255, 214, 10, .13);
   --red: #ff453a;
   --red-soft: rgba(255, 69, 58, .09);
+
+  --chat-pattern: url('./assets/chat-pattern-dark.svg');
 
   --shadow: 0 1px 2px rgba(0, 0, 0, .28), 0 5px 18px rgba(0, 0, 0, .2);
   --shadow-md: 0 12px 38px rgba(0, 0, 0, .38), 0 2px 10px rgba(0, 0, 0, .28);
