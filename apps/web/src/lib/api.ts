@@ -73,10 +73,12 @@ export async function api<T>(path: string, init: RequestInit = {}): Promise<T> {
 
 const moneyFormatter = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL', maximumFractionDigits: 0 });
 const dateTimeFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short', timeStyle: 'short' });
+const dateFormatter = new Intl.DateTimeFormat('pt-BR', { dateStyle: 'short' });
 
 export const money = (cents = 0) => moneyFormatter.format(cents / 100);
 export const dateTime = (value?: string | Date | null) => value ? dateTimeFormatter.format(new Date(value)) : '—';
-export const initials = (name = '') => name.split(/\s+/).slice(0, 2).map((part) => part[0]).join('').toUpperCase();
+export const date = (value?: string | Date | null) => value ? dateFormatter.format(new Date(value)) : '—';
+export const initials = (name = '') => name.split(/\s+/).map((part) => part.match(/\p{L}|\p{N}/u)?.[0]).filter(Boolean).slice(0, 2).join('').toUpperCase();
 export const formatPhone = (value?: string | null) => {
   if (!value) return '';
   const digits = value.replace(/\D/g, '');

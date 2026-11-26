@@ -377,7 +377,7 @@ tbody tr:last-child td { border-bottom: 0; } tbody tr:hover { background: var(--
 .tag-list { display: flex; gap: 4px; }.tag-list span { padding: 3px 6px; border-radius: 6px; color: var(--tag-color); background: color-mix(in srgb, var(--tag-color) 11%, var(--surface)); font-size: 8px; }
 
 /* Kanban */
-.pipeline-page { margin-right: -30px; }
+.kanban-board { margin-right: -30px; }
 .kanban-board { display: flex; gap: 11px; overflow-x: auto; padding: 1px 30px 15px 0; scroll-snap-type: x proximity; }
 .kanban-column { width: 258px; min-width: 258px; min-height: calc(100dvh - 235px); padding: 9px; border: 1px solid var(--line); border-radius: 11px; background: var(--surface-soft); scroll-snap-align: start; transition: background .15s, border .15s; }
 .kanban-column.drop-over { border-color: color-mix(in srgb, var(--accent) 35%, var(--line)); background: var(--accent-soft); }
@@ -751,7 +751,7 @@ tbody tr:last-child td { border-bottom: 0; } tbody tr:hover { background: var(--
 @media (max-width: 900px) {
   .sidebar { transform: translateX(-100%); transition: transform .2s; }.sidebar-open { transform: translateX(0); box-shadow: 20px 0 60px rgba(0,0,0,.25); }.mobile-close { display: grid; }.mobile-overlay { position: fixed; inset: 0; z-index: 35; background: rgba(20,18,29,.4); }
   .main-column { width: 100%; margin-left: 0; }.mobile-menu { width: 32px; height: 32px; border: 0; background: transparent; display: grid; place-items: center; }.global-search { width: min(380px, 50vw); }.profile-button { min-width: 40px; width: 40px; border: 0; }.profile-button div, .profile-button > svg { display: none; }
-  .page-content { padding: 18px 20px 30px; }.page-heading { padding-left: 20px; }.pipeline-page { margin-right: -20px; }.kanban-board { padding-right: 20px; }
+  .page-content { padding: 18px 20px 30px; }.page-heading { padding-left: 20px; }.kanban-board { margin-right: -20px; padding-right: 20px; }
   .dashboard-grid { grid-template-columns: 1fr; }.focus-panel, .funnel-panel, .activity-panel, .channel-panel { grid-column: 1; }
   .inbox-layout, .workflow-builder { margin: -18px -20px -30px; }.inbox-layout { grid-template-columns: 260px 1fr; }.conversation-actions .button span { display: none; }.chatbot-builder-body, .automation-builder-body { grid-template-columns: 125px minmax(430px, 1fr) 240px; overflow-x: auto; }
   .settings-layout { grid-template-columns: 1fr; }.settings-nav { flex-direction: row; overflow-x: auto; }.settings-nav button { white-space: nowrap; }
