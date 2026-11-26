@@ -39,6 +39,7 @@ export function ActivitiesPage() {
     opportunityId: searchParams.get('opportunityId') || '',
   }));
   const [createOpen, setCreateOpen] = useState(false);
+  const [filtersOpen, setFiltersOpen] = useState(false);
   const canRead = (resource: string) => Boolean(user?.permissions.some((permission) => (permission.resource === '*' || permission.resource === resource) && (permission.action === '*' || permission.action === 'read')));
   const debouncedSearch = useDebouncedValue(filters.search);
   const range = useMemo(() => rangeForDays(period), [period]);
@@ -58,14 +59,16 @@ export function ActivitiesPage() {
     getNextPageParam: (lastPage) => lastPage.meta?.nextCursor || undefined,
   });
   const activities = query.data?.pages.flatMap((page) => page.data) || [];
+  const activeFilterCount = Object.entries(filters).filter(([key, value]) => key !== 'search' && value).length;
 
   return <div className="activities-page">
     <div className="activities-toolbar">
       <div className="segmented" aria-label="Período das atividades">{[7, 30, 90].map((days) => <button key={days} type="button" className={period === days ? 'active' : ''} onClick={() => setPeriod(days)}>{days} dias</button>)}</div>
       <Button onClick={() => setCreateOpen(true)}><Plus size={17} />Registrar atividade</Button>
     </div>
-    <section className="activity-filter-panel">
+    <section className={`activity-filter-panel${filtersOpen ? ' filters-open' : ''}`}>
       <label className="activity-search"><Search size={16} /><input value={filters.search} onChange={(event) => setFilters({ ...filters, search: event.target.value })} placeholder="Buscar no título ou conteúdo" aria-label="Buscar atividades" /></label>
+      <button type="button" className="filter-button activity-filter-toggle" onClick={() => setFiltersOpen((open) => !open)} aria-expanded={filtersOpen}><Filter size={15} />Filtros{activeFilterCount > 0 && <b>{activeFilterCount}</b>}</button>
       <SelectField label="Tipo" value={filters.category} onChange={(event) => setFilters({ ...filters, category: event.target.value })}><option value="">Todos</option>{Object.entries(activityCategoryLabels).filter(([value]) => value !== 'SYSTEM').map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectField>
       <SelectField label="Origem" value={filters.origin} onChange={(event) => setFilters({ ...filters, origin: event.target.value })}><option value="">Todas</option>{Object.entries(activityOriginLabels).filter(([value]) => value !== 'SYSTEM').map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectField>
       <SelectField label="Status" value={filters.status} onChange={(event) => setFilters({ ...filters, status: event.target.value })}><option value="">Todos</option>{Object.entries(activityStatusLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</SelectField>

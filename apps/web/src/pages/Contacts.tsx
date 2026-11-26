@@ -188,10 +188,10 @@ export function ContactsPage() {
         <td><div className="entity-cell"><ContactWhatsappAvatar contact={contact} hasWhatsapp={whatsappStatuses.get(contact.id)?.hasWhatsapp === true} /><div><button type="button" className="entity-name-button" onClick={() => setViewing(contact)}>{contact.name}</button>{contact.email
           ? <button type="button" className="contact-email-link" onClick={() => openEmailCampaign(contact)} title="Criar campanha de e-mail"><Mail size={12} />{contact.email}</button>
           : <small><Mail size={12} />{contact.jobTitle || 'Sem e-mail'}</small>}</div></div></td>
-        <td>{contact.companies?.[0]?.company.name || 'Sem empresa'}</td>
-        <td><div className="contact-phone-info"><span className="phone-cell"><Phone size={13} />{formatPhone(contact.phone) || '—'}</span><WhatsappStatusBadge hasWhatsapp={contact.phone ? (whatsappStatuses.get(contact.id)?.hasWhatsapp ?? null) : false} loading={whatsappStatusQuery.isFetching} /></div></td>
-        <td>{contact.owner?.name || 'Sem responsável'}</td>
-        <td><div className="tag-list">{contact.tags?.slice(0, 2).map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></td>
+        <td data-label="Empresa">{contact.companies?.[0]?.company.name || 'Sem empresa'}</td>
+        <td data-label="Telefone"><div className="contact-phone-info"><span className="phone-cell"><Phone size={13} />{formatPhone(contact.phone) || '—'}</span><WhatsappStatusBadge hasWhatsapp={contact.phone ? (whatsappStatuses.get(contact.id)?.hasWhatsapp ?? null) : false} loading={whatsappStatusQuery.isFetching} /></div></td>
+        <td data-label="Responsável">{contact.owner?.name || 'Sem responsável'}</td>
+        <td data-label="Tags"><div className="tag-list">{contact.tags?.slice(0, 2).map(({ tag }) => <span key={tag.id} style={{ '--tag-color': tag.color } as React.CSSProperties}>{tag.name}</span>)}</div></td>
         <td className="contact-actions-cell"><button type="button" className="icon-button" onClick={(event) => openMenu(event, contact)} aria-label={`Ações de ${contact.name}`} aria-haspopup="menu" aria-expanded={menu?.contact.id === contact.id}><MoreHorizontal size={17} /></button></td>
       </tr>)}</tbody>
     </table></div>{(hasNextPage || isFetchingNextPage) && <div ref={loadMoreRef} className="list-infinite-loader" aria-live="polite">{isFetchingNextPage ? <><LoaderCircle size={18} className="spin" />Carregando mais 20 contatos…</> : 'Continue rolando para carregar mais contatos'}</div>}</> : <Empty icon={<ContactRound />} title="Nenhum contato encontrado" description={activeFilters ? 'Ajuste ou limpe os filtros aplicados.' : 'Cadastre um contato ou importe sua base em CSV.'} action={activeFilters ? <Button variant="secondary" onClick={clearFilters}>Limpar filtros</Button> : <Button onClick={() => setCreating(true)}>Adicionar contato</Button>} />}

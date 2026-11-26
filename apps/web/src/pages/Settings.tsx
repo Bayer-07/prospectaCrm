@@ -375,10 +375,10 @@ function UsersSettings() {
       <thead><tr><th>Usuário</th><th>Papel</th><th>Equipes</th><th>Status</th><th>Último acesso</th><th /></tr></thead>
       <tbody>{users.data?.data.map((user) => <tr key={user.id}>
         <td><div className="entity-cell"><UserAvatar user={user} className="contact-avatar" /><div><strong>{user.name}</strong><small>{user.email}</small></div></div></td>
-        <td>{user.role.name}</td>
-        <td><div className="team-badge-list">{user.teams.length ? user.teams.map((team) => <span key={team.id} className="team-badge" style={{ '--team-color': team.color } as React.CSSProperties}><i />{team.name}</span>) : <span className="team-badge neutral"><i />Sem equipe</span>}</div></td>
-        <td><Status value={user.status} /></td>
-        <td>{dateTime(user.lastLoginAt)}</td>
+        <td data-label="Papel">{user.role.name}</td>
+        <td data-label="Equipes"><div className="team-badge-list">{user.teams.length ? user.teams.map((team) => <span key={team.id} className="team-badge" style={{ '--team-color': team.color } as React.CSSProperties}><i />{team.name}</span>) : <span className="team-badge neutral"><i />Sem equipe</span>}</div></td>
+        <td data-label="Status"><Status value={user.status} /></td>
+        <td data-label="Último acesso">{dateTime(user.lastLoginAt)}</td>
         <td className="user-actions-cell"><button type="button" className="icon-button" onClick={(event) => openMenu(event, user)} aria-label={`Ações de ${user.name}`} aria-haspopup="menu" aria-expanded={menu?.user.id === user.id}><MoreHorizontal size={17} /></button></td>
       </tr>)}</tbody>
     </table></div>
@@ -421,7 +421,7 @@ function TeamsSettings() {
     <div className="settings-heading"><div><h2>Equipes e filas</h2><p>Crie setores, escolha uma cor e associe cada usuário a quantas filas precisar.</p></div><Button onClick={() => setEditing(null)}><Plus size={16} />Nova equipe</Button></div>
     <div className="settings-table"><table><thead><tr><th>Equipe</th><th>Usuários</th><th>Tickets</th><th>Conexões</th><th /></tr></thead><tbody>{teams.data?.data.map((team) => <tr key={team.id}>
       <td><div className="team-name-cell"><span className="team-color-dot" style={{ backgroundColor: team.color }} /><div><strong>{team.name}</strong><small>{team.color}{team.isDefault ? ' · fila padrão protegida' : ''}</small></div></div></td>
-      <td>{team._count?.memberships || 0}</td><td>{team._count?.conversations || 0}</td><td>{team._count?.instanceAccess || 0}</td>
+      <td data-label="Usuários">{team._count?.memberships || 0}</td><td data-label="Tickets">{team._count?.conversations || 0}</td><td data-label="Conexões">{team._count?.instanceAccess || 0}</td>
       <td><div className="table-row-actions"><Button variant="secondary" onClick={() => setEditing(team)}><Pencil size={14} />Editar</Button><button type="button" className="icon-button danger-icon" disabled={team.isDefault || remove.isPending} title={team.isDefault ? 'A equipe Geral não pode ser excluída' : 'Excluir equipe'} onClick={() => { if (window.confirm(`Excluir a equipe “${team.name}”? Os tickets ficarão sem fila.`)) remove.mutate(team); }}><Trash2 size={17} /></button></div></td>
     </tr>)}</tbody></table></div>
     {editing !== undefined && <TeamModal team={editing} onClose={() => setEditing(undefined)} onSaved={refresh} />}

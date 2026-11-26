@@ -31,6 +31,7 @@ import {
 import { useAuth } from '../App';
 import { api, type Envelope } from '../lib/api';
 import { toast } from '../lib/toast';
+import { PHONE_QUERY, useMediaQuery } from '../lib/useMediaQuery';
 import { Button, Field, Modal, PageLoading, SelectField } from '../components/ui';
 import { FollowUpModal } from '../components/FollowUpModal';
 import { StartConversationModal } from '../components/StartConversationModal';
@@ -88,6 +89,7 @@ export function TasksPage() {
   const [modal, setModal] = useState<{ dueAt: Date; task?: Task } | null>(null);
   const [activeTaskId, setActiveTaskId] = useState<string | null>(null);
   const [dropIndicator, setDropIndicator] = useState<TaskDropIndicator | null>(null);
+  const isPhone = useMediaQuery(PHONE_QUERY);
   const requestedCreate = searchParams.get('new') === '1';
   const requestedAssociation = {
     companyId: searchParams.get('company') || undefined,
@@ -169,6 +171,11 @@ export function TasksPage() {
     : `${weekTitleFormatter.format(range.start)} – ${weekTitleFormatter.format(new Date(range.end.getTime() - 1))}`;
   const openTask = (task: Task) => setModal({ dueAt: new Date(task.dueAt), task });
   const createAt = (dueAt: Date) => setModal({ dueAt });
+  const completeTask = (task: Task) => {
+    if (task.status !== 'OPEN') return;
+    if (task.followUp && !window.confirm('Concluir esta tarefa também cancelará o follow-up automático. Deseja continuar?')) return;
+    complete.mutate(task.id);
+  };
   const closeModal = () => {
     setModal(null);
     if (!searchParams.has('new')) return;
@@ -213,7 +220,15 @@ export function TasksPage() {
       </div>
     </div>
 
-    <DndContext
+    {isPhone ? <TaskAgenda
+      range={range}
+      anchor={anchor}
+      view={view}
+      tasksByDay={tasksByDay}
+      onCreate={createAt}
+      onOpen={openTask}
+      onComplete={completeTask}
+    /> : <DndContext
       sensors={sensors}
       collisionDetection={pointerWithin}
       onDragStart={(event: DragStartEvent) => {
@@ -234,11 +249,7 @@ export function TasksPage() {
           movingTaskId={movingTaskId}
           onCreate={createAt}
           onOpen={openTask}
-          onComplete={(task) => {
-            if (task.status !== 'OPEN') return;
-            if (task.followUp && !window.confirm('Concluir esta tarefa também cancelará o follow-up automático. Deseja continuar?')) return;
-            complete.mutate(task.id);
-          }}
+          onComplete={completeTask}
         />
         : <WeekCalendar
           range={range}
@@ -251,7 +262,7 @@ export function TasksPage() {
       {createPortal(<DragOverlay dropAnimation={{ duration: 240, easing: 'cubic-bezier(0.32, 0.72, 0, 1)' }}>
         {activeTask ? <TaskDragPreview task={activeTask} view={view} /> : null}
       </DragOverlay>, document.body)}
-    </DndContext>
+    </DndContext>}
 
     {modal?.task?.followUp
       ? <FollowUpModal
@@ -427,6 +438,54 @@ function MonthTaskEvent({ task, saving, onOpen, onComplete }: Readonly<{
       style={{ position: 'relative', zIndex: 2 }}
     >{task.status === 'COMPLETED' ? <Check size={12} /> : <Circle size={12} />}</button>
   </div>;
+}
+
+/** Phone view: the visible period as a list of days, earliest first. */
+function TaskAgenda({ range, anchor, view, tasksByDay, onCreate, onOpen, onComplete }: Readonly<{
+  range: { start: Date; end: Date };
+  anchor: Date;
+  view: CalendarView;
+  tasksByDay: Map<string, Task[]>;
+  onCreate(date: Date): void;
+  onOpen(task: Task): void;
+  onComplete(task: Task): void;
+}>) {
+  const todayKey = localDateKey(new Date());
+  const days = datesBetween(range.start, range.end)
+    .filter((day) => view === 'week' || day.getMonth() === anchor.getMonth())
+    .filter((day) => tasksByDay.has(localDateKey(day)));
+  if (!days.length) return <section className="task-agenda task-agenda-empty" aria-label="Agenda de tarefas">
+    <p>Nenhuma tarefa neste período.</p>
+    <Button variant="secondary" onClick={() => onCreate(defaultTaskTime(new Date()))}><Plus size={16} />Nova tarefa</Button>
+  </section>;
+  return <section className="task-agenda" aria-label="Agenda de tarefas">
+    {days.map((day) => {
+      const key = localDateKey(day);
+      const dayTasks = [...(tasksByDay.get(key) || [])].sort((a, b) => Date.parse(a.dueAt) - Date.parse(b.dueAt));
+      return <div key={key} className={`task-agenda-day${key === todayKey ? ' today' : ''}`}>
+        <header>
+          <h3>{capitalize(fullDateFormatter.format(day))}</h3>
+          <button type="button" className="icon-button" onClick={() => onCreate(defaultTaskTime(day))} aria-label={`Criar tarefa em ${fullDateFormatter.format(day)}`}><Plus size={18} /></button>
+        </header>
+        <ul>
+          {dayTasks.map((task) => <li key={task.id} className={`task-agenda-item${task.status === 'COMPLETED' ? ' completed' : ''}`} data-priority={task.priority.toLowerCase()}>
+            <button
+              type="button"
+              className="task-agenda-check"
+              aria-label={task.status === 'COMPLETED' ? 'Tarefa concluída' : `Concluir ${taskDisplayTitle(task)}`}
+              disabled={task.status !== 'OPEN'}
+              onClick={() => onComplete(task)}
+            >{task.status === 'COMPLETED' ? <Check size={16} /> : <Circle size={16} />}</button>
+            <button type="button" className="task-agenda-open" onClick={() => onOpen(task)}>
+              <span>{timeFormatter.format(new Date(task.dueAt))}{task.followUp && <Clock size={12} aria-hidden="true" />}</span>
+              <strong>{task.title}</strong>
+              {taskRelatedLabel(task) && <small>{taskRelatedLabel(task)}</small>}
+            </button>
+          </li>)}
+        </ul>
+      </div>;
+    })}
+  </section>;
 }
 
 function WeekCalendar({

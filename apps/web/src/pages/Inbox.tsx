@@ -4,7 +4,7 @@ import { useInfiniteQuery, useMutation, useQuery, useQueryClient } from '@tansta
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { extractSharedWhatsappContacts, type SharedWhatsappContact } from '@prospecta/contracts/whatsapp-contact';
 import { extractWhatsappInteractive, type WhatsappInteractiveButton, type WhatsappInteractiveMessage } from '@prospecta/contracts';
-import { AlertCircle, Archive, ArrowRightLeft, BriefcaseBusiness, Bot, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MailOpen, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
+import { AlertCircle, Archive, ArrowLeft, ArrowRightLeft, BriefcaseBusiness, Bot, Building2, Cable, Check, CheckCheck, ChevronDown, ChevronRight, Copy, Clock, Download, ExternalLink, Eye, FileText, Filter, History, Inbox, Link2, LoaderCircle, Mail, MailOpen, MapPin, MessageCircle, MessageCirclePlus, MessageSquareReply, Mic, MoreHorizontal, Pause, Pencil, Phone, Pin, PinOff, Play, Plus, Reply, RotateCcw, Search, Send, ShieldCheck, Smile, SmilePlus, Sparkles, Tags, Trash2, Upload, UserCheck, UserPlus, UserRound, UsersRound, Workflow, X } from 'lucide-react';
 import { api, apiErrorMessage, apiFetch, apiUrl, dateTime, formatPhone, initials, type Envelope } from '../lib/api';
 import { canChangeConversationInstance } from '../lib/conversation-instance';
 import { aiMessageImprovementDisposition, aiSuggestionDisposition } from '../lib/ai-suggestion';
@@ -2171,6 +2171,7 @@ function ConversationView({ conversation, hasOlderMessages, loadingOlderMessages
     {creatingTagName !== null && <TagModal tag={null} initialName={creatingTagName} onClose={() => setCreatingTagName(null)} onSaved={handleTagCreated} />}
   </>;
   const renderHeader = () => <header className="conversation-header">
+    <button type="button" className="icon-button conversation-back" onClick={() => navigate('/inbox')} aria-label="Voltar para as conversas"><ArrowLeft size={20} /></button>
     <div className="conversation-person">
       <button type="button" className="conversation-person-button" onClick={() => setContactOpen(true)} aria-label={`Ver informações de ${conversation.contact.name}`}>
         <span className="conversation-queue-marker conversation-header-queue-marker" style={{ '--queue-color': conversation.team?.color || '#94a3b8' } as React.CSSProperties} title={`Fila: ${conversation.team?.name || 'Sem fila'}`} aria-hidden="true" />
