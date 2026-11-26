@@ -1242,3 +1242,126 @@ textarea {
     backdrop-filter: none;
   }
 }
+
+/*
+ * Phone layout (≤ 680px). Every screen keeps its actions within thumb reach,
+ * nothing scrolls sideways, and touch targets are at least 40px.
+ */
+.profile-theme { display: none; }
+.conversation-back { display: none; }
+.activity-filter-toggle { display: none; }
+
+/* Task agenda: the phone replacement for the month and week grids. */
+.task-agenda { display: grid; gap: 16px; }
+.task-agenda-empty { padding: 32px 16px; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); color: var(--muted); justify-items: center; text-align: center; }
+.task-agenda-day > header { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 6px; }
+.task-agenda-day h3 { color: var(--muted); font-size: 13px; font-weight: 650; }
+.task-agenda-day.today h3 { color: var(--accent-text); }
+.task-agenda-day ul { margin: 0; padding: 0; list-style: none; border: 1px solid var(--line); border-radius: 14px; background: var(--surface); overflow: hidden; }
+.task-agenda-item { display: grid; grid-template-columns: 44px minmax(0, 1fr); align-items: stretch; border-left: 3px solid var(--line-strong); }
+.task-agenda-item + .task-agenda-item { border-top: 1px solid var(--line); }
+.task-agenda-item[data-priority="high"] { border-left-color: var(--red); }
+.task-agenda-item[data-priority="medium"] { border-left-color: var(--amber); }
+.task-agenda-item[data-priority="low"] { border-left-color: var(--blue); }
+.task-agenda-check { border: 0; background: transparent; color: var(--muted); display: grid; place-items: center; }
+.task-agenda-item.completed .task-agenda-check { color: var(--green); }
+.task-agenda-open { min-width: 0; min-height: 56px; padding: 10px 14px 10px 0; border: 0; background: transparent; color: var(--ink); display: flex; flex-direction: column; align-items: flex-start; gap: 2px; text-align: left; }
+.task-agenda-open > span { color: var(--muted); display: inline-flex; align-items: center; gap: 5px; font-size: 12px; font-variant-numeric: tabular-nums; }
+.task-agenda-open > strong { max-width: 100%; overflow: hidden; font-size: 15px; font-weight: 600; text-overflow: ellipsis; white-space: nowrap; }
+.task-agenda-open > small { max-width: 100%; overflow: hidden; color: var(--muted); font-size: 12px; text-overflow: ellipsis; white-space: nowrap; }
+.task-agenda-item.completed strong { color: var(--muted); text-decoration: line-through; }
+
+@media (max-width: 680px) {
+  /* Top bar: search grows, creation and profile collapse to icons. */
+  .topbar { gap: 6px; }
+  .topbar .global-search { min-width: 0; margin: 0; }
+  .topbar .theme-toggle { display: none; }
+  .topbar-actions { gap: 4px; }
+  .mobile-menu { width: 40px; height: 40px; border-radius: 10px; }
+  .quick-add { width: 40px; height: 40px; padding: 0; justify-content: center; }
+  .quick-add > span,
+  .quick-add > svg:last-child { display: none; }
+  .profile-button { min-width: 0; width: 40px; height: 40px; margin-left: 0; padding: 0; border-left: 0; display: grid; place-items: center; }
+  .profile-button > div,
+  .profile-button > svg { display: none; }
+  .profile-popover .profile-theme { display: flex; }
+  .popover-wrap > .popover { max-width: calc(100vw - 24px); }
+
+  /* Data tables become one card per record: the name leads, the other
+     columns follow as labelled lines, row actions sit top right. */
+  .table-card,
+  .settings-table:not(.permissions-table) { margin: 0; overflow: visible; border-radius: 14px; }
+  :is(.table-card, .settings-table:not(.permissions-table)) :is(table, tbody) { display: block; width: 100%; min-width: 0; }
+  :is(.table-card, .settings-table:not(.permissions-table)) thead { display: none; }
+  :is(.table-card, .settings-table:not(.permissions-table)) tr { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 7px 12px; padding: 14px 16px; border-bottom: 1px solid var(--line); }
+  :is(.table-card, .settings-table:not(.permissions-table)) tr:last-child { border-bottom: 0; }
+  :is(.table-card, .settings-table:not(.permissions-table)) td { min-width: 0; height: auto; padding: 0; border: 0; grid-column: 1 / -1; display: flex; align-items: center; gap: 10px; font-size: 13px; }
+  :is(.table-card, .settings-table:not(.permissions-table)) td:first-child { grid-column: 1; margin-bottom: 3px; }
+  :is(.table-card, .settings-table:not(.permissions-table)) td:last-child:not([data-label]) { grid-column: 2; grid-row: 1; align-self: start; justify-content: flex-end; }
+  :is(.table-card, .settings-table:not(.permissions-table)) td[data-label]:has(> .tag-list:empty) { display: none; }
+  :is(.table-card, .settings-table:not(.permissions-table)) td[data-label]::before { content: attr(data-label); flex: 0 0 100px; color: var(--muted); font-size: 12px; }
+
+  /* Tasks: status filter back on its own row above the view switch. */
+  .task-calendar-actions { flex-wrap: wrap; }
+  .task-status-filter { display: flex; flex: 1 1 100%; }
+  .task-status-filter button { flex: 1; }
+
+  /* Activities: search and a Filters toggle; the other fields open on demand. */
+  .activities-page .activity-filter-panel { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+  .activities-page .activity-filter-panel > * { grid-column: 1 / -1; grid-row: auto; }
+  .activities-page .activity-filter-panel > .activity-search { grid-column: 1; }
+  .activities-page .activity-filter-panel > .activity-filter-toggle { grid-column: 2; display: inline-flex; align-items: center; gap: 6px; height: 40px; }
+  .activity-filter-toggle b { min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px; background: var(--accent); color: #fff; display: grid; place-items: center; font-size: 11px; }
+  .activities-page .activity-filter-panel:not(.filters-open) > :not(.activity-search, .activity-filter-toggle) { display: none; }
+
+  /* Toolbars wrap instead of scrolling sideways; search takes the free width. */
+  .toolbar-left { flex-wrap: wrap; overflow: visible; }
+  .toolbar-left .inline-search { flex: 1 1 200px; min-width: 0; }
+
+  /* Pipeline: columns bleed to the screen edge, the toolbar does not. */
+  .pipeline-page { margin-right: -14px; }
+  .pipeline-page > .toolbar { margin-right: 14px; }
+  .kanban-board { padding-right: 14px; scroll-snap-type: x mandatory; }
+  .opportunity-card-delete { width: 36px; height: 36px; }
+
+  /* Metric rows: two compact cards per line instead of one tall card each. */
+  .metric-grid,
+  .campaign-overview { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .metric-card { min-height: 0; padding: 14px; gap: 6px; }
+  .metric-card .metric-icon { width: 30px; height: 30px; }
+  .metric-card .metric-label > svg { display: none; }
+  .metric-card > strong { font-size: 20px; line-height: 1.2; overflow-wrap: anywhere; }
+  .metric-card > p { font-size: 12px; }
+  .campaign-overview > div { border-bottom: 0; }
+
+  /* Inbox: a way back to the list, icon-only assignment, and a composer
+     whose text field spans the full width above its tools. */
+  .conversation-header { gap: 2px; padding-inline: 4px 10px; }
+  .conversation-back { width: 40px; height: 40px; flex: none; display: grid; place-items: center; }
+  .conversation-person { min-width: 0; flex: 1; gap: 6px; }
+  .conversation-person-button { flex: 1; min-width: 0; }
+  .conversation-person-button > div { min-width: 0; }
+  .conversation-person strong { display: block; overflow: hidden; white-space: nowrap; text-overflow: ellipsis; }
+  .conversation-person-details .conversation-instance-badge { display: none; }
+  .conversation-person .queue-switcher-trigger { flex: none; min-height: 32px; }
+  .conversation-person .queue-switcher-trigger > span { display: none; }
+  .conversation-actions { gap: 4px; }
+  .conversation-actions .button-secondary { width: 40px; min-width: 40px; height: 40px; padding: 0; justify-content: center; font-size: 0; }
+  .composer { padding: 8px 10px calc(8px + env(safe-area-inset-bottom)); gap: 4px; }
+  .composer-signature { min-width: 40px; }
+  .composer-capsule { grid-template-columns: minmax(0, 1fr) auto; grid-template-areas: "input input" "tools send"; border-radius: 20px; }
+  .composer-capsule > .composer-tools { grid-area: tools; }
+  .composer-capsule > .composer-input { grid-area: input; }
+  .composer-capsule > .composer-send { grid-area: send; }
+
+  /* iOS zooms into fields under 16px on focus. */
+  input:not([type="checkbox"]):not([type="radio"]):not([type="range"]),
+  select,
+  textarea,
+  .composer .whatsapp-composer { font-size: 16px !important; }
+}
+
+@media (hover: none) {
+  /* The message menu button stays visible on touch; keep text clear of it. */
+  .message-bubble { padding-right: 36px; }
+}

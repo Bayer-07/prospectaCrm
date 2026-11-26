@@ -346,11 +346,11 @@ export function CompaniesPage() {
         <thead><tr><th>Empresa</th><th>Setor</th><th>Responsável</th><th>Equipe</th><th>Relacionamentos</th><th>Atualizada</th><th /></tr></thead>
         <tbody>{companies.map((company) => <tr key={company.id}>
           <td><div className="entity-cell"><CompanyLogo company={company} /><div><strong>{company.name}</strong><small><Globe2 size={12} />{company.domain || (company.cnpj ? formatCnpj(company.cnpj) : '') || 'Sem domínio'}</small></div></div></td>
-          <td><span className="neutral-pill">{company.sector || 'Não informado'}</span></td>
-          <td>{company.owner?.name || 'Sem responsável'}</td>
-          <td>{company.team ? <span className="team-label"><i style={{ background: company.team.color }} />{company.team.name}</span> : 'Sem equipe'}</td>
-          <td><span className="relation-count"><Users size={14} />{company._count?.contacts || 0} contatos</span></td>
-          <td>{dateTime(company.updatedAt)}</td>
+          <td data-label="Setor"><span className="neutral-pill">{company.sector || 'Não informado'}</span></td>
+          <td data-label="Responsável">{company.owner?.name || 'Sem responsável'}</td>
+          <td data-label="Equipe">{company.team ? <span className="team-label"><i style={{ background: company.team.color }} />{company.team.name}</span> : 'Sem equipe'}</td>
+          <td data-label="Relacionamentos"><span className="relation-count"><Users size={14} />{company._count?.contacts || 0} contatos</span></td>
+          <td data-label="Atualizada">{dateTime(company.updatedAt)}</td>
           <td className="company-actions-cell">
             <button
               type="button"
