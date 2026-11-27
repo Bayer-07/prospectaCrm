@@ -884,7 +884,7 @@ function CampaignModal({ instances, onClose, onCreated }: Readonly<{ instances: 
         </div>)}</div>
         <div className="campaign-message-tools">
           <Button type="button" variant="secondary" onClick={() => setMessages((current) => [...current, createDraftMessage()])}><Plus size={15} />Adicionar mensagem</Button>
-          <div className="variable-list"><span>Variáveis:</span><button type="button" onClick={() => addVariable('{{saudacao}}')}>{'{{saudacao}}'}</button><button type="button" onClick={() => addVariable('{{nome}}')}>{'{{nome}}'}</button><button type="button" onClick={() => addVariable('{{telefone}}')}>{'{{telefone}}'}</button><button type="button" onClick={() => addVariable('{{email}}')}>{'{{email}}'}</button><button type="button" onClick={() => addVariable('{{empresa}}')}>{'{{empresa}}'}</button><button type="button" onClick={() => addVariable('{{cargo}}')}>{'{{cargo}}'}</button></div>
+          <div className="variable-list"><span>Variáveis:</span><button type="button" onClick={() => addVariable('{{saudacao}}')}>{'{{saudacao}}'}</button><button type="button" onClick={() => addVariable('{{dia_semana}}')}>{'{{dia_semana}}'}</button><button type="button" onClick={() => addVariable('{{nome}}')}>{'{{nome}}'}</button><button type="button" onClick={() => addVariable('{{telefone}}')}>{'{{telefone}}'}</button><button type="button" onClick={() => addVariable('{{email}}')}>{'{{email}}'}</button><button type="button" onClick={() => addVariable('{{empresa}}')}>{'{{empresa}}'}</button><button type="button" onClick={() => addVariable('{{cargo}}')}>{'{{cargo}}'}</button></div>
         </div>
       </section>}
 

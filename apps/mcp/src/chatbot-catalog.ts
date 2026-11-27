@@ -10,7 +10,7 @@ export const chatbotNodeCatalog = [
     type: 'message',
     label: 'Enviar mensagem',
     behavior: 'Envia uma resposta automática e segue imediatamente para o próximo nó.',
-    data: 'text: mensagem obrigatória. Suporta {{saudacao}}, {{nome}}, {{telefone}}, {{email}}, {{empresa}}, {{cargo}}, {{mensagem}} e variáveis capturadas por question ou http_request.',
+    data: 'text: mensagem obrigatória. Suporta {{saudacao}}, {{dia_semana}}, {{nome}}, {{telefone}}, {{email}}, {{empresa}}, {{cargo}}, {{mensagem}} e variáveis capturadas por question ou http_request.',
     connections: 'Exatamente uma saída.',
   },
   {
@@ -38,7 +38,7 @@ export const chatbotNodeCatalog = [
     type: 'ai_conversation',
     label: 'Atendimento por IA',
     behavior: 'Agenda uma resposta de pré-atendimento por IA, pausa o fluxo enquanto ela é gerada e depois continua para a transferência humana.',
-    data: 'objective: obrigatório até 2.000 caracteres; instructions: até 5.000; transferCriteria: até 3.000; maxInteractions: 1 a 20; minimumConfidence: 0 a 100; responseDelayMinSeconds/responseDelayMaxSeconds: 0 a 300; fallbackMessage: até 1.000.',
+    data: 'objective: obrigatório até 2.000 caracteres; instructions: até 5.000; transferCriteria: até 3.000; maxInteractions: 1 a 20; minimumConfidence: 0 a 100; responseDelayMinSeconds/responseDelayMaxSeconds: 0 a 300; fallbackMessage: até 1.000. objective, instructions e transferCriteria aceitam {{dia_semana}}, {{nome}}, {{telefone}}, {{email}}, {{empresa}}, {{cargo}}, {{mensagem}} e variáveis capturadas; {{saudacao}} é resolvida no envio.',
     connections: 'A próxima saída deve ser handoff ou assign_queue seguido diretamente de handoff. Exige responseProvider OPENAI e é um limite válido para ciclos.',
   },
   {

@@ -228,7 +228,7 @@ function TemplateModal({ onClose, onCreated }: Readonly<{ onClose(): void; onCre
   return <Modal title="Novo modelo de e-mail" onClose={onClose} width={680}><form className="modal-form" onSubmit={(event: FormEvent) => { event.preventDefault(); mutation.mutate(); }}>
     <Field label="Nome interno" value={form.name} onChange={(event) => setForm({ ...form, name: event.target.value })} required />
     <Field label="Assunto" value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required />
-    <label className="field"><span>Conteúdo HTML</span><textarea rows={10} value={form.html} onChange={(event) => setForm({ ...form, html: event.target.value })} placeholder="Olá {{nome}},…" required /><small>Variáveis: {'{{saudacao}}'}, {'{{nome}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{empresa}}'} e {'{{cargo}}'}.</small></label>
+    <label className="field"><span>Conteúdo HTML</span><textarea rows={10} value={form.html} onChange={(event) => setForm({ ...form, html: event.target.value })} placeholder="Olá {{nome}},…" required /><small>Variáveis: {'{{saudacao}}'}, {'{{dia_semana}}'}, {'{{nome}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{empresa}}'} e {'{{cargo}}'}.</small></label>
     <div className="modal-actions"><Button type="button" variant="secondary" onClick={onClose}>Cancelar</Button><Button type="submit" loading={mutation.isPending}>Salvar modelo</Button></div>
   </form></Modal>;
 }
@@ -377,7 +377,7 @@ function EmailCampaignModal({ templates, initialTemplate, initialContactId, onCl
       <SelectField label="Modelo" value={form.templateId} onChange={(event) => changeTemplate(event.target.value)}>{templates.map((template) => <option key={template.id} value={template.id}>{template.name}</option>)}</SelectField>
     </div>
     <Field label="Assunto" value={form.subject} onChange={(event) => setForm({ ...form, subject: event.target.value })} required />
-    <label className="field"><span>Conteúdo HTML</span><textarea rows={8} value={form.html} onChange={(event) => setForm({ ...form, html: event.target.value })} required /><small>Variáveis: {'{{saudacao}}'}, {'{{nome}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{empresa}}'} e {'{{cargo}}'}.</small></label>
+    <label className="field"><span>Conteúdo HTML</span><textarea rows={8} value={form.html} onChange={(event) => setForm({ ...form, html: event.target.value })} required /><small>Variáveis: {'{{saudacao}}'}, {'{{dia_semana}}'}, {'{{nome}}'}, {'{{telefone}}'}, {'{{email}}'}, {'{{empresa}}'} e {'{{cargo}}'}.</small></label>
     <div className="email-contact-picker">
       <TagMultiSelect label="Filtrar por tags" options={tags.data?.data || []} value={tagIds} onChange={setTagIds} />
       <label className="campaign-contact-search"><Search size={16} /><input value={search} onChange={(event) => setSearch(event.target.value)} placeholder="Buscar contatos com e-mail…" /></label>
