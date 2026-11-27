@@ -28,7 +28,7 @@ const DEFAULT_AUDIO_TRANSCRIPTION_WAIT_MS = 15 * 60_000;
 const DEFAULT_AI_REPLY_DELAY_MIN_SECONDS = 35;
 const DEFAULT_AI_REPLY_DELAY_MAX_SECONDS = 40;
 const AI_REPLY_DELAY_LIMIT_SECONDS = 300;
-const RESERVED_SESSION_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
+const RESERVED_SESSION_VARIABLES = new Set(['saudacao', 'dia_semana', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
 
 function normalizedAiReplyDelaySeconds(value: number, fallback: number) {
   const seconds = Number.isFinite(value) ? Math.floor(value) : fallback;

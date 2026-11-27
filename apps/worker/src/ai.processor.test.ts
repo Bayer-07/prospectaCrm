@@ -107,7 +107,7 @@ describe('processamento estruturado da IA', () => {
     const generation = {
       id: 'generation-follow-up', organizationId: 'org-1', conversationId: 'conversation-1', chatbotSessionId: null,
       type: 'FOLLOW_UP_SUGGESTION', status: 'PENDING', sourceLastMessageId: 'message-2',
-      input: { messageCount: 2, instructions: 'Retomar a proposta', scheduledAt: '2026-11-10T12:00:00.000Z', assigneeId: 'user-1' },
+      input: { messageCount: 2, instructions: 'Retomar a proposta com {{nome}} na {{dia_semana}}', scheduledAt: '2026-11-10T12:00:00.000Z', assigneeId: 'user-1' },
     };
     const update = vi.fn().mockResolvedValue({});
     const findMany = vi.fn().mockResolvedValue([
@@ -139,7 +139,8 @@ describe('processamento estruturado da IA', () => {
     const options = ai.generate.mock.calls[0][0];
     expect(options.prompt).toMatch(/Cliente: Pode me mandar a proposta\?[\s\S]*BZS: Segue a proposta em anexo\./);
     expect(options.prompt).toContain('Gere exatamente 2 mensagens');
-    expect(options.prompt).toContain('Retomar a proposta');
+    expect(options.prompt).toContain('Retomar a proposta com \\"Maria\\" na {{dia_semana}}');
+    expect(options.system).toContain('{{dia_semana}} (dia da semana no momento do envio');
     expect(options.validate({ messages: [{ text: 'a' }, { text: 'b' }, { text: 'c' }] })).toEqual({ messages: [{ text: 'a' }, { text: 'b' }] });
     expect(update).toHaveBeenCalledWith(expect.objectContaining({
       where: { id: 'generation-follow-up' },
@@ -272,6 +273,62 @@ describe('processamento estruturado da IA', () => {
       where: { id: 'generation-audio' },
       data: expect.objectContaining({ status: 'COMPLETED' }),
     }));
+  });
+
+  it('substitui variáveis do contato e do chatbot nas instruções e na resposta da IA', async () => {
+    vi.stubEnv('AI_ASSISTANT_ENABLED', 'true');
+    const startedAt = new Date('2026-08-24T18:00:00.000Z');
+    const inbound = {
+      id: 'message-1', direction: 'INBOUND', type: 'text', text: 'Quero saber do plano', transcriptionStatus: null,
+      transcriptionText: null, transcriptionError: null, createdAt: startedAt, media: [],
+    };
+    const generation = {
+      id: 'generation-vars', organizationId: 'org-1', conversationId: 'conversation-1', chatbotSessionId: 'session-1',
+      type: 'CHATBOT_REPLY', status: 'PENDING', sourceLastMessageId: 'message-1',
+      input: {
+        nodeId: 'ai-1', nextNodeId: 'handoff-1', turnCount: 1, maxInteractions: 6, minimumConfidence: 65,
+        objective: 'Qualificar {{empresa}} pelo CNPJ {{cnpj}}', instructions: 'Trate {{nome}} pelo nome. Pedido: {{mensagem}}',
+        transferCriteria: 'Transfira se {{resposta.status}} for inativo',
+      },
+    };
+    const contact = {
+      id: 'contact-1', name: 'Maria', phone: '+5545999999999', email: null, jobTitle: null,
+      companies: [{ company: { name: 'BZS Tecnologia' } }],
+    };
+    const conversation = {
+      id: 'conversation-1', organizationId: 'org-1', instanceId: 'instance-1', assigneeId: null, teamId: null, contact,
+      chatbotSession: { id: 'session-1', startedAt, context: { variables: { cnpj: '12.345.678/0001-90', resposta: { status: 'ativo' } } } },
+    };
+    const messageCreate = vi.fn().mockResolvedValue({});
+    const db = {
+      conversationAiGeneration: {
+        findUnique: vi.fn().mockImplementation((query) => query.select ? { status: 'RUNNING' } : generation),
+        updateMany: vi.fn().mockResolvedValue({ count: 1 }),
+        update: vi.fn().mockResolvedValue({}),
+      },
+      conversation: { findUnique: vi.fn().mockImplementation((query) => query.include || query.select?.contact ? conversation : { assigneeId: null }) },
+      organizationAiSettings: { findUnique: vi.fn().mockResolvedValue({ enabled: true, globalInstructions: 'Atenda {{nome}} ({{telefone}}) e cumprimente com {{saudacao}}. Hoje é {{dia_semana}}.', model: 'gpt-5.6-luna' }) },
+      aiKnowledgeDocument: { findFirst: vi.fn().mockResolvedValue(null) },
+      message: { findFirst: vi.fn().mockResolvedValue({ id: 'message-1' }), findMany: vi.fn().mockResolvedValue([inbound]), create: messageCreate },
+      chatbotSession: { update: vi.fn().mockResolvedValue({}) },
+    };
+    const ai = { generate: vi.fn().mockResolvedValue({
+      data: { reply: '{{saudacao}}, {{nome}}! Confirma o CNPJ {{cnpj}}?', action: 'continue', confidence: 0.9, proposal: null },
+      model: 'gpt-5.6-luna', metrics: {}, sources: [],
+    }) };
+    const processor = new AiGenerationProcessor(db as never, { add: vi.fn() } as never, { add: vi.fn().mockResolvedValue({}) } as never, { add: vi.fn() } as never, { add: vi.fn() } as never, ai as never);
+
+    await expect(processor.process({ data: { generationId: 'generation-vars' } } as never)).resolves.toMatchObject({ payload: { status: 'COMPLETED' } });
+
+    const { system } = ai.generate.mock.calls[0][0];
+    expect(system).toContain('Atenda "Maria" ("+5545999999999") e cumprimente com {{saudacao}}.');
+    expect(system).toMatch(/Hoje é "(Segunda|Terça|Quarta|Quinta|Sexta)-feira"\.|Hoje é "(Sábado|Domingo)"\./);
+    expect(system).toContain('Objetivo deste bloco: Qualificar "BZS Tecnologia" pelo CNPJ "12.345.678/0001-90"');
+    expect(system).toContain('Instruções: Trate "Maria" pelo nome. Pedido: "Quero saber do plano"');
+    expect(system).toContain('Critérios de transferência: Transfira se "ativo" for inativo');
+    expect(messageCreate).toHaveBeenCalledWith({ data: expect.objectContaining({
+      text: expect.stringMatching(/^(Bom dia|Boa tarde|Boa noite), Maria! Confirma o CNPJ 12\.345\.678\/0001-90\?$/),
+    }) });
   });
 
   it('descarta a resposta automática se um atendente assumir durante a geração', async () => {

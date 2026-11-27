@@ -18,9 +18,12 @@ export type { WhatsappDocumentContentType, WhatsappDocumentMetadata } from './wh
 
 export {
   contactTemplateVariables,
+  currentWeekday,
   DEFAULT_TEMPLATE_TIME_ZONE,
+  renderPromptTemplateVariables,
   renderTemplateVariables,
   renderUrlTemplateVariables,
+  sendTimeTemplateVariables,
   timeBasedGreeting,
 } from './template-variables.js';
 

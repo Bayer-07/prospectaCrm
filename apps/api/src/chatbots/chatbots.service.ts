@@ -20,7 +20,7 @@ function nodeLabel(node: ChatbotNode) {
 
 const HTTP_METHODS = new Set(['GET', 'POST', 'PUT', 'PATCH', 'DELETE']);
 const HTTP_ROUTE_OPERATORS = new Set(['equals', 'not_equals', 'contains', 'exists', 'not_exists', 'greater_than', 'less_than', 'between']);
-const RESERVED_CHATBOT_VARIABLES = new Set(['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
+const RESERVED_CHATBOT_VARIABLES = new Set(['saudacao', 'dia_semana', 'nome', 'telefone', 'email', 'empresa', 'cargo', 'mensagem', '__proto__', 'constructor', 'prototype']);
 const BLOCKED_HTTP_HEADERS = new Set(['connection', 'content-length', 'host', 'proxy-authorization', 'te', 'trailer', 'transfer-encoding', 'upgrade']);
 const DEFAULT_AI_REPLY_DELAY_MIN_SECONDS = 35;
 const DEFAULT_AI_REPLY_DELAY_MAX_SECONDS = 40;

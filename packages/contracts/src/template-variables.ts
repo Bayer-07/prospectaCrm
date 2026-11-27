@@ -52,6 +52,25 @@ export function timeBasedGreeting(
   return 'Boa noite';
 }
 
+export function currentWeekday(
+  date = new Date(),
+  timeZone = DEFAULT_TEMPLATE_TIME_ZONE,
+) {
+  const weekday = new Intl.DateTimeFormat('pt-BR', { timeZone, weekday: 'long' }).format(date);
+  return weekday.charAt(0).toLocaleUpperCase('pt-BR') + weekday.slice(1);
+}
+
+/** Variáveis que dependem do momento do envio e não podem ser sobrescritas pelo chamador. */
+export function sendTimeTemplateVariables(
+  date = new Date(),
+  timeZone = DEFAULT_TEMPLATE_TIME_ZONE,
+) {
+  return {
+    saudacao: timeBasedGreeting(date, timeZone),
+    dia_semana: currentWeekday(date, timeZone),
+  };
+}
+
 export function contactTemplateVariables(
   contact: ContactTemplateSource,
   date = new Date(),
@@ -63,7 +82,7 @@ export function contactTemplateVariables(
     email: text(contact.email),
     empresa: text(contact.companies?.[0]?.company?.name),
     cargo: text(contact.jobTitle),
-    saudacao: timeBasedGreeting(date, timeZone),
+    ...sendTimeTemplateVariables(date, timeZone),
   };
 }
 
@@ -73,11 +92,34 @@ export function renderTemplateVariables(
   date = new Date(),
   timeZone = DEFAULT_TEMPLATE_TIME_ZONE,
 ) {
-  const availableVariables = { ...variables, saudacao: timeBasedGreeting(date, timeZone) };
+  const availableVariables = { ...variables, ...sendTimeTemplateVariables(date, timeZone) };
 
   return template.replace(/{{\s*([\w.]+)\s*}}/gi, (_match, key: string) => (
     text(variableValue(availableVariables, key))
   ));
+}
+
+const PROMPT_VARIABLE_MAX_LENGTH = 1_000;
+
+/**
+ * Substitui variáveis em instruções enviadas à IA. Diferente das mensagens, uma
+ * variável sem valor permanece como `{{chave}}`, para que o modelo possa
+ * repeti-la e ela seja resolvida somente no envio (caso de `{{saudacao}}`, que
+ * depende do horário em que a mensagem sai). Cada valor entra entre aspas, em
+ * uma única linha e com tamanho limitado, porque nome, mensagem e respostas
+ * vêm do contato e não podem se passar por novas instruções.
+ */
+export function renderPromptTemplateVariables(
+  template: string,
+  variables: Record<string, unknown> = {},
+) {
+  return template.replace(/{{\s*([\w.]+)\s*}}/gi, (match, key: string) => {
+    const value = variableValue(variables, key);
+    if (value === undefined || value === null) return match;
+    const rendered = text(value).trim();
+    if (!rendered) return 'não informado';
+    return JSON.stringify(rendered.slice(0, PROMPT_VARIABLE_MAX_LENGTH));
+  });
 }
 
 export function renderUrlTemplateVariables(
@@ -86,7 +128,7 @@ export function renderUrlTemplateVariables(
   date = new Date(),
   timeZone = DEFAULT_TEMPLATE_TIME_ZONE,
 ) {
-  const availableVariables = { ...variables, saudacao: timeBasedGreeting(date, timeZone) };
+  const availableVariables = { ...variables, ...sendTimeTemplateVariables(date, timeZone) };
 
   return template.replace(/{{\s*([\w.]+)\s*}}/gi, (_match, key: string) => {
     const value = variableValue(availableVariables, key);

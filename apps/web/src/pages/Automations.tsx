@@ -45,7 +45,7 @@ const nodeDefinitions = [
 ] as const;
 
 const AUTOMATION_NODE_DRAG_TYPE = 'application/x-bzs-automation-node';
-const automationMessageVariables = ['saudacao', 'nome', 'telefone', 'email', 'empresa', 'cargo'] as const;
+const automationMessageVariables = ['saudacao', 'dia_semana', 'nome', 'telefone', 'email', 'empresa', 'cargo'] as const;
 const flowString = (value: unknown, fallback = '') => (
   typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean'
     ? String(value)

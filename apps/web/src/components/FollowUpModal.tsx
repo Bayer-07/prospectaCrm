@@ -410,7 +410,7 @@ function FollowUpMessageCard({ message, index, count, editable, onChange, onMove
     </header>
     <label className="follow-up-message-field">
       <span>Texto da mensagem <small>{message.text.length}/4096</small></span>
-      <textarea value={message.text} disabled={!editable} rows={3} maxLength={4096} placeholder="Escreva a mensagem. Você pode usar {{saudacao}}, {{nome}} e a formatação do WhatsApp." onChange={(event) => onChange({ text: event.target.value })} />
+      <textarea value={message.text} disabled={!editable} rows={3} maxLength={4096} placeholder="Escreva a mensagem. Você pode usar {{saudacao}}, {{dia_semana}}, {{nome}} e a formatação do WhatsApp." onChange={(event) => onChange({ text: event.target.value })} />
       <small className="follow-up-field-hint">Aceita variáveis e formatação com *negrito*, _itálico_, ~tachado~ e `código`.</small>
     </label>
     <div className={`follow-up-message-options${index === 0 ? ' single' : ''}`}>
