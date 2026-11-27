@@ -1,17 +1,20 @@
 import 'reflect-metadata';
 import { ValidationPipe } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
+import type { NestExpressApplication } from '@nestjs/platform-express';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import compression from 'compression';
 import cookieParser from 'cookie-parser';
 import helmet from 'helmet';
 import { AppModule } from './app.module.js';
+import { configureBodyParsers } from './config/body-parsers.js';
 import { configuredCorsOrigins } from './config/cors-origins.js';
 import { filterPublicApiDocument } from './swagger/public-api-document.js';
 import { SWAGGER_DARK_THEME } from './swagger/swagger-dark-theme.js';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule, { cors: false });
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, { cors: false, bodyParser: false });
+  configureBodyParsers(app);
   app.getHttpAdapter().getInstance().set('trust proxy', 1);
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(compression({ threshold: 1_024 }));
